@@ -11,6 +11,14 @@ const hyperdriveBinding = {
 }
 
 describe("mapleDbConnectionFromEnv", () => {
+	it("uses direct Postgres only in self-hosted mode", () => {
+		const DATABASE_URL = "postgres://maple:secret@postgres:5432/maple"
+		expect(mapleDbConnectionFromEnv({ MAPLE_AUTH_MODE: "self_hosted", DATABASE_URL })).toEqual(
+			Option.some({ connectionString: DATABASE_URL, attributes: {} }),
+		)
+		expect(mapleDbConnectionFromEnv({ MAPLE_AUTH_MODE: "clerk", DATABASE_URL })).toEqual(Option.none())
+	})
+
 	it("emits the binding's identity attributes, never its credentials", () => {
 		const connection = mapleDbConnectionFromEnv({ [MAPLE_DB_BINDING]: hyperdriveBinding })
 		expect(connection).toStrictEqual(

@@ -6,6 +6,8 @@ const configuredElectricSyncUrl = import.meta.env.VITE_ELECTRIC_SYNC_URL?.trim()
  * dev port (see `apps/electric-sync/package.json` `dev:app`).
  */
 export const electricSyncBaseUrl =
-	configuredElectricSyncUrl && configuredElectricSyncUrl.length > 0
-		? configuredElectricSyncUrl.replace(/\/$/, "")
-		: "http://127.0.0.1:3476"
+	configuredElectricSyncUrl === "/" && typeof window !== "undefined"
+		? window.location.origin
+		: configuredElectricSyncUrl && configuredElectricSyncUrl.length > 0
+			? configuredElectricSyncUrl.replace(/\/$/, "")
+			: "http://127.0.0.1:3476"

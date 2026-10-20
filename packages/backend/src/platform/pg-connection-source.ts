@@ -10,8 +10,11 @@ import { Layer, Option } from "effect"
 import { type DatabaseConnection, MapleDbConnection } from "./bindings"
 
 /** The port's value for one Worker env record: `None` on a stage without a database. */
-export const mapleDbConnectionFromEnv = (env: Record<string, unknown>): Option.Option<DatabaseConnection> =>
-	Option.map(readMapleDbBinding(env), (binding) => ({
+export const mapleDbConnectionFromEnv = (env: Record<string, unknown>): Option.Option<DatabaseConnection> => {
+	if (env.MAPLE_AUTH_MODE === "self_hosted" && typeof env.DATABASE_URL === "string") {
+		return Option.some({ connectionString: env.DATABASE_URL, attributes: {} })
+	}
+	return Option.map(readMapleDbBinding(env), (binding) => ({
 		connectionString: binding.connectionString,
 		attributes: {
 			// The read path normalizes Hyperdrive's opaque host/database to its sentinel node.
@@ -20,6 +23,7 @@ export const mapleDbConnectionFromEnv = (env: Record<string, unknown>): Option.O
 			"server.port": binding.port,
 		},
 	}))
+}
 
 /** The port over an env record in hand — a Worker's, a Durable Object's, a Workflow run's, a cron fire's. */
 export const layerMapleDbConnection = (env: Record<string, unknown>): Layer.Layer<MapleDbConnection> =>

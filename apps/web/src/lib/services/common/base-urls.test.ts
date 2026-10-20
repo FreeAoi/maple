@@ -1,0 +1,41 @@
+import { afterEach, expect, it, vi } from "vitest"
+
+afterEach(() => {
+	vi.unstubAllEnvs()
+	vi.unstubAllGlobals()
+	vi.resetModules()
+})
+
+it("resolves same-origin configuration to absolute URLs for Electric and copied API URLs", async () => {
+	vi.stubGlobal("window", { location: { origin: "https://maple.example" } })
+	vi.stubEnv("VITE_API_BASE_URL", "/")
+	vi.stubEnv("VITE_API_PUBLIC_URL", "")
+	vi.stubEnv("VITE_ELECTRIC_SYNC_URL", "/")
+	const api = await import("./api-base-url")
+	const electric = await import("./electric-sync-url")
+	expect(api.apiBaseUrl).toBe("https://maple.example")
+	expect(api.apiPublicUrl).toBe(api.apiBaseUrl)
+	expect(electric.electricSyncBaseUrl).toBe(api.apiBaseUrl)
+})
+
+it("preserves separately hosted API and Electric configuration", async () => {
+	vi.stubEnv("VITE_API_BASE_URL", " https://api.example/ ")
+	vi.stubEnv("VITE_API_PUBLIC_URL", "https://public.example/")
+	vi.stubEnv("VITE_ELECTRIC_SYNC_URL", "https://sync.example/")
+	const api = await import("./api-base-url")
+	const electric = await import("./electric-sync-url")
+	expect(api.apiBaseUrl).toBe("https://api.example")
+	expect(api.apiPublicUrl).toBe("https://public.example")
+	expect(electric.electricSyncBaseUrl).toBe("https://sync.example")
+})
+
+it("keeps local worker defaults when URLs are not configured", async () => {
+	vi.stubEnv("VITE_API_BASE_URL", "")
+	vi.stubEnv("VITE_API_PUBLIC_URL", "")
+	vi.stubEnv("VITE_ELECTRIC_SYNC_URL", "")
+	const api = await import("./api-base-url")
+	const electric = await import("./electric-sync-url")
+	expect(api.apiBaseUrl).toBe("http://127.0.0.1:3472")
+	expect(api.apiPublicUrl).toBe(api.apiBaseUrl)
+	expect(electric.electricSyncBaseUrl).toBe("http://127.0.0.1:3476")
+})

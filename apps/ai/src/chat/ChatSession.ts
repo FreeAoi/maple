@@ -58,9 +58,16 @@ import { WorkersAiGateway } from "../platform/WorkersAiHttpClient"
 import type { RunChatSessionTurnInput } from "./turn-runner"
 
 /** What the class reads off its Durable Object state: SQLite, the alarm, and the object's own `waitUntil`. */
+export interface ChatSessionSql {
+	exec<T extends Record<string, SqlStorageValue>>(
+		query: string,
+		...bindings: SqlStorageValue[]
+	): { toArray(): T[]; one(): T }
+}
+
 interface ChatSessionState {
 	readonly storage: {
-		readonly sql: SqlStorage
+		readonly sql: ChatSessionSql
 		setAlarm(scheduledTime: number): Promise<void>
 	}
 	waitUntil(promise: Promise<unknown>): void
@@ -105,7 +112,7 @@ interface ColumnRow extends Record<string, SqlStorageValue> {
  * Bring a `session` table that predates the migration files up to the baseline's shape, which
  * `CREATE TABLE IF NOT EXISTS` alone cannot do. A fresh object has no table, so nothing runs.
  */
-export const addMissingSessionColumns = (sql: SqlStorage): void => {
+export const addMissingSessionColumns = (sql: ChatSessionSql): void => {
 	const present = new Set(
 		sql
 			.exec<ColumnRow>("SELECT name FROM pragma_table_info('session')")
@@ -246,7 +253,7 @@ interface Proposal {
 }
 
 export class ChatSession {
-	private readonly sql: SqlStorage
+	private readonly sql: ChatSessionSql
 
 	/**
 	 * Subscribers parked on the next append — the Workers-native stand-in for an in-memory event bus.

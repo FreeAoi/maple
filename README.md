@@ -1,3 +1,6 @@
+> Unofficial self-hosting fork of [MapleTechLabs/maple](https://github.com/MapleTechLabs/maple).
+> For Docker Compose and Dokploy deployment, see the [self-hosting guide](deploy/self-hosted/README.md).
+
 <p align="center">
   <img src=".github/assets/maple-hero.png" alt="Maple: open-source observability for traces, logs and metrics, built on OpenTelemetry" width="100%" />
 </p>
@@ -122,6 +125,10 @@ bun run test
 ```
 
 ## Docker (Local)
+
+For a complete single-host deployment on **Dokploy**, including AI/MCP, browser replays
+and dashboard synchronization, use the [self-hosted Compose deployment](deploy/self-hosted/README.md).
+The development stack below still targets the Cloudflare-oriented application layout.
 
 Run the local multi-service stack (API + web + ingest + otel collector):
 

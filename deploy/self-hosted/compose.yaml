@@ -1,0 +1,147 @@
+x-build: &build
+  context: ../..
+  dockerfile: deploy/self-hosted/Dockerfile
+  target: server
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    command: [postgres, -c, wal_level=logical]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: maple
+      POSTGRES_DB: maple
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U maple -d maple"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.2
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: maple_admin
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD:?Set CLICKHOUSE_ADMIN_PASSWORD}
+      CLICKHOUSE_DB: maple
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      MAPLE_CH_READ_PASSWORD: ${CLICKHOUSE_READ_PASSWORD:?Set CLICKHOUSE_READ_PASSWORD}
+      MAPLE_CH_WRITE_PASSWORD: ${CLICKHOUSE_WRITE_PASSWORD:?Set CLICKHOUSE_WRITE_PASSWORD}
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+      - ./users.xml:/etc/clickhouse-server/users.d/maple.xml:ro
+    healthcheck:
+      test: [CMD, wget, --spider, -q, http://127.0.0.1:8123/ping]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build: *build
+    environment:
+      DATABASE_URL: postgres://maple:${POSTGRES_PASSWORD}@postgres:5432/maple
+      MAPLE_CH_URL: http://clickhouse:8123
+      MAPLE_CH_USER: maple_admin
+      MAPLE_CH_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+      MAPLE_CH_DATABASE: maple
+    command: [sh, -ec, "bun run --cwd packages/db db:migrate && bun packages/clickhouse-cli/src/cli.ts apply"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+
+  electric:
+    image: electricsql/electric:1.8.1
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://maple:${POSTGRES_PASSWORD}@postgres:5432/maple?sslmode=disable
+      ELECTRIC_SECRET: ${INTERNAL_SERVICE_TOKEN}
+      ELECTRIC_MANUAL_TABLE_PUBLISHING: "true"
+      ELECTRIC_STORAGE_DIR: /var/lib/electric
+    volumes: [electric:/var/lib/electric]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  maple:
+    build: *build
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    environment:
+      PORT: "3472"
+      CHAT_DATA_DIR: /var/lib/maple/chat
+      ELECTRIC_URL: http://electric:3000
+      ELECTRIC_SECRET: ${INTERNAL_SERVICE_TOKEN}
+      DATABASE_URL: postgres://maple:${POSTGRES_PASSWORD}@postgres:5432/maple
+      MAPLE_AUTH_MODE: self_hosted
+      MAPLE_ROOT_PASSWORD: ${MAPLE_ROOT_PASSWORD:?Set MAPLE_ROOT_PASSWORD}
+      MAPLE_DEFAULT_ORG_ID: default
+      MAPLE_APP_BASE_URL: ${MAPLE_PUBLIC_URL:?Set MAPLE_PUBLIC_URL}
+      MAPLE_API_BASE_URL: ${MAPLE_PUBLIC_URL}
+      MAPLE_INGEST_PUBLIC_URL: ${MAPLE_PUBLIC_URL}/ingest
+      MAPLE_ENVIRONMENT: production
+      MAPLE_INGEST_KEY_ENCRYPTION_KEY: ${MAPLE_INGEST_KEY_ENCRYPTION_KEY:?Set encryption key}
+      MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: ${MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY:?Set lookup key}
+      MAPLE_SHARE_TOKEN_HMAC_KEY: ${MAPLE_SHARE_TOKEN_HMAC_KEY:?Set share key}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set service token}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_PROVIDER: clickhouse
+      CLICKHOUSE_DATABASE: maple
+      CLICKHOUSE_USER: maple_reader
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_READ_PASSWORD}
+      CLICKHOUSE_WRITE_USER: maple_writer
+      CLICKHOUSE_WRITE_PASSWORD: ${CLICKHOUSE_WRITE_PASSWORD}
+      TINYBIRD_HOST: http://maple:3472
+      TINYBIRD_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      MAPLE_LLM_PROVIDER: openrouter
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY}
+      MAPLE_TRIAGE_MODEL_OPENROUTER: ${MAPLE_CHAT_MODEL:-deepseek/deepseek-v4.1-flash-1017:nitro}
+      MAPLE_CAPTURE: "off"
+    volumes: [chat:/var/lib/maple/chat]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      electric: { condition: service_started }
+    healthcheck:
+      test: [CMD, bun, -e, "process.exit((await fetch('http://localhost:3472/health')).ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  ingest:
+    build: ../../apps/ingest
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      INGEST_PORT: "3474"
+      INGEST_WRITE_MODE: native
+      INGEST_KEY_STORE_BACKEND: postgres
+      MAPLE_PG_URL: postgres://maple:${POSTGRES_PASSWORD}@postgres:5432/maple
+      MAPLE_INTERNAL_ORG_ID: default
+      MAPLE_INGEST_KEY_ENCRYPTION_KEY: ${MAPLE_INGEST_KEY_ENCRYPTION_KEY}
+      MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: ${MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY}
+      INGEST_QUEUE_DIR: /var/lib/maple-ingest/wal
+      TINYBIRD_HOST: http://maple:3472
+      TINYBIRD_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+    volumes: [ingest-wal:/var/lib/maple-ingest/wal]
+    depends_on:
+      maple: { condition: service_healthy }
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: web
+    restart: unless-stopped
+    expose: ["80"]
+    depends_on:
+      maple: { condition: service_healthy }
+      ingest: { condition: service_started }
+
+volumes:
+  postgres:
+  clickhouse:
+  chat:
+  ingest-wal:
+  electric:

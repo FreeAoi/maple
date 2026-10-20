@@ -1,9 +1,11 @@
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 
 export const apiBaseUrl =
-	configuredApiBaseUrl && configuredApiBaseUrl.length > 0
-		? configuredApiBaseUrl.replace(/\/$/, "")
-		: "http://127.0.0.1:3472"
+	configuredApiBaseUrl === "/" && typeof window !== "undefined"
+		? window.location.origin
+		: configuredApiBaseUrl && configuredApiBaseUrl.length > 0
+			? configuredApiBaseUrl.replace(/\/$/, "")
+			: "http://127.0.0.1:3472"
 
 const configuredApiPublicUrl = import.meta.env.VITE_API_PUBLIC_URL?.trim()
 
