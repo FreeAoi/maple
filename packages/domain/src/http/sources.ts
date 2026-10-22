@@ -3,6 +3,7 @@ import {
 	IsoDateTimeString,
 	PushSourcePlatform,
 	SourceId,
+	SourceKind,
 	SourcePlatform,
 	SourceResourceAttribute,
 	SourceSignal,
@@ -34,10 +35,14 @@ export const SourceHealthStatus = Schema.Literals([
 ])
 export type SourceHealthStatus = Schema.Schema.Type<typeof SourceHealthStatus>
 
+export const SourceResourceCount = Schema.Struct({ total: Schema.Int, unhealthy: Schema.Int })
+
 export class SourceHealth extends Schema.Class<SourceHealth>("SourceHealth")({
 	status: SourceHealthStatus,
 	lastDataAt: Schema.NullOr(IsoDateTimeString),
 	problem: Schema.NullOr(Schema.String),
+	/** Null unless the source stands for several resources (an account's zones, an org's repos). */
+	resources: Schema.NullOr(SourceResourceCount),
 }) {}
 
 export class Source extends Schema.Class<Source>("Source")({
@@ -45,9 +50,11 @@ export class Source extends Schema.Class<Source>("Source")({
 	name: Schema.String,
 	description: Schema.NullOr(Schema.String),
 	platform: SourcePlatform,
-	isDefault: Schema.Boolean,
+	kind: SourceKind,
 	/** Null for the default source (it uses the org's public/private pair) and pull sources. */
 	keyPrefix: Schema.NullOr(Schema.String),
+	/** The integration row a pull source stands for (a scrape target, a connection); null for push sources. */
+	integrationId: Schema.NullOr(Schema.String),
 	status: SourceTokenStatus,
 	allowedSignals: Schema.NullOr(Schema.Array(SourceSignal)),
 	rateLimitRps: Schema.NullOr(Schema.Int),
@@ -93,12 +100,31 @@ export class SourceUsageBucket extends Schema.Class<SourceUsageBucket>("SourceUs
 	hour: Schema.Number,
 	spans: Schema.Number,
 	logs: Schema.Number,
+	/** Metric data points. */
+	metrics: Schema.Number,
+	/** Estimated stored bytes across every signal. */
+	bytes: Schema.Number,
 }) {}
 
 export class SourceUsage extends Schema.Class<SourceUsage>("SourceUsage")({
 	windowStart: Schema.Number,
 	windowEnd: Schema.Number,
 	buckets: Schema.Array(SourceUsageBucket),
+}) {}
+
+export class SourceUsageTotal extends Schema.Class<SourceUsageTotal>("SourceUsageTotal")({
+	/** The public `src_` id stamped as `maple_source_id`. */
+	sourceId: Schema.String,
+	spans: Schema.Number,
+	logs: Schema.Number,
+	metrics: Schema.Number,
+	bytes: Schema.Number,
+}) {}
+
+export class SourceUsageSummary extends Schema.Class<SourceUsageSummary>("SourceUsageSummary")({
+	windowStart: Schema.Number,
+	windowEnd: Schema.Number,
+	totals: Schema.Array(SourceUsageTotal),
 }) {}
 
 export class SourceNotFoundError extends HttpTaggedError<SourceNotFoundError>()(

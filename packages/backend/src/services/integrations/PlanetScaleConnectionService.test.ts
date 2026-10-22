@@ -1,4 +1,5 @@
 import { afterEach, assert, describe, it } from "@effect/vitest"
+import { SupabaseOAuthService } from "@maple/backend/services/auth/SupabaseOAuthService"
 import { ConfigProvider, Effect, Layer, Schema } from "effect"
 import { CreateScrapeTargetRequest, OrgId, PlanetScaleMetricsTokenRequest, UserId } from "@maple/domain/http"
 import { FetchHttpClient } from "effect/http"
@@ -47,7 +48,7 @@ const makeLayer = (testDb: TestDb) => {
 	)
 	const scrapeTargetsLive = Layer.effect(ScrapeTargetsService, ScrapeTargetsService.make).pipe(
 		Layer.provide(FetchHttpClient.layer),
-		Layer.provide(Layer.mergeAll(discoveryLive, oauthLive)),
+		Layer.provide(Layer.mergeAll(discoveryLive, oauthLive, SupabaseOAuthService.layer)),
 	)
 	return Layer.mergeAll(
 		Layer.effect(PlanetScaleConnectionService, PlanetScaleConnectionService.make).pipe(
@@ -167,6 +168,17 @@ const storeGrant = (orgId: OrgId) =>
 		return yield* oauth.completeConnect("auth-code", state)
 	})
 
+/** Each integration source with the scrape targets and connections that send as it. */
+const integrationSources = (testDb: TestDb) =>
+	Effect.promise(() =>
+		testDb.pglite.query<{ platform: string; targets: Array<string>; connections: number }>(
+			`SELECT s.platform,
+				coalesce((SELECT array_agg(t.id) FROM scrape_targets t WHERE t.source_id = s.id), '{}') AS targets,
+				(SELECT count(*)::int FROM planetscale_connections c WHERE c.source_id = s.id) AS connections
+			FROM sources s WHERE s.kind = 'integration'`,
+		),
+	).pipe(Effect.map((result) => result.rows))
+
 describe("PlanetScaleConnectionService", () => {
 	it.effect("finalizeOrgSelection provisions a managed scrape target and persists the binding", () => {
 		const testDb = createTestDb(trackedDbs)
@@ -227,6 +239,11 @@ describe("PlanetScaleConnectionService", () => {
 			)
 			assert.isDefined(connection)
 			assert.isNotNull(connection!.webhook_secret_ciphertext)
+
+			// The managed target and the connection send as one PlanetScale source.
+			assert.deepStrictEqual(yield* integrationSources(testDb), [
+				{ platform: "planetscale", targets: [status.scrapeTarget!.id], connections: 1 },
+			])
 		}).pipe(
 			Effect.provideService(FetchHttpClient.Fetch, stub),
 			Effect.provide(Layer.mergeAll(makeLayer(testDb), Layer.succeed(FetchHttpClient.Fetch, stub))),
@@ -532,6 +549,12 @@ describe("PlanetScaleConnectionService", () => {
 				)
 				assert.strictEqual(row?.auth_type, "token")
 				assert.isNotNull(row?.auth_credentials_ciphertext)
+
+				// The adopted target now sends as the connection; its own Prometheus source is gone.
+				const sources = yield* integrationSources(testDb)
+				assert.deepStrictEqual(sources, [
+					{ platform: "planetscale", targets: [existing.id], connections: 1 },
+				])
 			}).pipe(
 				Effect.provideService(FetchHttpClient.Fetch, stub),
 				Effect.provide(Layer.mergeAll(makeLayer(testDb), Layer.succeed(FetchHttpClient.Fetch, stub))),
@@ -662,6 +685,7 @@ describe("PlanetScaleConnectionService", () => {
 			assert.isFalse(yield* oauth.hasConnection(orgId))
 			const list = yield* scrapeTargetsService.list(orgId)
 			assert.strictEqual(list.targets.length, 0)
+			assert.deepStrictEqual(yield* integrationSources(testDb), [])
 		}).pipe(
 			Effect.provideService(FetchHttpClient.Fetch, stub),
 			Effect.provide(Layer.mergeAll(makeLayer(testDb), Layer.succeed(FetchHttpClient.Fetch, stub))),

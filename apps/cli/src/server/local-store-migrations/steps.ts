@@ -17,6 +17,7 @@ import {
 	dropColumns,
 	dropTables,
 	dropViews,
+	modifyTtl,
 	unchangedRowCount,
 	type StepSpec,
 } from "./step-executor"
@@ -72,6 +73,21 @@ const AI_TRACE_INDEX_FORWARD = {
 	sourceRetentionDays: 30,
 	targetRetentionDays: 30,
 } as const
+
+/** v36 TTLs that keyed off a raw timestamp instead of its day. */
+const ALIGNED_TTLS = [
+	["service_map_spans", "toDate(Timestamp) + INTERVAL 30 DAY"],
+	["service_map_children", "toDate(Timestamp) + INTERVAL 30 DAY"],
+	["service_overview_spans", "toDate(Timestamp) + INTERVAL 30 DAY"],
+	["error_events", "toDate(Timestamp) + INTERVAL 90 DAY"],
+	["error_events_by_time", "toDate(Timestamp) + INTERVAL 90 DAY"],
+	["error_fingerprints_minutely", "toDate(Minute) + INTERVAL 90 DAY"],
+	["trace_list_mv", "toDate(Timestamp) + INTERVAL 30 DAY"],
+	["trace_facets_hourly", "toDate(Hour) + INTERVAL 30 DAY"],
+	["metric_catalog", "toDate(Hour) + INTERVAL 90 DAY"],
+	["attribute_keys_hourly", "toDate(Hour) + INTERVAL 90 DAY"],
+	["attribute_values_hourly", "toDate(Hour) + INTERVAL 90 DAY"],
+] as const
 
 export const LOCAL_STORE_STEPS: ReadonlyArray<StepSpec> = [
 	{
@@ -1382,6 +1398,57 @@ export const LOCAL_STORE_STEPS: ReadonlyArray<StepSpec> = [
 				disposition: "invalidate",
 				guarantee:
 					"Dropped permanently with its view. Every trace-id read seeks traces through trace_index, and the rows were a copy of traces.",
+			},
+		],
+	},
+	{
+		// Rows are not rewritten: each TTL moves to its partition's toDate(...) expression.
+		id: "local-0035-to-0036-aligned-ttls",
+		from: 35,
+		to: 36,
+		description: "Align raw-timestamp TTLs to their daily partitions",
+		clonedBefore: "any DDL runs",
+		beforeBootstrap: ALIGNED_TTLS.map(([table, ttl]) => modifyTtl(table, ttl)),
+		plan: [
+			[
+				"align-ttls",
+				"Key the TTL of each table partitioned by day off toDate(...) so a day's rows expire together",
+			],
+		],
+		verifies: "Verify the v36 physical schema and the retained raw telemetry counts",
+		dispositions: ALIGNED_TTLS.map(([name]) => ({
+			name,
+			classification: "derived",
+			disposition: "preserve-exact",
+			guarantee:
+				"Only the TTL expression changes. A row now expires at the start of its day, up to a day earlier than before.",
+		})),
+	},
+	{
+		// Purely additive and filled forward only: the sources view reads 24 hours,
+		// and local OTLP ingest stamps no maple_source_id, so there is nothing to backfill.
+		id: "local-0036-to-0037-source-usage-hourly",
+		from: 36,
+		to: 37,
+		description: "source_usage_hourly + its six views: hourly volume and bytes per source",
+		clonedBefore: "additive DDL runs",
+		plan: [
+			[
+				"install-source-usage-hourly",
+				"Install the source_usage_hourly rollup and its six materialized views via the v37 bootstrap",
+			],
+		],
+		verifies: "Verify the v37 physical schema and the retained raw telemetry counts",
+		dispositions: [
+			{
+				name: "source_usage_hourly",
+				classification: "derived",
+				disposition: "rebuild-within-retention-horizon",
+				guarantee:
+					"Filled forward from traces, logs and metrics writes that carry a source id; complete once the 24-hour read window passes.",
+				preservationInterval: "from the migration forward",
+				sourceRetentionDays: 30,
+				targetRetentionDays: 90,
 			},
 		],
 	},

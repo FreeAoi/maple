@@ -96,8 +96,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::Sha256;
 use sources::{
-    OverrideMode, SourceConfigRow, SourcePolicy, SourceRateLimiter, SourceRef, SourceSignal,
-    MAX_PUBLIC_ID_LEN, SOURCE_ID_ATTRIBUTE, SOURCE_TOKEN_PREFIX,
+    OverrideMode, PauseWindow, SourceConfigRow, SourcePolicy, SourceRateLimiter, SourceRef,
+    SourceSignal, MAX_PUBLIC_ID_LEN, SOURCE_ID_ATTRIBUTE, SOURCE_TOKEN_PREFIX,
 };
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Instrument;
@@ -165,6 +165,8 @@ struct AppConfig {
     write_mode: WriteMode,
     tinybird: TinybirdConfig,
     max_request_body_bytes: usize,
+    /// Ceiling on a gzip body after decompression; past it the request is a 413.
+    max_decoded_body_bytes: usize,
     org_max_in_flight: u64,
     /// Gateway instances sharing each source's requests/second limit.
     rate_limit_fleet_size: u32,
@@ -441,6 +443,17 @@ impl AppConfig {
             std::env::var("INGEST_MAX_REQUEST_BODY_BYTES").ok(),
             20 * 1024 * 1024,
         )?;
+        let max_decoded_body_bytes = parse_usize(
+            "INGEST_MAX_DECODED_BODY_BYTES",
+            std::env::var("INGEST_MAX_DECODED_BODY_BYTES").ok(),
+            max_request_body_bytes.saturating_mul(8),
+        )?;
+        if max_decoded_body_bytes < max_request_body_bytes {
+            return Err(
+                "INGEST_MAX_DECODED_BODY_BYTES must be at least INGEST_MAX_REQUEST_BODY_BYTES"
+                    .to_owned(),
+            );
+        }
         let org_max_in_flight = parse_u64(
             "INGEST_ORG_MAX_IN_FLIGHT",
             std::env::var("INGEST_ORG_MAX_IN_FLIGHT").ok(),
@@ -692,6 +705,7 @@ impl AppConfig {
             write_mode,
             tinybird,
             max_request_body_bytes,
+            max_decoded_body_bytes,
             org_max_in_flight,
             rate_limit_fleet_size,
             gcp_org_max_in_flight,
@@ -792,9 +806,11 @@ struct IngestKeyResolver {
     routing: Arc<OrgRoutingResolver>,
     /// Source ids whose `last_used_at` was written recently, each held for its write interval.
     recent_key_uses: Cache<String, Duration>,
+    /// Token source ids whose `last_rejected_at` was written within the last minute.
+    recent_key_rejections: Cache<String, ()>,
     /// (org id, claim as received) to whether it names one of the org's pull sources,
     /// for `maple_source_id` values sent with the default keys.
-    source_claims: Cache<(String, String), bool>,
+    source_claims: Cache<(String, String), SourceClaim>,
 }
 
 /// How often one token source's `last_used_at` is rewritten per gateway instance.
@@ -818,7 +834,22 @@ impl moka::Expiry<String, Duration> for SourceUseExpiry {
     }
 }
 
-fn source_claims_cache(ttl: Duration) -> Cache<(String, String), bool> {
+/// A cached answer for one `maple_source_id` claim. The pause window is kept
+/// rather than a verdict, so a timed pause ends at its deadline while cached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceClaim {
+    Unclaimable,
+    Claimable(PauseWindow),
+}
+
+/// Verified claims split by whether their source is paused right now.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct VerifiedClaims {
+    active: Vec<String>,
+    paused: Vec<String>,
+}
+
+fn source_claims_cache(ttl: Duration) -> Cache<(String, String), SourceClaim> {
     Cache::builder()
         .time_to_live(ttl)
         .max_capacity(50_000)
@@ -832,6 +863,13 @@ fn recent_key_uses_cache() -> Cache<String, Duration> {
         .build()
 }
 
+fn recent_key_rejections_cache() -> Cache<String, ()> {
+    Cache::builder()
+        .time_to_live(SOURCE_USE_WRITE_INTERVAL)
+        .max_capacity(50_000)
+        .build()
+}
+
 struct CloudflareConnectorResolver {
     store: Arc<dyn KeyStore>,
     lookup_hmac_key: String,
@@ -841,8 +879,6 @@ struct CloudflareConnectorResolver {
 
 const CLOUDFLARE_CONNECTORS_TABLE: &str = "cloudflare_logpush_connectors";
 const GCP_CONNECTORS_TABLE: &str = "gcp_connectors";
-/// `sources.platform` of a GCP connector's integration source.
-const GCP_SOURCE_PLATFORM: &str = "gcp";
 
 /// How often one connector's health columns are rewritten per outcome. Pub/Sub
 /// pushes one log entry per request, so an unthrottled write is one UPDATE per
@@ -951,21 +987,21 @@ trait KeyStore: Send + Sync {
     /// Stamps `last_used_at` on a source whose data the gateway just accepted.
     async fn record_source_used(&self, key_id: &str, now_ms: i64) -> Result<(), String>;
 
-    /// The source created for one integration; `None` until the API creates it.
-    async fn fetch_integration_source_id(
+    /// Stamps `last_rejected_at` and the reason on a token source whose request was refused.
+    async fn record_source_rejected(
         &self,
-        org_id: &str,
-        platform: &'static str,
-        integration_id: &str,
-    ) -> Result<Option<String>, String>;
+        key_id: &str,
+        now_ms: i64,
+        reason: &str,
+    ) -> Result<(), String>;
 
-    /// The subset of `source_ids` (uuids) that are the org's integration ("pull")
+    /// The subset of `source_ids` (uuids) that are the org's `kind = 'integration'`
     /// sources, the only ones a default-key sender may claim. One round trip.
     async fn claimable_source_ids(
         &self,
         org_id: &str,
         source_ids: &[String],
-    ) -> Result<Vec<String>, String>;
+    ) -> Result<Vec<PullSourceRow>, String>;
 
     async fn fetch_connector(
         &self,
@@ -1041,6 +1077,24 @@ struct OrgKeyRow {
     default_source_id: Option<String>,
 }
 
+/// An integration ("pull") source and its pause window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PullSourceRow {
+    /// The `sources.id` uuid.
+    id: String,
+    pause: PauseWindow,
+}
+
+impl PullSourceRow {
+    /// A connector's source to stamp and its pause window; none is never paused.
+    fn stamped(row: Option<Self>) -> (Option<SourceRef>, PauseWindow) {
+        row.and_then(|row| Some((SourceRef::from_id(row.id)?, row.pause)))
+            .map_or((None, PauseWindow::default()), |(source, pause)| {
+                (Some(source), pause)
+            })
+    }
+}
+
 #[derive(Clone, Debug)]
 struct SourceRow {
     key: KeyRow,
@@ -1056,6 +1110,8 @@ struct ConnectorRow {
     dataset: String,
     self_managed: bool,
     clickhouse_ready: bool,
+    /// The connector's `sources` row, joined through `source_id`.
+    source: Option<PullSourceRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -1068,6 +1124,8 @@ struct GcpConnectorRow {
     applied_logs_enabled: Option<bool>,
     self_managed: bool,
     clickhouse_ready: bool,
+    /// The connector's `sources` row, joined through `source_id`.
+    source: Option<PullSourceRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -1116,6 +1174,10 @@ struct CloudflareConnectorIdentity {
     zone_name: String,
     dataset: String,
     secret_key_id: String,
+    /// The connector's source, stamped on its logs.
+    source: Option<SourceRef>,
+    /// That source's pause window, judged per push so a timed pause ends on time.
+    source_pause: PauseWindow,
 }
 
 impl CloudflareConnectorIdentity {
@@ -1129,6 +1191,8 @@ impl CloudflareConnectorIdentity {
             secret_key_id: self.secret_key_id,
             self_managed: routing.self_managed,
             clickhouse_ready: routing.clickhouse_ready,
+            source: self.source,
+            source_pause: self.source_pause,
         }
     }
 }
@@ -1141,6 +1205,8 @@ struct GcpConnectorIdentity {
     confirms_log_forwarding: bool,
     /// The connector's integration source, stamped on its logs.
     source: Option<SourceRef>,
+    /// That source's pause window, judged per push so a timed pause ends on time.
+    source_pause: PauseWindow,
 }
 
 impl GcpConnectorIdentity {
@@ -1148,6 +1214,7 @@ impl GcpConnectorIdentity {
         ResolvedGcpConnector {
             logs_enabled: self.logs_enabled,
             confirms_log_forwarding: self.confirms_log_forwarding,
+            source_pause: self.source_pause,
             key: ResolvedIngestKey {
                 org_id: self.org_id,
                 key_type: IngestKeyType::Connector,
@@ -1412,6 +1479,9 @@ struct ResolvedCloudflareConnector {
     // to the self-managed pool when the owning org has BYO Tinybird active.
     self_managed: bool,
     clickhouse_ready: bool,
+    source: Option<SourceRef>,
+    /// A paused source's batches are acked and dropped.
+    source_pause: PauseWindow,
 }
 
 struct ResolvedGcpConnector {
@@ -1421,7 +1491,19 @@ struct ResolvedGcpConnector {
     /// with Terraform, which sends no report. The push itself proves the sink,
     /// topic and subscription are in place.
     confirms_log_forwarding: bool,
+    /// The integration source's pause window: a paused source's entries are acked and dropped.
+    source_pause: PauseWindow,
     key: ResolvedIngestKey,
+}
+
+/// What an accepted Cloudflare Logpush request did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LogpushOutcome {
+    Accepted,
+    /// Cloudflare's destination-validation ping when the job is created.
+    Validation,
+    /// The connector's source is paused: acked, nothing stored or billed.
+    SourcePaused,
 }
 
 /// What an acked GCP push did.
@@ -1434,6 +1516,8 @@ enum GcpPushOutcome {
     /// A setup script run saying what it applied: recorded on the connector,
     /// not a log.
     SetupReport,
+    /// The connector's integration source is paused.
+    SourcePaused,
 }
 
 #[derive(Clone, Copy)]
@@ -1487,6 +1571,30 @@ enum DecodedPayload {
 }
 
 impl DecodedPayload {
+    fn signal(&self) -> Signal {
+        match self {
+            Self::Traces(_) => Signal::Traces,
+            Self::Logs(_) => Signal::Logs,
+            Self::Metrics(_) => Signal::Metrics,
+        }
+    }
+
+    fn encoded_len(&self) -> usize {
+        match self {
+            Self::Traces(request) => request.encoded_len(),
+            Self::Logs(request) => request.encoded_len(),
+            Self::Metrics(request) => request.encoded_len(),
+        }
+    }
+
+    fn resource_count(&self) -> usize {
+        match self {
+            Self::Traces(request) => request.resource_spans.len(),
+            Self::Logs(request) => request.resource_logs.len(),
+            Self::Metrics(request) => request.resource_metrics.len(),
+        }
+    }
+
     fn item_count(&self) -> usize {
         match self {
             Self::Traces(request) => count_trace_items(request),
@@ -2748,6 +2856,7 @@ async fn main() {
             negative_cache: ingest_key_negative_cache,
             routing: Arc::clone(&org_routing_resolver),
             recent_key_uses: recent_key_uses_cache(),
+            recent_key_rejections: recent_key_rejections_cache(),
             source_claims: source_claims_cache(Duration::from_secs(
                 config.ingest_key_cache_ttl_secs,
             )),
@@ -3145,9 +3254,9 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         // `decoded_payload.len()`.
         let decoded_bytes = inner.encoded_len();
         let mut decoded = DecodedPayload::Traces(inner);
-        // A paused source's export reaches here empty (see `grpc_admission`).
-        let kept_claim = admission == KeyAdmission::Ingest
-            && verify_claims_and_enrich(&self.state, &mut decoded, &resolved).await;
+        let (admission, claims) =
+            admit_grpc_claims(&self.state, admission, &mut decoded, &resolved).await;
+        let decoded_bytes = claims.metered_bytes(decoded_bytes);
         accept_grpc_decoded(
             &self.state,
             Signal::Traces,
@@ -3155,7 +3264,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
             &resolved,
             admission,
             decoded_bytes,
-            kept_claim,
+            &claims,
         )
         .await?;
         Ok(tonic::Response::new(
@@ -3181,9 +3290,9 @@ impl opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsS
         let inner = request.into_inner();
         let decoded_bytes = inner.encoded_len();
         let mut decoded = DecodedPayload::Logs(inner);
-        // A paused source's export reaches here empty (see `grpc_admission`).
-        let kept_claim = admission == KeyAdmission::Ingest
-            && verify_claims_and_enrich(&self.state, &mut decoded, &resolved).await;
+        let (admission, claims) =
+            admit_grpc_claims(&self.state, admission, &mut decoded, &resolved).await;
+        let decoded_bytes = claims.metered_bytes(decoded_bytes);
         accept_grpc_decoded(
             &self.state,
             Signal::Logs,
@@ -3191,7 +3300,7 @@ impl opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsS
             &resolved,
             admission,
             decoded_bytes,
-            kept_claim,
+            &claims,
         )
         .await?;
         Ok(tonic::Response::new(
@@ -3219,9 +3328,9 @@ impl opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server:
         let inner = request.into_inner();
         let decoded_bytes = inner.encoded_len();
         let mut decoded = DecodedPayload::Metrics(inner);
-        // A paused source's export reaches here empty (see `grpc_admission`).
-        let kept_claim = admission == KeyAdmission::Ingest
-            && verify_claims_and_enrich(&self.state, &mut decoded, &resolved).await;
+        let (admission, claims) =
+            admit_grpc_claims(&self.state, admission, &mut decoded, &resolved).await;
+        let decoded_bytes = claims.metered_bytes(decoded_bytes);
         accept_grpc_decoded(
             &self.state,
             Signal::Metrics,
@@ -3229,7 +3338,7 @@ impl opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server:
             &resolved,
             admission,
             decoded_bytes,
-            kept_claim,
+            &claims,
         )
         .await?;
         Ok(tonic::Response::new(
@@ -3238,6 +3347,27 @@ impl opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server:
             },
         ))
     }
+}
+
+/// Verifies a gRPC export's source claims; a batch of only paused pull sources
+/// becomes a `Drop`, so the client still gets an OK reply.
+async fn admit_grpc_claims(
+    state: &AppState,
+    admission: KeyAdmission,
+    decoded: &mut DecodedPayload,
+    resolved: &ResolvedIngestKey,
+) -> (KeyAdmission, ClaimOutcome) {
+    // A paused source's export reaches here empty (see `grpc_admission`).
+    if admission != KeyAdmission::Ingest {
+        return (admission, ClaimOutcome::default());
+    }
+    let claims = verify_claims_and_enrich(state, decoded, resolved).await;
+    let admission = if claims.all_paused {
+        KeyAdmission::Drop
+    } else {
+        admission
+    };
+    (admission, claims)
 }
 
 /// Accept a decoded export, already authenticated and entitlement-gated by
@@ -3249,7 +3379,7 @@ async fn accept_grpc_decoded(
     resolved: &ResolvedIngestKey,
     admission: KeyAdmission,
     decoded_bytes: usize,
-    kept_claim: bool,
+    claims: &ClaimOutcome,
 ) -> Result<(), tonic::Status> {
     // The sentinel token is a PUBLIC constant, so anything it carries is
     // attacker-authored and must never be stored. Discarded here for the same
@@ -3284,7 +3414,10 @@ async fn accept_grpc_decoded(
 
     match result {
         Ok(_) => {
-            state.resolver.note_source_use(resolved, kept_claim);
+            state.resolver.note_source_use(resolved, claims.kept_claim);
+            state
+                .resolver
+                .note_claimed_source_use(&claims.claimed_sources);
             if resolved.org_id != SENTINEL_ORG_ID {
                 if let Some(usage) = &state.usage_metrics {
                     usage.record(
@@ -3647,6 +3780,13 @@ async fn authorize_source(
             signal = names.as_str(),
             "Source denied for signal"
         );
+        // A paused source drops what it is sent; a refusal now would surface only after resume.
+        if !source.is_paused(now_ms) {
+            state.resolver.note_source_rejection(
+                resolved_key,
+                format!("Sent {names}, which this source does not allow"),
+            );
+        }
         return Err(ApiError::tagged(
             StatusCode::FORBIDDEN,
             &INGEST_SIGNAL_NOT_ALLOWED,
@@ -3667,6 +3807,10 @@ async fn authorize_source(
                 key_id = %source.public_id,
                 rate_limit_rps = rps,
                 "Source rate limit exceeded"
+            );
+            state.resolver.note_source_rejection(
+                resolved_key,
+                format!("Rate limited at {rps} requests per second"),
             );
             return Err(ApiError::tagged(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -4291,6 +4435,18 @@ fn decompressed_len(body: &[u8]) -> Result<u64, std::io::Error> {
     std::io::copy(&mut decoder, &mut std::io::sink())
 }
 
+/// Bounded gunzip of a replay chunk into text. Invalid UTF-8 reads as the
+/// same error `read_to_string` raised, so the rejection fingerprint holds.
+fn gunzip_replay_text(body: &[u8], max_decoded: usize) -> Result<String, BoundedGunzipError> {
+    let bytes = gunzip_bounded(body, max_decoded)?;
+    String::from_utf8(bytes).map_err(|_| {
+        BoundedGunzipError::Invalid(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        ))
+    })
+}
+
 async fn handle_replay_blob(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -4447,12 +4603,13 @@ async fn handle_replay_blob_inner(
             decompressed_len(&body).map_err(|e| replay_gunzip_rejection(headers, &body, &e))?,
         )
     } else {
-        use std::io::Read as _;
-        let mut decoder = GzDecoder::new(&body[..]);
-        let mut events_json = String::new();
-        decoder
-            .read_to_string(&mut events_json)
-            .map_err(|e| replay_gunzip_rejection(headers, &body, &e))?;
+        let events_json = gunzip_replay_text(&body, state.config.max_decoded_body_bytes)
+            .map_err(|e| match e {
+                BoundedGunzipError::Invalid(e) => replay_gunzip_rejection(headers, &body, &e),
+                BoundedGunzipError::TooLarge => {
+                    ApiError::payload_too_large("decompressed replay chunk too large")
+                }
+            })?;
         let byte_size = events_json.len() as u64;
         (Some(events_json), byte_size)
     };
@@ -4742,14 +4899,20 @@ async fn handle_cloudflare_logpush(
     let duration = start.elapsed();
 
     match result {
-        Ok((response, item_count, org_id, is_validation)) => {
+        Ok((response, item_count, org_id, outcome)) => {
             let status_code = response.status().as_u16();
+            let is_validation = outcome == LogpushOutcome::Validation;
             span_handle.record("http.response.status_code", status_code);
             span_handle.record("otel.status_code", "Ok");
             span_handle.record("maple.ingest.item_count", item_count);
             span_handle.record("maple.cloudflare.is_validation", is_validation);
+            if outcome == LogpushOutcome::SourcePaused {
+                span_handle.record("maple.ingest.reject_reason", "source_paused");
+            }
             metrics::request_completed("logs", "ok", "none", duration.as_secs_f64());
-            metrics::cloudflare_batch("http_requests", is_validation);
+            if outcome != LogpushOutcome::SourcePaused {
+                metrics::cloudflare_batch("http_requests", is_validation);
+            }
             debug!(
                 status = status_code,
                 duration_ms = duration_millis(duration),
@@ -4945,7 +5108,18 @@ async fn handle_signal_inner(
     let decoded_payload = {
         let decode_span = decode_internal_span(encoding_label, body.len());
         let _guard = decode_span.enter();
-        let decoded_payload = decode_payload(&body, content_encoding.as_deref()).map_err(|e| {
+        let decoded_payload = decode_payload(
+            &body,
+            content_encoding.as_deref(),
+            state.config.max_decoded_body_bytes,
+        )
+        .map_err(|e| {
+            // Over the decoded ceiling is the same refusal as an oversized body.
+            if e.status == StatusCode::PAYLOAD_TOO_LARGE {
+                warn!(body_bytes = body.len(), "Decoded payload too large");
+                record_stage_error(&decode_span, "payload_too_large", &e.message, false);
+                return (e, "payload_too_large");
+            }
             warn!(body_bytes = body.len(), "Failed to decode payload");
             record_stage_error(&decode_span, "decode", &e.message, false);
             metrics::org_data_loss(&resolved_key.org_id, signal.path(), "decode");
@@ -4986,14 +5160,25 @@ async fn handle_signal_inner(
         parse_span.record("maple.ingest.item_count", decoded.item_count());
         decoded
     };
-    let kept_claim = verify_claims_and_enrich(state, &mut decoded, &resolved_key).await;
+    let claims = verify_claims_and_enrich(state, &mut decoded, &resolved_key).await;
+    if claims.all_paused {
+        // Like a paused token source: success to the sender, nothing written or billed.
+        return Ok((
+            StatusCode::OK.into_response(),
+            0,
+            resolved_key.org_id.clone(),
+            0,
+        ));
+    }
+    let kept_claim = claims.kept_claim;
     let item_count = decoded.item_count();
 
     Span::current().record("maple.ingest.item_count", item_count);
     debug!(item_count, "Payload enriched");
     metrics::items_accepted(signal.path(), item_count as u64);
 
-    let decoded_bytes = decoded_payload.len();
+    // Only the share left after dropping paused pull sources' resources is metered.
+    let decoded_bytes = claims.metered_bytes(decoded_payload.len());
 
     let response_result = process_decoded_payload(
         state,
@@ -5008,6 +5193,9 @@ async fn handle_signal_inner(
     let response = response_result.map_err(|error| (error, "forward"))?;
     if response.status().is_success() {
         state.resolver.note_source_use(&resolved_key, kept_claim);
+        state
+            .resolver
+            .note_claimed_source_use(&claims.claimed_sources);
     }
 
     Ok((
@@ -5030,7 +5218,7 @@ async fn handle_cloudflare_logpush_inner(
     secret: Option<&str>,
     headers: &HeaderMap,
     body: Bytes,
-) -> Result<(Response, usize, String, bool), (ApiError, &'static str)> {
+) -> Result<(Response, usize, String, LogpushOutcome), (ApiError, &'static str)> {
     let secret = secret
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -5071,6 +5259,21 @@ async fn handle_cloudflare_logpush_inner(
         key_id = %resolved.secret_key_id,
         "Authenticated Cloudflare Logpush connector"
     );
+    // A paused source: acked like a paused GCP connector, nothing stored or billed.
+    if resolved.source_pause.is_paused(current_time_millis()) {
+        metrics::source_paused_drop(&resolved.org_id, Signal::Logs.path());
+        debug!(
+            org_id = %resolved.org_id,
+            connector_id = %resolved.connector_id,
+            "Cloudflare Logpush source paused; batch acked and dropped"
+        );
+        return Ok((
+            StatusCode::OK.into_response(),
+            0,
+            resolved.org_id.clone(),
+            LogpushOutcome::SourcePaused,
+        ));
+    }
     let _org_inflight_permit = state
         .org_inflight_limiter
         .try_acquire(&resolved.org_id)
@@ -5139,14 +5342,23 @@ async fn handle_cloudflare_logpush_inner(
         }
     }
 
-    let decoded_payload = match decode_payload(&body, content_encoding.as_deref()) {
+    let decoded_payload = match decode_payload(
+        &body,
+        content_encoding.as_deref(),
+        state.config.max_decoded_body_bytes,
+    ) {
         Ok(decoded) => decoded,
         Err(error) => {
             state
                 .cloudflare_resolver
                 .record_failure(&resolved.connector_id, &error.message)
                 .await;
-            return Err((error, "decode"));
+            let reason = if error.status == StatusCode::PAYLOAD_TOO_LARGE {
+                "payload_too_large"
+            } else {
+                "decode"
+            };
+            return Err((error, reason));
         }
     };
 
@@ -5168,7 +5380,7 @@ async fn handle_cloudflare_logpush_inner(
                 StatusCode::OK.into_response(),
                 0,
                 resolved.org_id.clone(),
-                true,
+                LogpushOutcome::Validation,
             ))
         }
         ParsedCloudflarePayload::Records(records) => {
@@ -5183,7 +5395,7 @@ async fn handle_cloudflare_logpush_inner(
                 self_managed: resolved.self_managed,
                 clickhouse_ready: resolved.clickhouse_ready,
                 source: None,
-                default_source: None,
+                default_source: resolved.source.clone(),
             };
             let decoded = DecodedPayload::Logs(request);
             let response = match process_decoded_payload(
@@ -5210,6 +5422,7 @@ async fn handle_cloudflare_logpush_inner(
                 .cloudflare_resolver
                 .record_success(&resolved.connector_id)
                 .await;
+            state.resolver.note_source_use(&resolved_key, false);
 
             if resolved.org_id != SENTINEL_ORG_ID {
                 if let Some(usage) = &state.usage_metrics {
@@ -5229,7 +5442,12 @@ async fn handle_cloudflare_logpush_inner(
                 }
             }
 
-            Ok((response, item_count, resolved.org_id.clone(), false))
+            Ok((
+                response,
+                item_count,
+                resolved.org_id.clone(),
+                LogpushOutcome::Accepted,
+            ))
         }
     }
 }
@@ -5327,6 +5545,11 @@ async fn handle_gcp_logpush(
                 GcpPushOutcome::SetupReport => {
                     span_handle.record("otel.status_code", "Ok");
                     span_handle.record("maple.gcp.setup_report", true);
+                    metrics::request_completed("logs", "ok", "none", duration);
+                }
+                GcpPushOutcome::SourcePaused => {
+                    span_handle.record("otel.status_code", "Ok");
+                    span_handle.record("maple.ingest.reject_reason", "source_paused");
                     metrics::request_completed("logs", "ok", "none", duration);
                 }
             }
@@ -5475,6 +5698,15 @@ async fn handle_gcp_logpush_inner(
             connector_id, "GCP log forwarding is off; entry acked and dropped"
         );
         return Ok((StatusCode::OK.into_response(), GcpPushOutcome::LogsDisabled));
+    }
+    // A paused integration source: acked like a paused token source, nothing stored or billed.
+    if resolved.source_pause.is_paused(current_time_millis()) {
+        metrics::source_paused_drop(org_id, Signal::Logs.path());
+        debug!(
+            org_id,
+            connector_id, "GCP integration source paused; entry acked and dropped"
+        );
+        return Ok((StatusCode::OK.into_response(), GcpPushOutcome::SourcePaused));
     }
 
     let _org_inflight_permit = state
@@ -5716,7 +5948,7 @@ fn build_cloudflare_logs_request(
 }
 
 fn build_cloudflare_resource_attributes(resolved: &ResolvedCloudflareConnector) -> Vec<KeyValue> {
-    vec![
+    let mut attributes = vec![
         string_attribute("maple_org_id", &resolved.org_id),
         string_attribute("maple_ingest_source", CLOUDFLARE_LOGPUSH_SOURCE),
         string_attribute("maple_ingest_key_type", IngestKeyType::Connector.as_str()),
@@ -5725,7 +5957,11 @@ fn build_cloudflare_resource_attributes(resolved: &ResolvedCloudflareConnector) 
         string_attribute("cloudflare.zone_name", &resolved.zone_name),
         string_attribute("maple_cloudflare_connector_id", &resolved.connector_id),
         string_attribute("service.name", &resolved.service_name),
-    ]
+    ];
+    if let Some(source) = &resolved.source {
+        attributes.push(string_attribute(SOURCE_ID_ATTRIBUTE, &source.public_id));
+    }
+    attributes
 }
 
 fn build_cloudflare_log_record(
@@ -5920,18 +6156,40 @@ fn detect_payload_format(content_type: &str) -> Result<PayloadFormat, ApiError> 
     ))
 }
 
+#[derive(Debug)]
+enum BoundedGunzipError {
+    Invalid(std::io::Error),
+    TooLarge,
+}
+
+/// Gunzips `body`, stopping once more than `max_decoded` bytes have come out.
+fn gunzip_bounded(body: &[u8], max_decoded: usize) -> Result<Vec<u8>, BoundedGunzipError> {
+    let read_limit = u64::try_from(max_decoded).unwrap_or(u64::MAX).saturating_add(1);
+    let mut decompressed = Vec::new();
+    GzDecoder::new(body)
+        .take(read_limit)
+        .read_to_end(&mut decompressed)
+        .map_err(BoundedGunzipError::Invalid)?;
+    if decompressed.len() > max_decoded {
+        return Err(BoundedGunzipError::TooLarge);
+    }
+    Ok(decompressed)
+}
+
 #[hotpath::measure]
-fn decode_payload(body: &Bytes, content_encoding: Option<&str>) -> Result<Vec<u8>, ApiError> {
+fn decode_payload(
+    body: &Bytes,
+    content_encoding: Option<&str>,
+    max_decoded: usize,
+) -> Result<Vec<u8>, ApiError> {
     match content_encoding {
         None => Ok(body.to_vec()),
-        Some("gzip") => {
-            let mut decoder = GzDecoder::new(body.as_ref());
-            let mut decompressed = Vec::new();
-            decoder
-                .read_to_end(&mut decompressed)
-                .map_err(|_| ApiError::bad_request("Invalid gzip body"))?;
-            Ok(decompressed)
-        }
+        Some("gzip") => gunzip_bounded(body.as_ref(), max_decoded).map_err(|e| match e {
+            BoundedGunzipError::Invalid(_) => ApiError::bad_request("Invalid gzip body"),
+            BoundedGunzipError::TooLarge => {
+                ApiError::payload_too_large("Decompressed request body too large")
+            }
+        }),
         Some(_) => Err(ApiError::unsupported_media_type(
             "Unsupported content-encoding",
         )),
@@ -5997,24 +6255,111 @@ fn decode_otlp_payload(
     }
 }
 
-/// Checks the sender's own `maple_source_id` values against the org, then enriches.
-/// True when a resource kept a verified claim of its own.
+/// What `verify_claims_and_enrich` found in a payload's `maple_source_id` claims.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ClaimOutcome {
+    /// `sources.id` of each verified, unpaused claim; their resources were kept.
+    claimed_sources: Vec<String>,
+    /// A resource carried a verified claim of its own (a poller's batch), paused or
+    /// not, so the batch never counts as default-source use.
+    kept_claim: bool,
+    /// Every resource named a paused source and was dropped: answer success, write nothing.
+    all_paused: bool,
+    /// Encoded size of the payload (before, after) dropping paused resources, so
+    /// only the retained share is metered. `None` when nothing was dropped.
+    retained: Option<(usize, usize)>,
+}
+
+impl ClaimOutcome {
+    /// `original` bytes scaled to the share left after the drop; unchanged when none was.
+    fn metered_bytes(&self, original: usize) -> usize {
+        match self.retained {
+            Some((before, after)) if before > 0 => {
+                let scaled = original as u128 * after as u128 / before as u128;
+                usize::try_from(scaled).unwrap_or(original)
+            }
+            _ => original,
+        }
+    }
+}
+
+/// Checks the sender's own `maple_source_id` values against the org, drops the
+/// resources of paused pull sources, then enriches what is left.
 async fn verify_claims_and_enrich(
     state: &AppState,
     decoded: &mut DecodedPayload,
     resolved_key: &ResolvedIngestKey,
-) -> bool {
+) -> ClaimOutcome {
     let claims = claimed_source_ids(decoded, resolved_key);
-    let verified_claims = if claims.is_empty() {
-        Vec::new()
+    let overflow = overflow_source_claims(decoded, &claims);
+    let mut verified = if claims.is_empty() {
+        VerifiedClaims::default()
     } else {
         state
             .resolver
             .verify_source_claims(&resolved_key.org_id, claims)
             .await
     };
-    enrich_decoded_payload(decoded, resolved_key, &verified_claims);
-    !verified_claims.is_empty()
+    // Claims past the cap get no store lookup (it bounds the query), but one the
+    // cache knows as paused is still dropped, so the cap is no way around a pause.
+    if !overflow.is_empty() {
+        let paused = state
+            .resolver
+            .cached_paused_claims(&resolved_key.org_id, overflow)
+            .await;
+        verified.paused.extend(paused);
+    }
+    let before = (!verified.paused.is_empty()).then(|| decoded.encoded_len());
+    let dropped = drop_paused_resources(decoded, &verified.paused);
+    let all_paused = dropped && decoded.resource_count() == 0;
+    let retained = before
+        .filter(|_| dropped)
+        .map(|before| (before, decoded.encoded_len()));
+    if dropped {
+        metrics::source_paused_drop(&resolved_key.org_id, decoded.signal().path());
+        if all_paused {
+            Span::current().record("maple.ingest.reject_reason", "source_paused");
+        }
+        debug!(org_id = %resolved_key.org_id, all_paused, "Paused pull source; resources dropped");
+    }
+    enrich_decoded_payload(decoded, resolved_key, &verified.active);
+    ClaimOutcome {
+        claimed_sources: verified
+            .active
+            .iter()
+            .filter_map(|claim| sources::source_uuid_from_public_id(claim))
+            .collect(),
+        kept_claim: !verified.active.is_empty() || dropped,
+        all_paused,
+        retained,
+    }
+}
+
+/// Removes every resource whose `maple_source_id` is one of `paused`. True when any was.
+fn drop_paused_resources(decoded: &mut DecodedPayload, paused: &[String]) -> bool {
+    if paused.is_empty() {
+        return false;
+    }
+    let keep = |resource: Option<&Resource>| {
+        resource
+            .and_then(|resource| source_id_claim(&resource.attributes))
+            .is_none_or(|claim| !paused.iter().any(|id| id == claim))
+    };
+    let before = decoded.resource_count();
+    match decoded {
+        DecodedPayload::Traces(request) => {
+            request.resource_spans.retain(|r| keep(r.resource.as_ref()));
+        }
+        DecodedPayload::Logs(request) => {
+            request.resource_logs.retain(|r| keep(r.resource.as_ref()));
+        }
+        DecodedPayload::Metrics(request) => {
+            request
+                .resource_metrics
+                .retain(|r| keep(r.resource.as_ref()));
+        }
+    }
+    decoded.resource_count() < before
 }
 
 /// Stamps the tenant and source onto a decoded payload. `verified_claims` are the
@@ -6157,6 +6502,35 @@ fn claimed_source_ids(decoded: &DecodedPayload, resolved_key: &ResolvedIngestKey
     if !resolved_key.accepts_source_claims() {
         return Vec::new();
     }
+    let mut claims: Vec<String> = Vec::new();
+    for claim in sized_source_claims(decoded) {
+        if !claims.iter().any(|seen| seen == claim) {
+            claims.push(claim.to_owned());
+            // Claims past the cap are never looked up, so they stay unverified.
+            if claims.len() == MAX_SOURCE_CLAIMS {
+                break;
+            }
+        }
+    }
+    claims
+}
+
+/// Distinct claims past the `MAX_SOURCE_CLAIMS` cap, i.e. not in `looked_up`.
+/// Empty unless the cap was reached.
+fn overflow_source_claims(decoded: &DecodedPayload, looked_up: &[String]) -> Vec<String> {
+    if looked_up.len() < MAX_SOURCE_CLAIMS {
+        return Vec::new();
+    }
+    let mut seen = std::collections::HashSet::new();
+    sized_source_claims(decoded)
+        .filter(|claim| !looked_up.iter().any(|known| known == claim) && seen.insert(*claim))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Each resource's `maple_source_id`, skipping any longer than a valid id:
+/// those are never decoded or cached, so they stay unverified.
+fn sized_source_claims(decoded: &DecodedPayload) -> impl Iterator<Item = &str> {
     let resources: Vec<Option<&Resource>> = match decoded {
         DecodedPayload::Traces(request) => request
             .resource_spans
@@ -6174,23 +6548,11 @@ fn claimed_source_ids(decoded: &DecodedPayload, resolved_key: &ResolvedIngestKey
             .map(|r| r.resource.as_ref())
             .collect(),
     };
-    let mut claims: Vec<String> = Vec::new();
-    for claim in resources
+    resources
         .into_iter()
         .flatten()
         .filter_map(|resource| source_id_claim(&resource.attributes))
-        // Longer than any valid id: never decoded or cached, so it stays unverified.
         .filter(|claim| claim.len() <= MAX_PUBLIC_ID_LEN)
-    {
-        if !claims.iter().any(|seen| seen == claim) {
-            claims.push(claim.to_owned());
-            // Claims past the cap are never looked up, so they stay unverified.
-            if claims.len() == MAX_SOURCE_CLAIMS {
-                break;
-            }
-        }
-    }
-    claims
 }
 
 fn enrich_resource_attributes(
@@ -6603,8 +6965,17 @@ impl IngestKeyResolver {
     /// The claimed `src_` ids that name one of the org's pull sources. Only the
     /// first `MAX_SOURCE_CLAIMS` distinct claims count; uncached ones are checked in
     /// one query. Answers are cached; a store error leaves the rest unverified.
-    async fn verify_source_claims(&self, org_id: &str, claims: Vec<String>) -> Vec<String> {
-        let mut verified = Vec::new();
+    /// Pause is judged against the current clock, not when the answer was cached.
+    async fn verify_source_claims(&self, org_id: &str, claims: Vec<String>) -> VerifiedClaims {
+        let now_ms = current_time_millis();
+        let mut verified = VerifiedClaims::default();
+        let mut keep = |claim: String, pause: PauseWindow| {
+            if pause.is_paused(now_ms) {
+                verified.paused.push(claim);
+            } else {
+                verified.active.push(claim);
+            }
+        };
         // (claim as received, its uuid) for claims the cache has no answer for.
         let mut unknown: Vec<(String, String)> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
@@ -6618,11 +6989,15 @@ impl IngestKeyResolver {
             seen.push(claim.clone());
             let cache_key = (org_id.to_owned(), claim);
             match self.source_claims.get(&cache_key).await {
-                Some(true) => verified.push(cache_key.1),
-                Some(false) => {}
+                Some(SourceClaim::Claimable(pause)) => keep(cache_key.1, pause),
+                Some(SourceClaim::Unclaimable) => {}
                 None => match sources::source_uuid_from_public_id(&cache_key.1) {
                     Some(uuid) => unknown.push((cache_key.1, uuid)),
-                    None => self.source_claims.insert(cache_key, false).await,
+                    None => {
+                        self.source_claims
+                            .insert(cache_key, SourceClaim::Unclaimable)
+                            .await;
+                    }
                 },
             }
         }
@@ -6641,19 +7016,40 @@ impl IngestKeyResolver {
             }
         };
         for (claim, uuid) in unknown {
-            let claimable = found.contains(&uuid);
-            if claimable {
-                verified.push(claim.clone());
+            let answer = found
+                .iter()
+                .find(|row| row.id == uuid)
+                .map_or(SourceClaim::Unclaimable, |row| {
+                    SourceClaim::Claimable(row.pause)
+                });
+            if let SourceClaim::Claimable(pause) = answer {
+                keep(claim.clone(), pause);
             }
             self.source_claims
-                .insert((org_id.to_owned(), claim), claimable)
+                .insert((org_id.to_owned(), claim), answer)
                 .await;
         }
         verified
     }
 
-    /// Stamps `last_used_at` for the source whose data was accepted (token or
-    /// default), at most once per write interval and off the request path. A batch
+    /// The `claims` the cache already knows as paused pull sources of the org. No
+    /// store lookup, so claims past the cap stay bounded yet cannot bypass a pause.
+    async fn cached_paused_claims(&self, org_id: &str, claims: Vec<String>) -> Vec<String> {
+        let now_ms = current_time_millis();
+        let mut paused = Vec::new();
+        for claim in claims {
+            let cache_key = (org_id.to_owned(), claim);
+            if let Some(SourceClaim::Claimable(pause)) = self.source_claims.get(&cache_key).await {
+                if pause.is_paused(now_ms) {
+                    paused.push(cache_key.1);
+                }
+            }
+        }
+        paused
+    }
+
+    /// Stamps `last_used_at` for the source whose data was accepted (token, default
+    /// or a connector's), at most once per write interval and off the request path. A batch
     /// that kept a verified claim (a poller) does not count as default-source use.
     fn note_source_use(&self, resolved: &ResolvedIngestKey, kept_claim: bool) {
         if kept_claim {
@@ -6667,6 +7063,18 @@ impl IngestKeyResolver {
         } else {
             SOURCE_USE_WRITE_INTERVAL
         };
+        self.record_source_use(source_id, interval);
+    }
+
+    /// Stamps `last_used_at` for each verified integration source a batch kept data for.
+    fn note_claimed_source_use(&self, source_ids: &[String]) {
+        for source_id in source_ids {
+            self.record_source_use(source_id, SOURCE_USE_WRITE_INTERVAL);
+        }
+    }
+
+    /// Writes `last_used_at` off the request path, at most once per `interval` per source.
+    fn record_source_use(&self, source_id: &str, interval: Duration) {
         // Most requests land inside the window; skip them without spawning.
         if self.recent_key_uses.contains_key(source_id) {
             return;
@@ -6692,6 +7100,36 @@ impl IngestKeyResolver {
                     .await
                 {
                     debug!(key_id, error, "Failed to record source use");
+                }
+            }
+            .instrument(span),
+        );
+    }
+
+    /// Stamps why a token source's request was refused, at most once a minute per source and
+    /// off the request path, so its health turns Failing until data is accepted again.
+    fn note_source_rejection(&self, resolved: &ResolvedIngestKey, reason: String) {
+        let Some(source) = &resolved.source else {
+            return;
+        };
+        if self.recent_key_rejections.contains_key(&source.id) {
+            return;
+        }
+        let store = Arc::clone(&self.store);
+        let recent = self.recent_key_rejections.clone();
+        let key_id = source.id.clone();
+        let span = tracing::info_span!(parent: None, "record_source_rejection");
+        span.follows_from(Span::current().id());
+        tokio::spawn(
+            async move {
+                if !recent.entry(key_id.clone()).or_insert(()).await.is_fresh() {
+                    return;
+                }
+                if let Err(error) = store
+                    .record_source_rejected(&key_id, current_time_millis(), &reason)
+                    .await
+                {
+                    debug!(key_id, error, "Failed to record source rejection");
                 }
             }
             .instrument(span),
@@ -6796,6 +7234,7 @@ impl CloudflareConnectorResolver {
         };
 
         let routing = OrgRouting::from_connector_row(&row);
+        let (source, source_pause) = PullSourceRow::stamped(row.source);
         let identity = CloudflareConnectorIdentity {
             connector_id: connector_id.to_owned(),
             org_id: row.org_id.clone(),
@@ -6803,6 +7242,8 @@ impl CloudflareConnectorResolver {
             zone_name: row.zone_name,
             dataset: row.dataset,
             secret_key_id: secret_hash.chars().take(16).collect(),
+            source,
+            source_pause,
         };
 
         self.cache.insert(cache_key, identity.clone()).await;
@@ -6879,25 +7320,6 @@ impl GcpConnectorResolver {
         }
     }
 
-    /// The connector's integration source, cached with the connector identity.
-    /// `None` until the API creates it, or if the lookup fails: that never fails auth.
-    async fn integration_source(&self, org_id: &str, connector_id: &str) -> Option<SourceRef> {
-        match self
-            .store
-            .fetch_integration_source_id(org_id, GCP_SOURCE_PLATFORM, connector_id)
-            .await
-        {
-            Ok(id) => id.and_then(SourceRef::from_id),
-            Err(error) => {
-                warn!(
-                    org_id,
-                    connector_id, error, "Integration source lookup failed; stamping none"
-                );
-                None
-            }
-        }
-    }
-
     /// Whether this connector may write another setup report in this window.
     async fn take_setup_report_slot(&self, connector_id: &str) -> bool {
         let count = self
@@ -6935,13 +7357,14 @@ impl GcpConnectorResolver {
             self_managed: row.self_managed,
             clickhouse_ready: row.clickhouse_ready,
         };
-        let source = self.integration_source(&row.org_id, connector_id).await;
+        let (source, source_pause) = PullSourceRow::stamped(row.source);
         let identity = GcpConnectorIdentity {
             org_id: row.org_id,
             secret_key_id: cache_key.1.chars().take(16).collect(),
             logs_enabled: row.logs_enabled,
             confirms_log_forwarding: false,
             source,
+            source_pause,
         };
 
         self.cache.insert(cache_key, identity.clone()).await;
@@ -6997,7 +7420,7 @@ impl GcpConnectorResolver {
             return Ok(None);
         };
 
-        let source = self.integration_source(&row.org_id, connector_id).await;
+        let (source, source_pause) = PullSourceRow::stamped(row.source);
         let routing = OrgRouting {
             self_managed: row.self_managed,
             clickhouse_ready: row.clickhouse_ready,
@@ -7009,6 +7432,7 @@ impl GcpConnectorResolver {
             logs_enabled: row.logs_enabled,
             confirms_log_forwarding: row.applied_logs_enabled.is_none(),
             source,
+            source_pause,
         };
         self.cache.insert(cache_key, identity.clone()).await;
         self.routing
@@ -7225,8 +7649,44 @@ fn gcp_connector_columns() -> String {
     format!(
         "c.org_id, c.project_id, c.logs_enabled, c.applied_logs_enabled, \
          COALESCE(s.sync_status = 'connected', false) AS self_managed, \
-         COALESCE(s.sync_status = 'connected' AND {SCHEMA_REVISION_COMPATIBLE_SQL}, false) AS clickhouse_ready"
+         COALESCE(s.sync_status = 'connected' AND {SCHEMA_REVISION_COMPATIBLE_SQL}, false) AS clickhouse_ready, \
+         {CONNECTOR_SOURCE_COLUMNS}"
     )
+}
+
+/// A connector `c`'s own source, read in the connector's query: all null without one.
+const CONNECTOR_SOURCE_JOIN: &str =
+    "LEFT JOIN sources src ON src.id = c.source_id AND src.org_id = c.org_id";
+const CONNECTOR_SOURCE_COLUMNS: &str = "src.id AS source_id, \
+    (EXTRACT(EPOCH FROM src.paused_at) * 1000)::bigint AS source_paused_at_ms, \
+    (EXTRACT(EPOCH FROM src.paused_until) * 1000)::bigint AS source_paused_until_ms";
+
+fn connector_source(row: &tokio_postgres::Row) -> Option<PullSourceRow> {
+    let id: Option<String> = row.get("source_id");
+    id.map(|id| PullSourceRow {
+        id,
+        pause: PauseWindow {
+            paused_at_ms: row.get("source_paused_at_ms"),
+            paused_until_ms: row.get("source_paused_until_ms"),
+        },
+    })
+}
+
+/// A `PullSourceRow`'s columns over `sources`.
+const PULL_SOURCE_COLUMNS: &str = "id, \
+    (EXTRACT(EPOCH FROM paused_at) * 1000)::bigint AS paused_at_ms, \
+    (EXTRACT(EPOCH FROM paused_until) * 1000)::bigint AS paused_until_ms";
+
+fn pull_source_row(row: &tokio_postgres::Row) -> Result<PullSourceRow, String> {
+    let decode_error =
+        |error: tokio_postgres::Error| format!("postgres pull source row decode failed: {error}");
+    Ok(PullSourceRow {
+        id: row.try_get("id").map_err(decode_error)?,
+        pause: PauseWindow {
+            paused_at_ms: row.try_get("paused_at_ms").map_err(decode_error)?,
+            paused_until_ms: row.try_get("paused_until_ms").map_err(decode_error)?,
+        },
+    })
 }
 
 fn gcp_connector_row(row: &tokio_postgres::Row) -> GcpConnectorRow {
@@ -7237,6 +7697,7 @@ fn gcp_connector_row(row: &tokio_postgres::Row) -> GcpConnectorRow {
         applied_logs_enabled: row.get("applied_logs_enabled"),
         self_managed: row.get("self_managed"),
         clickhouse_ready: row.get("clickhouse_ready"),
+        source: connector_source(row),
     }
 }
 
@@ -7474,7 +7935,7 @@ impl KeyStore for PostgresKeyStore {
                     ds.id AS default_source_id \
              FROM org_ingest_keys k \
              LEFT JOIN org_clickhouse_settings s ON s.org_id = k.org_id \
-             LEFT JOIN sources ds ON ds.org_id = k.org_id AND ds.is_default \
+             LEFT JOIN sources ds ON ds.org_id = k.org_id AND ds.kind = 'default' \
              WHERE k.{hash_column} = $2 LIMIT 1"
         );
         let client = self.client().await?;
@@ -7576,9 +8037,11 @@ impl KeyStore for PostgresKeyStore {
         let sql = format!(
             "SELECT c.org_id, c.service_name, c.zone_name, c.dataset, \
                     COALESCE(s.sync_status = 'connected', false) AS self_managed, \
-                    COALESCE(s.sync_status = 'connected' AND {SCHEMA_REVISION_COMPATIBLE_SQL}, false) AS clickhouse_ready \
+                    COALESCE(s.sync_status = 'connected' AND {SCHEMA_REVISION_COMPATIBLE_SQL}, false) AS clickhouse_ready, \
+                    {CONNECTOR_SOURCE_COLUMNS} \
              FROM cloudflare_logpush_connectors c \
              LEFT JOIN org_clickhouse_settings s ON s.org_id = c.org_id \
+             {CONNECTOR_SOURCE_JOIN} \
              WHERE c.id = $2 AND c.secret_hash = $3 AND c.enabled = true LIMIT 1"
         );
         let rows = client
@@ -7601,6 +8064,7 @@ impl KeyStore for PostgresKeyStore {
             dataset: row.get("dataset"),
             self_managed: row.get("self_managed"),
             clickhouse_ready: row.get("clickhouse_ready"),
+            source: connector_source(&row),
         }))
     }
 
@@ -7617,6 +8081,7 @@ impl KeyStore for PostgresKeyStore {
             "SELECT {columns} \
              FROM gcp_connectors c \
              LEFT JOIN org_clickhouse_settings s ON s.org_id = c.org_id \
+             {CONNECTOR_SOURCE_JOIN} \
              WHERE c.id = $2 AND c.secret_hash = $3 LIMIT 1"
         );
         let rows = client
@@ -7643,6 +8108,7 @@ impl KeyStore for PostgresKeyStore {
             "SELECT {columns} \
              FROM gcp_connectors c \
              LEFT JOIN org_clickhouse_settings s ON s.org_id = c.org_id \
+             {CONNECTOR_SOURCE_JOIN} \
              WHERE c.id = $2 LIMIT 1"
         );
         let rows = client
@@ -7803,40 +8269,43 @@ impl KeyStore for PostgresKeyStore {
             .map_err(|error| format!("postgres record_source_used failed: {error}"))
     }
 
-    async fn fetch_integration_source_id(
+    async fn record_source_rejected(
         &self,
-        org_id: &str,
-        platform: &'static str,
-        integration_id: &str,
-    ) -> Result<Option<String>, String> {
+        key_id: &str,
+        now_ms: i64,
+        reason: &str,
+    ) -> Result<(), String> {
         let client = self.client().await?;
-        let rows = client
-            .query(
-                "SELECT id FROM sources \
-                 WHERE org_id = $1 AND platform = $2 AND integration_id = $3 LIMIT 1",
-                &[&org_id, &platform, &integration_id],
+        client
+            .execute(
+                "UPDATE sources \
+                 SET last_rejected_at = to_timestamp($1::bigint / 1000.0), last_rejection = $2 \
+                 WHERE id = $3",
+                &[&now_ms, &reason, &key_id],
             )
             .instrument(postgres_client_span(
-                "fetch_integration_source_id",
-                "SELECT",
+                "record_source_rejected",
+                "UPDATE",
                 "sources",
                 &self.target,
             ))
             .await
-            .map_err(|error| format!("postgres fetch_integration_source_id failed: {error}"))?;
-        Ok(rows.first().map(|row| row.get("id")))
+            .map(|_| ())
+            .map_err(|error| format!("postgres record_source_rejected failed: {error}"))
     }
 
     async fn claimable_source_ids(
         &self,
         org_id: &str,
         source_ids: &[String],
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<PullSourceRow>, String> {
         let client = self.client().await?;
         let rows = client
             .query(
-                "SELECT id FROM sources \
-                 WHERE org_id = $1 AND id = ANY($2) AND integration_id IS NOT NULL",
+                &format!(
+                    "SELECT {PULL_SOURCE_COLUMNS} FROM sources \
+                     WHERE org_id = $1 AND id = ANY($2) AND kind = 'integration'"
+                ),
                 &[&org_id, &source_ids],
             )
             .instrument(postgres_client_span(
@@ -7847,7 +8316,7 @@ impl KeyStore for PostgresKeyStore {
             ))
             .await
             .map_err(|error| format!("postgres claimable_source_ids failed: {error}"))?;
-        Ok(rows.iter().map(|row| row.get("id")).collect())
+        rows.iter().map(pull_source_row).collect()
     }
 
     async fn record_connector_success(
@@ -8029,20 +8498,20 @@ impl KeyStore for StaticKeyStore {
         Ok(())
     }
 
-    async fn fetch_integration_source_id(
+    async fn record_source_rejected(
         &self,
-        _org_id: &str,
-        _platform: &'static str,
-        _integration_id: &str,
-    ) -> Result<Option<String>, String> {
-        Ok(None)
+        _key_id: &str,
+        _now_ms: i64,
+        _reason: &str,
+    ) -> Result<(), String> {
+        Ok(())
     }
 
     async fn claimable_source_ids(
         &self,
         _org_id: &str,
         _source_ids: &[String],
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<PullSourceRow>, String> {
         Ok(Vec::new())
     }
 
@@ -9049,6 +9518,8 @@ mod tests {
             secret_key_id: "secret".to_owned(),
             self_managed: false,
             clickhouse_ready: false,
+            source: None,
+            source_pause: PauseWindow::default(),
         };
         let record = serde_json::from_str::<JsonMap<String, JsonValue>>(
             r#"{
@@ -9185,12 +9656,18 @@ mod tests {
         sources: std::sync::Mutex<std::collections::HashMap<String, SourceRow>>,
         /// Key id of every `record_source_used` call.
         source_uses: std::sync::Mutex<Vec<String>>,
-        /// `sources` rows that are not token sources: (org id, id, is_default, integration).
-        source_rows: std::sync::Mutex<Vec<(String, String, bool, Option<(&'static str, String)>)>>,
+        /// (key id, reason) of every `record_source_rejected` call.
+        source_rejections: std::sync::Mutex<Vec<(String, String)>>,
+        /// `sources` rows: (org id, id, kind).
+        source_rows: std::sync::Mutex<Vec<(String, String, &'static str)>>,
+        /// Connector id to its `source_id`, joined as the connector queries join it.
+        connector_sources: std::sync::Mutex<std::collections::HashMap<String, String>>,
         source_row_fetches: AtomicU64,
+        /// Pause windows of `source_rows`, by source id; absent means not paused.
+        source_pauses: std::sync::Mutex<std::collections::HashMap<String, PauseWindow>>,
         /// The source ids each `claimable_source_ids` call asked about.
         claim_lookups: std::sync::Mutex<Vec<Vec<String>>>,
-        /// Fails the source lookups (claims, integration sources).
+        /// Fails the source claim lookups.
         source_errors: AtomicBool,
         connectors: std::sync::Mutex<std::collections::HashMap<(String, String), ConnectorRow>>,
         gcp_connectors:
@@ -9293,7 +9770,7 @@ mod tests {
                     .lock()
                     .unwrap()
                     .iter()
-                    .find(|row| row.0 == key.org_id && row.2)
+                    .find(|row| row.0 == key.org_id && row.2 == "default")
                     .map(|row| row.1.clone());
                 OrgKeyRow {
                     key,
@@ -9312,35 +9789,23 @@ mod tests {
             self.source_uses.lock().unwrap().push(key_id.to_owned());
             Ok(())
         }
-        async fn fetch_integration_source_id(
+        async fn record_source_rejected(
             &self,
-            org_id: &str,
-            platform: &'static str,
-            integration_id: &str,
-        ) -> Result<Option<String>, String> {
-            self.source_row_fetches.fetch_add(1, Ordering::Relaxed);
-            if self.source_errors.load(Ordering::Relaxed) {
-                return Err("source lookup failed".to_owned());
-            }
-            Ok(self
-                .source_rows
+            key_id: &str,
+            _now_ms: i64,
+            reason: &str,
+        ) -> Result<(), String> {
+            self.source_rejections
                 .lock()
                 .unwrap()
-                .iter()
-                .find(|row| {
-                    row.0 == org_id
-                        && row
-                            .3
-                            .as_ref()
-                            .is_some_and(|(p, id)| *p == platform && id == integration_id)
-                })
-                .map(|row| row.1.clone()))
+                .push((key_id.to_owned(), reason.to_owned()));
+            Ok(())
         }
         async fn claimable_source_ids(
             &self,
             org_id: &str,
             source_ids: &[String],
-        ) -> Result<Vec<String>, String> {
+        ) -> Result<Vec<PullSourceRow>, String> {
             self.source_row_fetches.fetch_add(1, Ordering::Relaxed);
             self.claim_lookups.lock().unwrap().push(source_ids.to_vec());
             if self.source_errors.load(Ordering::Relaxed) {
@@ -9351,8 +9816,10 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|row| row.0 == org_id && row.3.is_some() && source_ids.contains(&row.1))
-                .map(|row| row.1.clone())
+                .filter(|row| {
+                    row.0 == org_id && row.2 == "integration" && source_ids.contains(&row.1)
+                })
+                .map(|row| self.pull_source_row(&row.1))
                 .collect())
         }
         async fn fetch_connector(
@@ -9361,36 +9828,42 @@ mod tests {
             secret_hash: &str,
         ) -> Result<Option<ConnectorRow>, String> {
             self.connector_fetches.fetch_add(1, Ordering::Relaxed);
-            Ok(self
+            let row = self
                 .connectors
                 .lock()
                 .unwrap()
                 .get(&(connector_id.to_owned(), secret_hash.to_owned()))
-                .cloned())
+                .cloned();
+            Ok(row.map(|row| ConnectorRow {
+                source: self.joined_source(connector_id, &row.org_id),
+                ..row
+            }))
         }
         async fn fetch_gcp_connector(
             &self,
             connector_id: &str,
             secret_hash: &str,
         ) -> Result<Option<GcpConnectorRow>, String> {
-            Ok(self
+            let row = self
                 .gcp_connectors
                 .lock()
                 .unwrap()
                 .get(&(connector_id.to_owned(), secret_hash.to_owned()))
-                .cloned())
+                .cloned();
+            Ok(row.map(|row| self.with_joined_source(connector_id, row)))
         }
         async fn fetch_gcp_connector_by_id(
             &self,
             connector_id: &str,
         ) -> Result<Option<GcpConnectorRow>, String> {
-            Ok(self
+            let row = self
                 .gcp_connectors
                 .lock()
                 .unwrap()
                 .iter()
                 .find(|((id, _), _)| id == connector_id)
-                .map(|(_, row)| row.clone()))
+                .map(|(_, row)| row.clone());
+            Ok(row.map(|row| self.with_joined_source(connector_id, row)))
         }
         async fn fetch_sampling_policy(
             &self,
@@ -9486,6 +9959,7 @@ mod tests {
                 .build(),
             routing,
             recent_key_uses: recent_key_uses_cache(),
+            recent_key_rejections: recent_key_rejections_cache(),
             source_claims: source_claims_cache(Duration::from_mins(1)),
         }
     }
@@ -9685,6 +10159,7 @@ mod tests {
                 write_mode: WriteMode::Forward,
                 tinybird,
                 max_request_body_bytes: 1024 * 1024,
+                max_decoded_body_bytes: 8 * 1024 * 1024,
                 org_max_in_flight: 100,
                 rate_limit_fleet_size: 1,
                 gcp_org_max_in_flight: 100,
@@ -9729,6 +10204,7 @@ mod tests {
                     .build(),
                 routing: Arc::clone(&routing),
                 recent_key_uses: recent_key_uses_cache(),
+                recent_key_rejections: recent_key_rejections_cache(),
                 source_claims: source_claims_cache(Duration::from_mins(1)),
             },
             org_inflight_limiter: OrgInFlightLimiter::new(100),
@@ -10333,6 +10809,61 @@ mod tests {
     }
 
     #[test]
+    fn decode_payload_gunzips_within_the_decoded_limit() {
+        let payload = r#"{"resourceSpans":[]}"#;
+        let decoded = decode_payload(&gzip_bytes(payload), Some("gzip"), payload.len())
+            .expect("a body at exactly the limit decodes");
+        assert_eq!(decoded, payload.as_bytes());
+
+        let plain = Bytes::from_static(b"raw");
+        assert_eq!(decode_payload(&plain, None, 1).unwrap(), b"raw");
+
+        let error = decode_payload(&Bytes::from_static(b"not gzip"), Some("gzip"), 1024)
+            .expect_err("malformed gzip is rejected");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn decode_payload_rejects_gzip_that_inflates_past_the_limit() {
+        // 4 MiB of one byte compresses to a few KiB, far under the body limit.
+        let inflated = "a".repeat(4 * 1024 * 1024);
+        let body = gzip_bytes(&inflated);
+        assert!(body.len() < 64 * 1024, "fixture should compress well");
+
+        let error = decode_payload(&body, Some("gzip"), 1024 * 1024)
+            .expect_err("decoded size over the limit must be refused");
+        assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(error.error_kind(), "payload_too_large");
+
+        let decoded = decode_payload(&body, Some("gzip"), inflated.len())
+            .expect("the same body decodes once the limit allows it");
+        assert_eq!(decoded.len(), inflated.len());
+    }
+
+    #[test]
+    fn replay_text_gunzip_is_bounded_and_keeps_utf8_rejection() {
+        let events = r#"[{"type":2,"timestamp":1}]"#;
+        assert_eq!(
+            gunzip_replay_text(&gzip_bytes(events), events.len()).unwrap(),
+            events
+        );
+        assert!(matches!(
+            gunzip_replay_text(&gzip_bytes(events), events.len() - 1),
+            Err(BoundedGunzipError::TooLarge)
+        ));
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&[0xff, 0xfe]).unwrap();
+        let not_utf8 = encoder.finish().unwrap();
+        match gunzip_replay_text(&not_utf8, 1024) {
+            Err(BoundedGunzipError::Invalid(error)) => {
+                assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            }
+            other => panic!("expected an invalid-data error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn decompressed_len_matches_read_to_string_and_rejects_garbage() {
         // `byte_size` is a published API field and the input to the per-session
         // budget, both denominated in decompressed bytes — the streaming counter
@@ -10721,6 +11252,7 @@ mod tests {
                 dataset: "http_requests".to_owned(),
                 self_managed: false,
                 clickhouse_ready: false,
+                source: None,
             },
         );
         let routing = make_routing_resolver(Arc::clone(&store), Duration::from_millis(5));
@@ -10827,6 +11359,7 @@ mod tests {
                     applied_logs_enabled,
                     self_managed: true,
                     clickhouse_ready: true,
+                    source: None,
                 },
             );
         }
@@ -11438,7 +11971,7 @@ mod tests {
             &sentinel,
             KeyAdmission::Ingest,
             decoded_bytes,
-            false,
+            &ClaimOutcome::default(),
         )
         .await
         .expect("a sentinel export must look successful to the client");
@@ -11467,7 +12000,7 @@ mod tests {
             &resolved,
             KeyAdmission::Ingest,
             real_bytes,
-            false,
+            &ClaimOutcome::default(),
         )
         .await
         .expect("a real export is accepted");
@@ -11579,6 +12112,7 @@ mod tests {
                     dataset: "http_requests".to_owned(),
                     self_managed: false,
                     clickhouse_ready: false,
+                    source: None,
                 },
             );
         }
@@ -11618,14 +12152,13 @@ mod tests {
         assert_eq!(error_kind, "billing_limit");
 
         // An allowed org's validation ping and log batch both pass the gate.
-        let (response, _, _, is_validation) =
-            push("connector_allowed", false, br#"{"content":"tests"}"#)
-                .await
-                .expect("a validation ping is accepted");
+        let (response, _, _, outcome) = push("connector_allowed", false, br#"{"content":"tests"}"#)
+            .await
+            .expect("a validation ping is accepted");
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(is_validation);
+        assert_eq!(outcome, LogpushOutcome::Validation);
 
-        let (response, item_count, org_id, is_validation) = push(
+        let (response, item_count, org_id, outcome) = push(
             "connector_allowed",
             false,
             b"{\"ClientRequestHost\":\"example.com\",\"EdgeResponseStatus\":200}\n\
@@ -11635,7 +12168,7 @@ mod tests {
         .expect("a log batch is accepted");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!((item_count, org_id.as_str()), (2, "org_logpush_allowed"));
-        assert!(!is_validation);
+        assert_eq!(outcome, LogpushOutcome::Accepted);
         tokio::time::timeout(Duration::from_secs(2), forward_rx.recv())
             .await
             .expect("an allowed batch is forwarded")
@@ -12793,6 +13326,7 @@ mod tests {
                 last_known: DashMap::new(),
             }),
             recent_key_uses: recent_key_uses_cache(),
+            recent_key_rejections: recent_key_rejections_cache(),
             source_claims: source_claims_cache(Duration::from_mins(1)),
         };
         let resolved = resolver
@@ -12846,6 +13380,12 @@ mod tests {
     async fn recorded_key_uses(store: &FakeKeyStore) -> Vec<String> {
         tokio::time::sleep(Duration::from_millis(100)).await;
         store.source_uses.lock().unwrap().clone()
+    }
+
+    /// Waits for the spawned `last_rejected_at` writes to settle, then reads them.
+    async fn recorded_rejections(store: &FakeKeyStore) -> Vec<(String, String)> {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        store.source_rejections.lock().unwrap().clone()
     }
 
     #[tokio::test]
@@ -12940,6 +13480,14 @@ mod tests {
             "This ingest key is not allowed to send traces"
         );
         assert_eq!(error_kind, "forbidden");
+        // The refusal is stamped on the source, so its health turns Failing.
+        assert_eq!(
+            recorded_rejections(&store).await,
+            vec![(
+                SOURCE_UUID.to_owned(),
+                "Sent traces, which this source does not allow".to_owned()
+            )]
+        );
         let error = rejected(
             resolve_replay_key(&state, &bearer_headers(raw_key), &[SourceSignal::Events]).await,
             "product events are not allowed",
@@ -12975,24 +13523,69 @@ mod tests {
             "gRPC shares the key's bucket",
         );
         assert_eq!(status.code(), tonic::Code::ResourceExhausted);
+        // Later refusals inside the minute are not written again.
+        assert_eq!(recorded_rejections(&store).await.len(), 1);
 
         drop(std::fs::remove_dir_all(&queue_dir));
     }
 
     impl FakeKeyStore {
-        fn insert_source_row(
-            &self,
-            org_id: &str,
-            id: &str,
-            is_default: bool,
-            integration: Option<(&'static str, &str)>,
-        ) {
-            self.source_rows.lock().unwrap().push((
-                org_id.to_owned(),
+        /// A `sources` row of `kind`: "default", "token" or "integration".
+        fn insert_source_row(&self, org_id: &str, id: &str, kind: &'static str) {
+            self.source_rows
+                .lock()
+                .unwrap()
+                .push((org_id.to_owned(), id.to_owned(), kind));
+        }
+
+        /// Sets a connector's `source_id`.
+        fn link_connector_source(&self, connector_id: &str, source_id: &str) {
+            self.connector_sources
+                .lock()
+                .unwrap()
+                .insert(connector_id.to_owned(), source_id.to_owned());
+        }
+
+        /// The connector's source as the `LEFT JOIN sources` reads it: same org only.
+        fn joined_source(&self, connector_id: &str, org_id: &str) -> Option<PullSourceRow> {
+            let source_id = self
+                .connector_sources
+                .lock()
+                .unwrap()
+                .get(connector_id)
+                .cloned()?;
+            let exists = self
+                .source_rows
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|row| row.0 == org_id && row.1 == source_id);
+            exists.then(|| self.pull_source_row(&source_id))
+        }
+
+        fn with_joined_source(&self, connector_id: &str, row: GcpConnectorRow) -> GcpConnectorRow {
+            GcpConnectorRow {
+                source: self.joined_source(connector_id, &row.org_id),
+                ..row
+            }
+        }
+
+        fn pause_source(&self, id: &str, paused_at_ms: i64, paused_until_ms: Option<i64>) {
+            self.source_pauses.lock().unwrap().insert(
                 id.to_owned(),
-                is_default,
-                integration.map(|(platform, id)| (platform, id.to_owned())),
-            ));
+                PauseWindow {
+                    paused_at_ms: Some(paused_at_ms),
+                    paused_until_ms,
+                },
+            );
+        }
+
+        fn pull_source_row(&self, id: &str) -> PullSourceRow {
+            let pauses = self.source_pauses.lock().unwrap();
+            PullSourceRow {
+                id: id.to_owned(),
+                pause: pauses.get(id).copied().unwrap_or_default(),
+            }
         }
     }
 
@@ -13012,8 +13605,8 @@ mod tests {
                 ..org_key
             },
         );
-        store.insert_source_row("org_with_default", DEFAULT_SOURCE_UUID, true, None);
-        store.insert_source_row("org_with_default", INTEGRATION_SOURCE_UUID, false, None);
+        store.insert_source_row("org_with_default", DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row("org_with_default", INTEGRATION_SOURCE_UUID, "token");
         let resolver = make_resolver(Arc::clone(&store));
 
         for _ in 0..3 {
@@ -13044,15 +13637,10 @@ mod tests {
     #[tokio::test]
     async fn source_claims_verify_pull_sources_of_the_org_and_cache_both_answers() {
         let store = Arc::new(FakeKeyStore::default());
-        store.insert_source_row(
-            "org_a",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("railway", "rw_1")),
-        );
+        store.insert_source_row("org_a", INTEGRATION_SOURCE_UUID, "integration");
         // A push (token) source of the org itself is not claimable.
-        store.insert_source_row("org_a", SOURCE_UUID, false, None);
-        store.insert_source_row("org_b", DEFAULT_SOURCE_UUID, false, Some(("gcp", "g_1")));
+        store.insert_source_row("org_a", SOURCE_UUID, "token");
+        store.insert_source_row("org_b", DEFAULT_SOURCE_UUID, "integration");
         let resolver = make_resolver(Arc::clone(&store));
         let own = public_id(INTEGRATION_SOURCE_UUID);
         let claims = vec![
@@ -13065,7 +13653,10 @@ mod tests {
 
         for _ in 0..2 {
             assert_eq!(
-                resolver.verify_source_claims("org_a", claims.clone()).await,
+                resolver
+                    .verify_source_claims("org_a", claims.clone())
+                    .await
+                    .active,
                 vec![own.clone()]
             );
         }
@@ -13075,7 +13666,8 @@ mod tests {
         assert_eq!(
             resolver
                 .verify_source_claims("org_b", vec![public_id(DEFAULT_SOURCE_UUID)])
-                .await,
+                .await
+                .active,
             vec![public_id(DEFAULT_SOURCE_UUID)]
         );
     }
@@ -13083,19 +13675,17 @@ mod tests {
     #[tokio::test]
     async fn source_claims_are_deduped_and_capped_in_one_lookup() {
         let store = Arc::new(FakeKeyStore::default());
-        store.insert_source_row(
-            "org_a",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("railway", "r")),
-        );
+        store.insert_source_row("org_a", INTEGRATION_SOURCE_UUID, "integration");
         let resolver = make_resolver(Arc::clone(&store));
         let own = public_id(INTEGRATION_SOURCE_UUID);
         let mut claims = vec![own.clone(), own.clone()];
         claims.extend((0..2_000).map(|_| public_id(&uuid::Uuid::new_v4().to_string())));
 
         assert_eq!(
-            resolver.verify_source_claims("org_a", claims.clone()).await,
+            resolver
+                .verify_source_claims("org_a", claims.clone())
+                .await
+                .active,
             vec![own.clone()]
         );
         let lookups = store.claim_lookups.lock().unwrap().clone();
@@ -13111,19 +13701,42 @@ mod tests {
         assert!(resolver
             .verify_source_claims("org_a", late)
             .await
+            .active
             .is_empty());
         assert_eq!(store.claim_lookups.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
+    async fn a_cached_claim_of_a_timed_pause_resumes_at_its_deadline() {
+        let store = Arc::new(FakeKeyStore::default());
+        store.insert_source_row("org_a", INTEGRATION_SOURCE_UUID, "integration");
+        store.pause_source(
+            INTEGRATION_SOURCE_UUID,
+            1,
+            Some(current_time_millis() + 150),
+        );
+        let resolver = make_resolver(Arc::clone(&store));
+        let own = public_id(INTEGRATION_SOURCE_UUID);
+
+        let verified = resolver
+            .verify_source_claims("org_a", vec![own.clone()])
+            .await;
+        assert_eq!(verified.paused, vec![own.clone()]);
+        assert!(verified.active.is_empty());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let verified = resolver
+            .verify_source_claims("org_a", vec![own.clone()])
+            .await;
+        assert_eq!(verified.active, vec![own]);
+        assert!(verified.paused.is_empty());
+        // Judged from the cached window: no second lookup.
+        assert_eq!(store.source_row_fetches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
     async fn source_claim_lookup_errors_leave_claims_unverified_and_uncached() {
         let store = Arc::new(FakeKeyStore::default());
-        store.insert_source_row(
-            "org_a",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("railway", "r")),
-        );
+        store.insert_source_row("org_a", INTEGRATION_SOURCE_UUID, "integration");
         let resolver = make_resolver(Arc::clone(&store));
         let own = public_id(INTEGRATION_SOURCE_UUID);
 
@@ -13131,12 +13744,14 @@ mod tests {
         assert!(resolver
             .verify_source_claims("org_a", vec![own.clone()])
             .await
+            .active
             .is_empty());
         store.source_errors.store(false, Ordering::Relaxed);
         assert_eq!(
             resolver
                 .verify_source_claims("org_a", vec![own.clone()])
-                .await,
+                .await
+                .active,
             vec![own]
         );
         assert_eq!(store.source_row_fetches.load(Ordering::Relaxed), 2);
@@ -13146,25 +13761,11 @@ mod tests {
     async fn gcp_connectors_carry_their_integration_source_when_it_exists() {
         let (state, store, queue_dir) =
             gcp_logpush_state("gcp-integration-source", "http://127.0.0.1:1").await;
-        store.insert_source_row(
-            "org_gcp",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("gcp", "gcp_conn_1")),
-        );
-        // Same integration id under another platform or org must not match.
-        store.insert_source_row(
-            "org_gcp",
-            SOURCE_UUID,
-            false,
-            Some(("railway", "gcp_conn_off")),
-        );
-        store.insert_source_row(
-            "org_other",
-            DEFAULT_SOURCE_UUID,
-            false,
-            Some(("gcp", "gcp_conn_off")),
-        );
+        store.insert_source_row("org_gcp", INTEGRATION_SOURCE_UUID, "integration");
+        store.link_connector_source("gcp_conn_1", INTEGRATION_SOURCE_UUID);
+        // A `source_id` naming another org's source joins nothing.
+        store.insert_source_row("org_other", DEFAULT_SOURCE_UUID, "integration");
+        store.link_connector_source("gcp_conn_off", DEFAULT_SOURCE_UUID);
 
         let with_source = state
             .gcp_resolver
@@ -13189,29 +13790,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_integration_source_lookup_does_not_fail_gcp_auth() {
-        let (state, store, queue_dir) =
-            gcp_logpush_state("gcp-integration-source-error", "http://127.0.0.1:1").await;
-        store.insert_source_row(
-            "org_gcp",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("gcp", "gcp_conn_1")),
-        );
-        store.source_errors.store(true, Ordering::Relaxed);
-
-        let resolved = state
-            .gcp_resolver
-            .resolve_connector("gcp_conn_1", "gcp-secret")
-            .await
-            .expect("a source lookup error is not an auth error")
-            .expect("connector resolves");
-        assert_eq!(resolved.key.source_public_id(), None);
-
-        drop(std::fs::remove_dir_all(&queue_dir));
-    }
-
-    #[tokio::test]
     async fn default_source_use_is_held_longer_and_skipped_for_claimed_batches() {
         let store = Arc::new(FakeKeyStore::default());
         store.insert_private(
@@ -13222,7 +13800,7 @@ mod tests {
                 clickhouse_ready: false,
             },
         );
-        store.insert_source_row("org_default_use", DEFAULT_SOURCE_UUID, true, None);
+        store.insert_source_row("org_default_use", DEFAULT_SOURCE_UUID, "default");
         let resolver = make_resolver(Arc::clone(&store));
         let resolved = resolver
             .resolve_ingest_key("maple_sk_default_use")
@@ -13267,14 +13845,9 @@ mod tests {
                 clickhouse_ready: false,
             },
         );
-        store.insert_source_row("org_default_e2e", DEFAULT_SOURCE_UUID, true, None);
-        store.insert_source_row(
-            "org_default_e2e",
-            INTEGRATION_SOURCE_UUID,
-            false,
-            Some(("railway", "rw_1")),
-        );
-        store.insert_source_row("org_someone_else", SOURCE_UUID, false, None);
+        store.insert_source_row("org_default_e2e", DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row("org_default_e2e", INTEGRATION_SOURCE_UUID, "integration");
+        store.insert_source_row("org_someone_else", SOURCE_UUID, "token");
         let state = test_app_state(
             Arc::clone(&store),
             queue_dir.clone(),
@@ -13334,8 +13907,11 @@ mod tests {
                 default_id,
             ]
         );
-        // The batch kept a poller's claim, so it does not keep the default source fresh.
-        assert!(recorded_key_uses(&store).await.is_empty());
+        // The batch kept a poller's claim: its source is used, the default source is not.
+        assert_eq!(
+            recorded_key_uses(&store).await,
+            vec![INTEGRATION_SOURCE_UUID.to_owned()]
+        );
 
         let (response, ..) = handle_signal_inner(
             &state,
@@ -13348,8 +13924,446 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             recorded_key_uses(&store).await,
-            vec![DEFAULT_SOURCE_UUID.to_owned()]
+            vec![
+                INTEGRATION_SOURCE_UUID.to_owned(),
+                DEFAULT_SOURCE_UUID.to_owned()
+            ]
         );
+
+        drop(std::fs::remove_dir_all(&queue_dir));
+    }
+
+    #[tokio::test]
+    async fn paused_pull_source_claims_drop_only_their_resources() {
+        let (forward_url, mut forward_rx) = spawn_capturing_logs_collector().await;
+        let queue_dir = unique_main_test_dir("paused-pull-source");
+        let store = Arc::new(FakeKeyStore::default());
+        let raw_key = "maple_sk_paused_pull_source";
+        store.insert_private(
+            raw_key,
+            KeyRow {
+                org_id: "org_paused".to_owned(),
+                self_managed: false,
+                clickhouse_ready: false,
+            },
+        );
+        store.insert_source_row("org_paused", DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row("org_paused", INTEGRATION_SOURCE_UUID, "integration");
+        store.insert_source_row("org_paused", SOURCE_UUID, "integration");
+        // One paused until resumed; one whose timed pause already ended.
+        store.pause_source(INTEGRATION_SOURCE_UUID, 1, None);
+        store.pause_source(SOURCE_UUID, 1, Some(2));
+        let state = test_app_state(
+            Arc::clone(&store),
+            queue_dir.clone(),
+            forward_url,
+            Duration::from_secs(30),
+        )
+        .await;
+        let request_with = |claims: &[Option<String>]| {
+            let mut request = test_log_request("paused");
+            let template = request.resource_logs[0].clone();
+            request.resource_logs = claims
+                .iter()
+                .map(|claim| {
+                    let mut resource_logs = template.clone();
+                    if let Some(claim) = claim {
+                        let resource = resource_logs.resource.as_mut().expect("resource");
+                        resource
+                            .attributes
+                            .push(string_attribute("maple_source_id", claim));
+                    }
+                    resource_logs
+                })
+                .collect();
+            Bytes::from(request.encode_to_vec())
+        };
+        let paused = Some(public_id(INTEGRATION_SOURCE_UUID));
+
+        let (response, ..) = handle_signal_inner(
+            &state,
+            &test_headers(raw_key),
+            request_with(&[paused.clone(), Some(public_id(SOURCE_UUID)), None]),
+            Signal::Logs,
+        )
+        .await
+        .expect("default key traffic is accepted");
+        assert_eq!(response.status(), StatusCode::OK);
+        let forwarded = tokio::time::timeout(Duration::from_secs(2), forward_rx.recv())
+            .await
+            .expect("the kept resources are forwarded")
+            .expect("forward channel should stay open");
+        let forwarded = ExportLogsServiceRequest::decode(forwarded).expect("forwarded protobuf");
+        let stamped: Vec<String> = forwarded
+            .resource_logs
+            .iter()
+            .map(|resource_logs| {
+                let resource = resource_logs.resource.as_ref().expect("resource");
+                string_attributes(&resource.attributes)["maple_source_id"].clone()
+            })
+            .collect();
+        assert_eq!(
+            stamped,
+            vec![public_id(SOURCE_UUID), public_id(DEFAULT_SOURCE_UUID)]
+        );
+
+        // Only paused resources: success to the sender, nothing forwarded.
+        let (response, item_count, ..) = handle_signal_inner(
+            &state,
+            &test_headers(raw_key),
+            request_with(&[paused.clone(), paused.clone()]),
+            Signal::Logs,
+        )
+        .await
+        .expect("a paused source's batch is acked");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(item_count, 0);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), forward_rx.recv())
+                .await
+                .is_err(),
+            "a paused source's batch must not be forwarded"
+        );
+        // A poller's batch, even with unclaimed resources beside a paused claim, is not default use.
+        // Only the unpaused claim whose data was kept counts as used.
+        handle_signal_inner(
+            &state,
+            &test_headers(raw_key),
+            request_with(&[paused, None]),
+            Signal::Logs,
+        )
+        .await
+        .expect("default key traffic is accepted");
+        assert_eq!(
+            recorded_key_uses(&store).await,
+            vec![SOURCE_UUID.to_owned()]
+        );
+
+        drop(std::fs::remove_dir_all(&queue_dir));
+    }
+
+    #[tokio::test]
+    async fn paused_drops_meter_only_the_rest_and_the_claim_cap_is_no_bypass() {
+        let (forward_url, mut forward_rx) = spawn_capturing_logs_collector().await;
+        let queue_dir = unique_main_test_dir("paused-pull-metering");
+        let store = Arc::new(FakeKeyStore::default());
+        let raw_key = "maple_sk_paused_pull_metering";
+        let org = "org_paused_meter";
+        let key = KeyRow {
+            org_id: org.to_owned(),
+            self_managed: false,
+            clickhouse_ready: false,
+        };
+        store.insert_private(raw_key, key);
+        store.insert_source_row(org, DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row(org, INTEGRATION_SOURCE_UUID, "integration");
+        store.pause_source(INTEGRATION_SOURCE_UUID, 1, None);
+        let others: Vec<String> = (0..MAX_SOURCE_CLAIMS)
+            .map(|_| uuid::Uuid::new_v4().to_string())
+            .collect();
+        for id in &others {
+            store.insert_source_row(org, id, "integration");
+        }
+        let state = test_app_state(
+            Arc::clone(&store),
+            queue_dir.clone(),
+            forward_url,
+            Duration::from_secs(30),
+        )
+        .await;
+        let paused = Some(public_id(INTEGRATION_SOURCE_UUID));
+        let send = |claims: Vec<Option<String>>| {
+            let mut request = test_log_request("metering");
+            let template = request.resource_logs[0].clone();
+            request.resource_logs = claims
+                .iter()
+                .map(|claim| {
+                    let mut resource_logs = template.clone();
+                    if let Some(claim) = claim {
+                        let resource = resource_logs.resource.as_mut().expect("resource");
+                        resource
+                            .attributes
+                            .push(string_attribute("maple_source_id", claim));
+                    }
+                    resource_logs
+                })
+                .collect();
+            let body = request.encode_to_vec();
+            let state = &state;
+            async move {
+                let len = body.len();
+                let (.., metered) = handle_signal_inner(
+                    state,
+                    &test_headers(raw_key),
+                    Bytes::from(body),
+                    Signal::Logs,
+                )
+                .await
+                .expect("default key traffic is accepted");
+                (len, metered)
+            }
+        };
+        async fn forwarded_resources(
+            rx: &mut tokio::sync::mpsc::UnboundedReceiver<Bytes>,
+        ) -> usize {
+            let body = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("forwarded")
+                .expect("forward channel should stay open");
+            ExportLogsServiceRequest::decode(body)
+                .expect("protobuf")
+                .resource_logs
+                .len()
+        }
+
+        // Nothing dropped: metered exactly as received.
+        let (len, metered) = send(vec![None]).await;
+        assert_eq!(metered, len);
+        assert_eq!(forwarded_resources(&mut forward_rx).await, 1);
+        // Half dropped: only the retained share is metered.
+        let (len, metered) = send(vec![paused.clone(), None]).await;
+        assert!(metered > 0 && metered < len, "{metered} of {len}");
+        assert_eq!(forwarded_resources(&mut forward_rx).await, 1);
+
+        // The paused claim comes after the cap's worth of others: still dropped.
+        let mut claims: Vec<Option<String>> = others.iter().map(|id| Some(public_id(id))).collect();
+        claims.extend([paused, None]);
+        let (len, metered) = send(claims).await;
+        assert!(metered < len);
+        assert_eq!(
+            forwarded_resources(&mut forward_rx).await,
+            MAX_SOURCE_CLAIMS + 1
+        );
+
+        drop(std::fs::remove_dir_all(&queue_dir));
+    }
+
+    #[tokio::test]
+    async fn gcp_logpush_acks_and_drops_while_the_integration_source_is_paused() {
+        let (ch_url, mut ch_rx) = spawn_fake_clickhouse().await;
+        let (state, store, queue_dir) = gcp_logpush_state("gcp-logpush-paused", &ch_url).await;
+        store.insert_source_row("org_gcp", INTEGRATION_SOURCE_UUID, "integration");
+        store.link_connector_source("gcp_conn_1", INTEGRATION_SOURCE_UUID);
+        store.pause_source(INTEGRATION_SOURCE_UUID, 1, None);
+
+        let dropped = gcp_push(&state, "gcp_conn_1", Some("gcp-secret"), GCP_LOG_ENTRY).await;
+        assert_eq!(dropped.status(), StatusCode::OK);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), ch_rx.recv())
+                .await
+                .is_err(),
+            "nothing may be stored while the source is paused"
+        );
+        assert!(recorded_key_uses(&store).await.is_empty());
+
+        drop(std::fs::remove_dir_all(queue_dir));
+    }
+    #[tokio::test]
+    async fn source_claims_are_accepted_only_for_integration_sources() {
+        let store = Arc::new(FakeKeyStore::default());
+        store.insert_source_row("org_kinds", DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row("org_kinds", SOURCE_UUID, "token");
+        store.insert_source_row("org_kinds", INTEGRATION_SOURCE_UUID, "integration");
+        let resolver = make_resolver(Arc::clone(&store));
+
+        let verified = resolver
+            .verify_source_claims(
+                "org_kinds",
+                vec![
+                    public_id(DEFAULT_SOURCE_UUID),
+                    public_id(SOURCE_UUID),
+                    public_id(INTEGRATION_SOURCE_UUID),
+                ],
+            )
+            .await;
+        assert_eq!(verified.active, vec![public_id(INTEGRATION_SOURCE_UUID)]);
+        assert!(verified.paused.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_verified_claim_records_use_for_its_source_once_per_interval() {
+        let (forward_url, _forward_rx) = spawn_capturing_logs_collector().await;
+        let queue_dir = unique_main_test_dir("claimed-source-use");
+        let store = Arc::new(FakeKeyStore::default());
+        let raw_key = "maple_sk_claimed_source_use";
+        store.insert_private(
+            raw_key,
+            KeyRow {
+                org_id: "org_claimed_use".to_owned(),
+                self_managed: false,
+                clickhouse_ready: false,
+            },
+        );
+        store.insert_source_row("org_claimed_use", DEFAULT_SOURCE_UUID, "default");
+        store.insert_source_row("org_claimed_use", INTEGRATION_SOURCE_UUID, "integration");
+        // A token source claimed with the default key is not verified, so not used.
+        store.insert_source_row("org_claimed_use", SOURCE_UUID, "token");
+        let state = test_app_state(
+            Arc::clone(&store),
+            queue_dir.clone(),
+            forward_url,
+            Duration::from_secs(30),
+        )
+        .await;
+        let mut request = test_log_request("claimed use");
+        let template = request.resource_logs[0].clone();
+        request.resource_logs = [INTEGRATION_SOURCE_UUID, SOURCE_UUID]
+            .iter()
+            .map(|id| {
+                let mut resource_logs = template.clone();
+                let resource = resource_logs.resource.as_mut().expect("resource");
+                resource
+                    .attributes
+                    .push(string_attribute("maple_source_id", &public_id(id)));
+                resource_logs
+            })
+            .collect();
+        let body = Bytes::from(request.encode_to_vec());
+
+        for _ in 0..2 {
+            let (response, ..) =
+                handle_signal_inner(&state, &test_headers(raw_key), body.clone(), Signal::Logs)
+                    .await
+                    .expect("default key traffic is accepted");
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        assert_eq!(
+            recorded_key_uses(&store).await,
+            vec![INTEGRATION_SOURCE_UUID.to_owned()]
+        );
+        assert_eq!(
+            state
+                .resolver
+                .recent_key_uses
+                .get(INTEGRATION_SOURCE_UUID)
+                .await,
+            Some(SOURCE_USE_WRITE_INTERVAL)
+        );
+
+        drop(std::fs::remove_dir_all(&queue_dir));
+    }
+
+    /// Two Cloudflare Logpush connectors of one org: `cf_with_source`, linked to
+    /// `INTEGRATION_SOURCE_UUID`, and `cf_without_source`, whose org has no OAuth link.
+    async fn cloudflare_logpush_state(
+        name: &str,
+    ) -> (
+        AppState,
+        Arc<FakeKeyStore>,
+        PathBuf,
+        tokio::sync::mpsc::UnboundedReceiver<Bytes>,
+    ) {
+        let (forward_url, forward_rx) = spawn_capturing_logs_collector().await;
+        let queue_dir = unique_main_test_dir(name);
+        let store = Arc::new(FakeKeyStore::default());
+        for connector_id in ["cf_with_source", "cf_without_source"] {
+            store.insert_connector(
+                connector_id,
+                "connector-secret",
+                ConnectorRow {
+                    org_id: "org_cf_source".to_owned(),
+                    service_name: "cloudflare/example.com".to_owned(),
+                    zone_name: "example.com".to_owned(),
+                    dataset: "http_requests".to_owned(),
+                    self_managed: false,
+                    clickhouse_ready: false,
+                    source: None,
+                },
+            );
+        }
+        store.insert_source_row("org_cf_source", INTEGRATION_SOURCE_UUID, "integration");
+        store.link_connector_source("cf_with_source", INTEGRATION_SOURCE_UUID);
+        let state = test_app_state(
+            Arc::clone(&store),
+            queue_dir.clone(),
+            forward_url,
+            Duration::from_secs(30),
+        )
+        .await;
+        (state, store, queue_dir, forward_rx)
+    }
+
+    const CLOUDFLARE_BATCH: &[u8] =
+        b"{\"ClientRequestHost\":\"example.com\",\"EdgeResponseStatus\":200}\n";
+
+    async fn cloudflare_push(
+        state: &AppState,
+        connector_id: &str,
+    ) -> Result<(Response, usize, String, LogpushOutcome), (ApiError, &'static str)> {
+        handle_cloudflare_logpush_inner(
+            state,
+            connector_id,
+            Some("connector-secret"),
+            &HeaderMap::new(),
+            Bytes::from_static(CLOUDFLARE_BATCH),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn cloudflare_logpush_stamps_and_uses_its_connector_source_only_when_it_has_one() {
+        let (state, store, queue_dir, mut forward_rx) =
+            cloudflare_logpush_state("cloudflare-logpush-source").await;
+
+        let mut stamped = Vec::new();
+        for connector_id in ["cf_with_source", "cf_without_source"] {
+            let (response, item_count, _, outcome) = cloudflare_push(&state, connector_id)
+                .await
+                .expect("a log batch is accepted");
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!((item_count, outcome), (1, LogpushOutcome::Accepted));
+            let forwarded = tokio::time::timeout(Duration::from_secs(2), forward_rx.recv())
+                .await
+                .expect("the batch is forwarded")
+                .expect("forward channel should stay open");
+            let forwarded =
+                ExportLogsServiceRequest::decode(forwarded).expect("forwarded protobuf");
+            let resource = forwarded.resource_logs[0]
+                .resource
+                .as_ref()
+                .expect("resource");
+            stamped.push(string_attributes(&resource.attributes).remove("maple_source_id"));
+        }
+        assert_eq!(
+            stamped,
+            vec![Some(public_id(INTEGRATION_SOURCE_UUID)), None]
+        );
+        assert_eq!(
+            recorded_key_uses(&store).await,
+            vec![INTEGRATION_SOURCE_UUID.to_owned()]
+        );
+
+        drop(std::fs::remove_dir_all(&queue_dir));
+    }
+
+    #[tokio::test]
+    async fn cloudflare_logpush_acks_and_drops_while_its_source_is_paused() {
+        let (state, store, queue_dir, mut forward_rx) =
+            cloudflare_logpush_state("cloudflare-logpush-paused").await;
+        store.pause_source(INTEGRATION_SOURCE_UUID, 1, None);
+
+        let (response, item_count, org_id, outcome) = cloudflare_push(&state, "cf_with_source")
+            .await
+            .expect("a paused source's batch is acked");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            (item_count, org_id.as_str(), outcome),
+            (0, "org_cf_source", LogpushOutcome::SourcePaused)
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), forward_rx.recv())
+                .await
+                .is_err(),
+            "nothing may be stored while the source is paused"
+        );
+        assert!(recorded_key_uses(&store).await.is_empty());
+        assert_eq!(store.connector_successes.load(Ordering::Relaxed), 0);
+
+        // The org's other connector has no source, so it is not paused with it.
+        let (_, item_count, _, outcome) = cloudflare_push(&state, "cf_without_source")
+            .await
+            .expect("a log batch is accepted");
+        assert_eq!((item_count, outcome), (1, LogpushOutcome::Accepted));
 
         drop(std::fs::remove_dir_all(&queue_dir));
     }

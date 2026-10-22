@@ -58,6 +58,10 @@ const railwayServiceBucketed = {
 	bucketSeconds: 300,
 }
 
+/** One Supabase project, as /infra/supabase/$ref scopes it. */
+const supabaseProject = { ...window, projectRef: "abcdefghijklmnopqrst" }
+const supabaseProjectBucketed = { ...supabaseProject, bucketSeconds: 300 }
+
 /** The zone-slice filters the /infra/cloudflare page sends, as one bag. */
 const CF_FILTERS = { hosts: ["example.com"], statusClasses: ["5xx"], methods: ["GET"] }
 
@@ -784,6 +788,78 @@ export const integrationFixtures: ReadonlyArray<IntegrationFixture> = [
 		compile: () => compileUnsafe(CH.railwayServiceTimeseriesSQL(), railwayServiceBucketed),
 	},
 	{
+		module: "supabase-infra",
+		name: "supabaseProjectGaugesSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectGaugesSQL(), window),
+	},
+	{
+		module: "supabase-infra",
+		name: "supabaseProjectCpuSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectCpuSQL(), window),
+	},
+	{
+		module: "supabase-infra",
+		name: "supabaseProjectGaugeSeriesSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectGaugeSeriesSQL(), supabaseProjectBucketed),
+	},
+	{
+		module: "supabase-infra",
+		name: "supabaseProjectRateSeriesSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectRateSeriesSQL(), supabaseProjectBucketed),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseApiTrafficSeriesSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseApiTrafficSeriesSQL(), supabaseProjectBucketed),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseApiTrafficTotalsSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseApiTrafficTotalsSQL(), supabaseProject),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseApiTopPathsSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseApiTopPathsSQL(), supabaseProject),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseLogIssuesSQL",
+		label: "project",
+		compile: () => compileUnsafe(CH.supabaseLogIssuesSQL({ byProject: true }), supabaseProject),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseLogIssuesSQL",
+		label: "org",
+		compile: () => compileUnsafe(CH.supabaseLogIssuesSQL({ byProject: false }), window),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseLogsProjectsSummarySQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseLogsProjectsSummarySQL(), window),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseProjectCallersSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectCallersSQL(), supabaseProject),
+	},
+	{
+		module: "supabase-insights",
+		name: "supabaseProjectCallerSeriesSQL",
+		label: "default",
+		compile: () => compileUnsafe(CH.supabaseProjectCallerSeriesSQL(), supabaseProjectBucketed),
+	},
+	{
 		module: "gcp-infra",
 		name: "gcpInfraPresenceSQL",
 		label: "default",
@@ -948,7 +1024,10 @@ export const integrationFixtures: ReadonlyArray<IntegrationFixture> = [
 		module: "setup-audit",
 		name: "auditRootlessTracesSQL",
 		label: "default",
-		compile: () => Effect.runSync(CH.auditRootlessTracesSQL(traceWindow)),
+		compile: () =>
+			Effect.runSync(
+				CH.auditRootlessTracesSQL(traceWindow, { keepErrorSpans: true, slowSpanNs: 2_000_000_000 }),
+			),
 	},
 ]
 

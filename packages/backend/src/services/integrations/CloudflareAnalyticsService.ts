@@ -66,7 +66,7 @@ import {
 	Result,
 	Schema,
 } from "effect"
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http"
+import { FetchHttpClient, HttpClient } from "effect/http"
 import * as CloudflareAnalyticsMetrics from "@maple/backend/observability/CloudflareAnalyticsMetrics"
 import type { TenantContext } from "@maple/backend/services/auth/AuthService"
 import {
@@ -78,6 +78,9 @@ import {
 	type CloudflareHyperdriveConfig,
 	type CloudflareZone,
 } from "@maple/backend/services/integrations/CloudflareApi"
+import type { SourceId } from "@maple/domain/primitives"
+import { pollStatus } from "@maple/domain/integration-inventory"
+import type { SourceResourceCount } from "@maple/domain/source-health"
 import { Database } from "@maple/backend/platform/DatabaseLive"
 import { makeDbExecute, makePersistenceErrorMapper } from "@maple/backend/platform/db-execute"
 import { Env } from "@maple/backend/platform/Env"
@@ -85,10 +88,12 @@ import { WarehouseQueryService } from "@maple/backend/services/warehouse/Warehou
 import { CloudflareOAuthService } from "@maple/backend/services/auth/CloudflareOAuthService"
 import { OrgClickHouseSettingsService } from "@maple/backend/services/org/OrgClickHouseSettingsService"
 import { OrgIngestKeysService } from "@maple/backend/services/org/OrgIngestKeysService"
+import { isRefusal, makeIngestSender } from "@maple/backend/services/ingest/ingest-sender"
 import {
-	ensureIntegrationSource,
-	integrationSourceName,
-	stampableSourceId,
+	isSourcePaused,
+	type PollOutcome as SourcePollOutcome,
+	reportPoll,
+	stampedSourceId,
 } from "@maple/backend/services/org/integration-sources"
 import {
 	mapDnsGroups,
@@ -103,7 +108,6 @@ import {
 	type CloudflareMetricRows,
 } from "./cloudflare-analytics/mapping"
 import { metricRowsToOtlp } from "./cloudflare-analytics/otlp"
-import { isIngestRefusal, summarizeUpstreamBody } from "./upstream-body"
 import {
 	accountAnalyticsDocument,
 	DatasetSettings,
@@ -216,6 +220,11 @@ const ORG_CONCURRENCY = 3
 
 const MISSING_SCOPES_ERROR =
 	"Cloudflare connection lacks the analytics scopes — reconnect the integration to update permissions"
+
+/** A dataset with no good poll in this long reads stale, the same window as the inventory. */
+const DATASET_STALE_MS = 30 * 60_000
+
+const GRANT_REVOKED_REASON = "The Cloudflare grant was revoked. Reconnect Cloudflare."
 
 const floorToBucket = (ms: number) => ms - (ms % BUCKET_MS)
 
@@ -1241,7 +1250,7 @@ export class CloudflareAnalyticsService extends Context.Service<
 
 		const apiBaseUrl = env.MAPLE_CLOUDFLARE_API_BASE_URL
 		/** The ingest gateway's OTLP metrics endpoint — poller metrics flow through it like all telemetry. */
-		const ingestMetricsUrl = `${env.MAPLE_INGEST_PUBLIC_URL.replace(/\/+$/, "")}/v1/metrics`
+		const ingest = yield* makeIngestSender
 
 		const dbExecute = makeDbExecute(database, "CloudflareAnalyticsService", toPersistenceError)
 
@@ -1699,46 +1708,28 @@ export class CloudflareAnalyticsService extends Context.Service<
 		 * them and retries next tick (the watermark only advances on success). Returns the row count,
 		 * or {@link IngestRefused} when the gateway refuses the org (billing or a refused key).
 		 */
-		const emitMetrics = Effect.fn("CloudflareAnalyticsService.emitMetrics")(
-			function* (ingestKey: string, rows: CloudflareMetricRows, sourceId: string | undefined) {
-				const total = rows.sumRows.length + rows.gaugeRows.length
-				if (total === 0) return 0
-				const payload = metricRowsToOtlp(rows.sumRows, rows.gaugeRows, { sourceId })
-				const request = HttpClientRequest.post(ingestMetricsUrl, {
-					headers: { authorization: `Bearer ${ingestKey}`, "content-type": "application/json" },
-				}).pipe(HttpClientRequest.bodyJsonUnsafe(payload))
-				const response = yield* httpClient
-					.execute(request)
-					.pipe(Effect.annotateSpans("peer.service", "ingest"))
-				if (response.status >= 300) {
-					const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
-					const message = `Cloudflare metrics ingest returned ${response.status}: ${summarizeUpstreamBody(body, response.headers)}`
+		const emitMetrics = Effect.fnUntraced(function* (
+			ingestKey: string,
+			rows: CloudflareMetricRows,
+			sourceId: string | undefined,
+		) {
+			const total = rows.sumRows.length + rows.gaugeRows.length
+			if (total === 0) return 0
+			const payload = metricRowsToOtlp(rows.sumRows, rows.gaugeRows, { sourceId })
+			return yield* ingest.send({ signal: "metrics", ingestKey, payload, label: "Cloudflare metrics" }).pipe(
+				Effect.as(total),
+				Effect.catchTag("@maple/backend/ingest/IngestSendError", (error) =>
 					// 402 is billing; 401/403 is the org's key refused (an edge block on a revoked key).
-					if (isIngestRefusal(response.status)) {
-						yield* Effect.annotateCurrentSpan("maple.cloudflare.ingest_refused", true)
-						return { refused: message } satisfies IngestRefused
-					}
-					return yield* Effect.fail(
-						new IntegrationsUpstreamError({
-							message,
-							status: response.status,
-						}),
-					)
-				}
-				return total
-			},
-			(effect) =>
-				effect.pipe(
-					Effect.mapError((error) =>
-						error instanceof IntegrationsUpstreamError
-							? error
-							: new IntegrationsUpstreamError({
-									message: `Cloudflare metrics ingest request failed: ${error instanceof Error ? error.message : String(error)}`,
-									cause: error,
-								}),
-					),
+					isRefusal(error)
+						? Effect.annotateCurrentSpan("maple.cloudflare.ingest_refused", true).pipe(
+								Effect.as({ refused: error.message } satisfies IngestRefused),
+							)
+						: Effect.fail(
+								new IntegrationsUpstreamError({ message: error.message, cause: error }),
+							),
 				),
-		)
+			)
+		})
 
 		/**
 		 * One poll step: query a batched document's window, attribute GraphQL-level errors to their
@@ -2111,6 +2102,8 @@ export class CloudflareAnalyticsService extends Context.Service<
 			readonly failures: ReadonlyArray<DatasetPollFailure>
 			/** Cloudflare's rate limiter refused this account this tick; the org's cap halves. */
 			readonly rateLimited: boolean
+			/** Why the account could not be read at all; `revoked` means the grant is gone. */
+			readonly issue: { readonly message: string; readonly revoked: boolean } | null
 		}
 
 		const pollConnection = Effect.fn("CloudflareAnalyticsService.pollConnection")(function* (
@@ -2139,7 +2132,7 @@ export class CloudflareAnalyticsService extends Context.Service<
 			// A skip used to be silent — the reason only ever landed in the returned summary, which
 			// nothing read for a plain tick. Annotating the poll span means every skip is now
 			// visible on the trace even when the tick rollup below doesn't (yet) escalate it.
-			const skip = (reason: string) =>
+			const skip = (reason: string, issue: PollConnectionSummary["issue"] = null) =>
 				Effect.annotateCurrentSpan({
 					"maple.cloudflare.skip_reason": reason,
 					"maple.cloudflare.calls": 0,
@@ -2152,6 +2145,7 @@ export class CloudflareAnalyticsService extends Context.Service<
 						rowsIngested: 0,
 						failures: [],
 						rateLimited: false,
+						issue,
 					} satisfies PollConnectionSummary),
 				)
 
@@ -2201,13 +2195,20 @@ export class CloudflareAnalyticsService extends Context.Service<
 					yield* recordConnectionError(orgId, accountId, error.message, now, {
 						disable: error instanceof IntegrationsRevokedError,
 					})
-					return yield* skip(`token unavailable: ${error._tag}`)
+					const revoked = error instanceof IntegrationsRevokedError
+					return yield* skip(`token unavailable: ${error._tag}`, {
+						message: revoked ? GRANT_REVOKED_REASON : error.message,
+						revoked,
+					})
 				}
 				const { accessToken, scope } = tokenResult.success
 
 				if (!hasAnalyticsScopes(scope)) {
 					yield* recordConnectionError(orgId, accountId, MISSING_SCOPES_ERROR, now)
-					return yield* skip("missing analytics scopes")
+					return yield* skip("missing analytics scopes", {
+						message: MISSING_SCOPES_ERROR,
+						revoked: false,
+					})
 				}
 
 				// Zone discovery (REST pagination) is hourly-TTL'd on the anchor row; ticks in
@@ -2226,7 +2227,10 @@ export class CloudflareAnalyticsService extends Context.Service<
 						yield* recordConnectionError(orgId, accountId, error.message, now, {
 							disable: error instanceof IntegrationsRevokedError,
 						})
-						return yield* skip(`zone discovery failed: ${error._tag}`)
+						return yield* skip(`zone discovery failed: ${error._tag}`, {
+							message: error.message,
+							revoked: false,
+						})
 					}
 					// Newly-registered account datasets get their rows on the discovery cadence —
 					// before reconcileZones, whose loadStateRows picks them up for this tick.
@@ -2575,6 +2579,7 @@ export class CloudflareAnalyticsService extends Context.Service<
 					rowsIngested,
 					failures: datasetFailures,
 					rateLimited,
+					issue: null,
 				} satisfies PollConnectionSummary
 			}).pipe(
 				Effect.ensuring(
@@ -2616,34 +2621,71 @@ export class CloudflareAnalyticsService extends Context.Service<
 			)
 		})
 
-		// The grant's pull source as its `src_` id; a failed lookup sends without it.
-		const resolveSourceId = (orgId: OrgId) =>
-			stampableSourceId(
-				Effect.gen(function* () {
-					const now = yield* Clock.currentTimeMillis
-					return yield* dbExecute((db) =>
-						Effect.gen(function* () {
-							const [connection] = yield* db.run(
-								PG.from(OAuthConnections)
-									.select("id", "externalAccountName")
-									.where(($) => [$.orgId.eq(orgId), $.provider.eq("cloudflare")])
-									.limit(1),
-							)
-							if (connection === undefined) return undefined
-							return yield* ensureIntegrationSource(
-								db,
-								orgId,
-								{
-									platform: "cloudflare",
-									integrationId: connection.id,
-									name: integrationSourceName.cloudflare(connection),
-								},
-								now,
-							)
-						}),
-					)
+		// The grant's source; null while the connection is not linked yet.
+		const loadSourceId = (orgId: OrgId) =>
+			dbExecute((db) =>
+				db.run(
+					PG.from(OAuthConnections)
+						.select("sourceId")
+						.where(($) => [$.orgId.eq(orgId), $.provider.eq("cloudflare")])
+						.limit(1),
+				),
+			).pipe(Effect.map(([connection]) => connection?.sourceId ?? null))
+
+		// A paused source reads nothing; its head windows follow the clock so a resume starts at now.
+		const skipPausedWindows = (orgId: OrgId, now: number) => {
+			const horizon = floorToBucket(now - SAFETY_LAG_MS)
+			return dbExecute((db) =>
+				db.run(
+					PG.update(CloudflareAnalyticsState)
+						.set({ watermarkAt: horizon, updatedAt: now })
+						.where(($) => [$.orgId.eq(orgId), $.watermarkAt.lt(horizon)]),
+				),
+			)
+		}
+
+		/**
+		 * What a tick tells the grant's source; null when no account read anything (lease held,
+		 * backoff), so a skipped tick leaves the source's last report standing.
+		 */
+		const sourcePollOutcome = (
+			summaries: ReadonlyArray<PollConnectionSummary>,
+			refusal: string | null,
+			resources: SourceResourceCount | undefined,
+		): SourcePollOutcome | null => {
+			if (summaries.some((summary) => summary.issue?.revoked === true)) {
+				return { _tag: "Disconnected", reason: GRANT_REVOKED_REASON }
+			}
+			const failures = summaries.flatMap((summary) => summary.failures)
+			const error =
+				refusal ??
+				summaries.find((summary) => summary.issue !== null)?.issue?.message ??
+				failures[0]?.message
+			if (error !== undefined) return { _tag: "Failed", error, resources }
+			return summaries.some((summary) => summary.skipped === null) ? { _tag: "Ok", resources } : null
+		}
+
+		/** The polled accounts' enabled datasets, and how many failed or fell behind, as the inventory counts them. */
+		const datasetHealth = (orgId: OrgId, accountIds: ReadonlySet<string>, now: number) =>
+			loadStateRows(orgId).pipe(
+				Effect.map((rows): SourceResourceCount | undefined => {
+					const enabled = rows.filter((row) => row.enabled && accountIds.has(row.accountId))
+					const unhealthy = enabled.filter((row) => {
+						const status = pollStatus(row, now, DATASET_STALE_MS)
+						return status === "failing" || status === "stale"
+					})
+					return enabled.length >= 2 ? { total: enabled.length, unhealthy: unhealthy.length } : undefined
 				}),
-				{ orgId, platform: "cloudflare" },
+			)
+
+		/** Best effort: a failed health report must not fail the tick it describes. */
+		const reportTick = (sourceId: SourceId | null, outcome: SourcePollOutcome, now: number) =>
+			dbExecute((db) => reportPoll(db, sourceId, outcome, now)).pipe(
+				Effect.catchTag("@maple/http/errors/IntegrationsPersistenceError", (error) =>
+					Effect.logWarning("cloudflare-analytics source health report failed").pipe(
+						Effect.annotateLogs({ sourceId, error: error.message }),
+					),
+				),
 			)
 
 		/**
@@ -2656,6 +2698,19 @@ export class CloudflareAnalyticsService extends Context.Service<
 		 */
 		const pollOrg = Effect.fn("CloudflareAnalyticsService.pollOrg")(function* (orgId: OrgId) {
 			yield* Effect.annotateCurrentSpan("orgId", orgId)
+			const linkedSource = yield* loadSourceId(orgId)
+			const startedAt = yield* Clock.currentTimeMillis
+			if (yield* dbExecute((db) => isSourcePaused(db, linkedSource, startedAt))) {
+				yield* skipPausedWindows(orgId, startedAt)
+				yield* Effect.annotateCurrentSpan("maple.cloudflare.skip_reason", "source paused")
+				return {
+					orgId,
+					skipped: "source paused",
+					callsMade: 0,
+					rowsIngested: 0,
+					failures: [],
+				} satisfies PollOrgSummary
+			}
 			const status = yield* oauth.getStatus(orgId)
 			// One budget for the whole grant, spent by the accounts in planned order.
 			const budget = { calls: 0 }
@@ -2673,6 +2728,9 @@ export class CloudflareAnalyticsService extends Context.Service<
 				rowsIngested: 0,
 				failures: [],
 				rateLimited: false,
+				issue: account.revoked
+					? { message: GRANT_REVOKED_REASON, revoked: true }
+					: { message: MISSING_SCOPES_ERROR, revoked: false },
 			}))
 			const stateRows = pollable.length === 0 ? [] : yield* loadStateRows(orgId)
 			const grantCap = grantCapOf(stateRows)
@@ -2685,7 +2743,7 @@ export class CloudflareAnalyticsService extends Context.Service<
 							yield* Clock.currentTimeMillis,
 							grantCap,
 						)
-			const sourceId = plan.length === 0 ? undefined : yield* resolveSourceId(orgId)
+			const sourceId = stampedSourceId(linkedSource)
 			const polled = yield* Effect.forEach(plan, ({ accountId, callLimit }) =>
 				pollConnection(orgId, accountId, budget, callLimit, orgRefusal, sourceId),
 			)
@@ -2703,6 +2761,12 @@ export class CloudflareAnalyticsService extends Context.Service<
 				if (nextCap !== grantCap) yield* storeGrantCap(orgId, nextCap)
 			}
 			const summaries = [...skipped, ...polled]
+			const reportedAt = yield* Clock.currentTimeMillis
+			const resources = polled.some((summary) => summary.skipped === null)
+				? yield* datasetHealth(orgId, new Set(pollable.map((account) => account.accountId)), reportedAt)
+				: undefined
+			const outcome = sourcePollOutcome(summaries, yield* Ref.get(orgRefusal), resources)
+			if (outcome !== null) yield* reportTick(linkedSource, outcome, reportedAt)
 			if (summaries.length === 0) {
 				yield* Effect.annotateCurrentSpan("maple.cloudflare.skip_reason", "not connected")
 				return {

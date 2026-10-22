@@ -393,10 +393,9 @@ What each kind of Worker keeps beside the module:
   would bind it as a secret. Every Postgres layer reads the `MapleDbConnection` port
   (`packages/backend/src/platform/bindings.ts`), never the env.
 
-**web** is a `Cloudflare.Website.Vite` Worker (`apps/web-foldkit/src/worker.ts`). Alchemy owns its
-vite build and its dev server, and the deployed entry is `src/worker-entry.ts`. `MAPLE_WEB_APP`
-picks the build: `foldkit` (default) or `react` (apps/web, the rollback). Its props
-bind the api Worker as `API`, handed over as `ApiWorker`. It carries no `WorkerTelemetry`.
+**web** is a `Cloudflare.Website.Vite` Worker (`apps/web/src/worker.ts`). Alchemy owns its
+vite build and its dev server, and the deployed entry is `src/worker-entry.ts`. Its props bind
+the api Worker as `API`, handed over as `ApiWorker`. It carries no `WorkerTelemetry`.
 
 Alchemy evaluates a Worker module in three places (the deploy process, `alchemy dev`, and
 the deployed isolate). Two rules keep it honest about which one it is in:
@@ -491,7 +490,9 @@ list of yields. What it composes lives beside it:
 The Rust OTLP gateway (`apps/ingest`) runs on an ECS EC2 fleet of Graviton c7gd instances,
 one task per host in host networking, with the WAL on the local NVMe instance store. That is
 the only ingest path. The OTel collector and Electric (`apps/electric`) run as ECS Fargate
-services.
+services. The Prometheus scraper (`apps/scraper`, US prd only) is a Fargate singleton in the
+same VPC with no inbound traffic; its image is the single-file bundle `alchemy:build-deps`
+writes to `apps/scraper/dist`, and ECS replaces the task when its `/health` stops answering.
 
 - `AWS.providers()` is registered unconditionally: the `Alchemy.Stack` options are evaluated
   before `Alchemy.Stage` is readable, so it cannot be stage-derived.

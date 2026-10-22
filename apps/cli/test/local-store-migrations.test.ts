@@ -38,7 +38,8 @@ import {
 	LOCAL_SCHEMA_V32,
 	LOCAL_SCHEMA_V33,
 	LOCAL_SCHEMA_V34,
-	LOCAL_SCHEMA_V35,
+	LOCAL_SCHEMA_V36,
+	LOCAL_SCHEMA_V37,
 	SCHEMA_DIGEST,
 	SCHEMA_FINGERPRINT,
 } from "../src/server/schema-identity"
@@ -65,6 +66,7 @@ import {
 	type MigrationModuleContext,
 	type MigrationJournal,
 } from "../src/server/local-store-migrations"
+import type { MigrationDb } from "../src/server/local-store-migration-module"
 import {
 	comparePhysicalSchema,
 	type LocalSchemaManifest,
@@ -103,11 +105,11 @@ const [v10ToV11ProductEventsModule] = localStoreMigrations.filter(
 )
 
 describe("current local schema identity", () => {
-	it("matches the generated v35 revision and keeps the issue-297 identity frozen", () => {
+	it("matches the generated v37 revision and keeps the issue-297 identity frozen", () => {
 		// oxlint-disable-next-line test-slop/no-constant-pin -- rewritten by local-schema:bump; catches an unbumped schema edit
-		expect(SCHEMA_FINGERPRINT).toBe("7f3cd8b20c0429de")
+		expect(SCHEMA_FINGERPRINT).toBe("1772296e571539fd")
 		// oxlint-disable-next-line test-slop/no-constant-pin -- rewritten by local-schema:bump; catches an unbumped schema edit
-		expect(SCHEMA_DIGEST).toBe("7f3cd8b20c0429de801f4abe52c70d71fcc66551745477d14a2be5c036905bdd")
+		expect(SCHEMA_DIGEST).toBe("1772296e571539fdff7d2289c58910c1a8a496967f23613d5b2e81935541a786")
 		// oxlint-disable-next-line test-slop/no-constant-pin -- frozen identity that stores already on disk carry
 		expect(ISSUE_297_TARGET_SCHEMA_PROJECT_REVISION).toBe(
 			"506bc745f7a7eca202ec905a6403a6815e86413faf0cd3cbbf73881023edce91",
@@ -115,8 +117,8 @@ describe("current local schema identity", () => {
 		expect(CURRENT_SCHEMA_PROJECT_REVISION).toMatch(/^[0-9a-f]{64}$/)
 		expect(LOCAL_SCHEMA_MANIFEST.objects.length).toBeGreaterThan(60)
 		// oxlint-disable-next-line test-slop/no-constant-pin -- anchor that local-schema:bump rewrites on every bump
-		expect(CURRENT_LOCAL_SCHEMA.version).toBe(35)
-		expect(CURRENT_LOCAL_SCHEMA).toEqual(LOCAL_SCHEMA_V35)
+		expect(CURRENT_LOCAL_SCHEMA.version).toBe(37)
+		expect(CURRENT_LOCAL_SCHEMA).toEqual(LOCAL_SCHEMA_V37)
 		const logs = LOCAL_SCHEMA_MANIFEST.objects.find((object) => object.name === "logs")
 		expect(logs?.columns.some((column) => column.name.startsWith("idx_"))).toBe(false)
 		expect(logs?.indexes).toContain("idx_lower_body")
@@ -186,7 +188,7 @@ describe("current local schema identity", () => {
 		// its view; v11 replaces `web_events` with `product_events` and adds
 		// `identity_links`; v17 adds `audit_log`, which local mode creates but
 		// never writes; v23 adds `ai_crawler_requests` and its view; v24 adds
-		// `trace_facets_hourly` and its view; v33 adds `trace_index` and its view; v35 removes `trace_detail_spans` and its view. Asserted as an exact set difference rather than a
+		// `trace_facets_hourly` and its view; v33 adds `trace_index` and its view; v35 removes `trace_detail_spans` and its view; v37 adds `source_usage_hourly` and its six views. Asserted as an exact set difference rather than a
 		// relaxed check, so a future edge still cannot add or drop an object
 		// unnoticed.
 		expect([...v5Names].filter((name) => !currentNames.has(name))).toEqual([
@@ -208,6 +210,13 @@ describe("current local schema identity", () => {
 			"product_events",
 			"product_events_mv",
 			"product_events_traces_mv",
+			"source_usage_hourly",
+			"source_usage_logs_mv",
+			"source_usage_metrics_exp_histogram_mv",
+			"source_usage_metrics_gauge_mv",
+			"source_usage_metrics_histogram_mv",
+			"source_usage_metrics_sum_mv",
+			"source_usage_traces_mv",
 			"trace_facets_hourly",
 			"trace_facets_hourly_mv",
 			"trace_index",
@@ -315,6 +324,13 @@ describe("current local schema identity", () => {
 			"ai_trace_index_mv",
 			"audit_log",
 			"product_events_traces_mv",
+			"source_usage_hourly",
+			"source_usage_logs_mv",
+			"source_usage_metrics_exp_histogram_mv",
+			"source_usage_metrics_gauge_mv",
+			"source_usage_metrics_histogram_mv",
+			"source_usage_metrics_sum_mv",
+			"source_usage_traces_mv",
 			"trace_facets_hourly",
 			"trace_facets_hourly_mv",
 			"trace_index",
@@ -397,7 +413,7 @@ describe("local migration registry", () => {
 				// One past the current tip — bump alongside LOCAL_SCHEMA_VERSION, or this
 				// stops testing the future-store guard and starts testing the
 				// unknown-fingerprint one.
-				{ ...CURRENT_LOCAL_SCHEMA, version: 36, fingerprint: "future", digest: SCHEMA_DIGEST },
+				{ ...CURRENT_LOCAL_SCHEMA, version: 38, fingerprint: "future", digest: SCHEMA_DIGEST },
 				CURRENT_LOCAL_SCHEMA,
 			),
 		).toThrow(/newer than this build/)
@@ -460,7 +476,7 @@ describe("local migration registry", () => {
 			"local-0001-to-0002-fixture",
 		])
 		expect(validateMigrationRegistry([legacyToCurrentModule, v2])).toHaveLength(2)
-		const context = {
+		const context: MigrationModuleContext = {
 			dataDir: "/tmp/source",
 			sourceDataDir: "/tmp/source",
 			targetDataDir: "/tmp/target",
@@ -472,13 +488,14 @@ describe("local migration registry", () => {
 				moduleVersion: v2.moduleVersion,
 				from: v2.from,
 				to: v2.to,
-				status: "pending" as const,
+				status: "pending",
 			},
-			openSource: async () => undefined,
-			openTarget: async () => undefined,
+			openSource: () => Promise.reject(new Error("fixture module never opens the source")),
+			openTarget: () => Promise.reject(new Error("fixture module never opens the target")),
+			closeStores: async () => undefined,
 			ensureCapacity: async () => undefined,
 			saveStep: async () => undefined,
-		} as MigrationModuleContext
+		}
 		await executeMigrationModule(v2, context, context.step, { prepareTarget: true })
 		expect(events).toEqual(["preflight", "prepareTarget", "apply", "verify"])
 
@@ -551,6 +568,8 @@ describe("local migration registry", () => {
 			"local-0032-to-0033-trace-index",
 			"local-0033-to-0034-traces-trace-key",
 			"local-0034-to-0035-drop-trace-detail-spans",
+			"local-0035-to-0036-aligned-ttls",
+			"local-0036-to-0037-source-usage-hourly",
 		]
 		const versions = (id: string) => {
 			const match = /^local-(\d{4})-to-(\d{4})-[a-z0-9]+(-[a-z0-9]+)*$/.exec(id)
@@ -587,12 +606,13 @@ describe("local migration registry", () => {
 			// Every count check compares against a key the source measured.
 			const measured = new Set(step.counts?.measure.map(([key]) => key))
 			for (const check of step.counts?.checks ?? []) expect(measured.has(check.key)).toBe(true)
-			// Every statement is idempotent, so a resumed apply lands where it left off.
+			// Every statement is idempotent, so a resumed apply lands where it left off. MODIFY TTL
+			// sets a fixed expression, so re-running it changes nothing.
 			for (const statement of stepStatements([
 				...(step.beforeBootstrap ?? []),
 				...(step.afterBootstrap ?? []),
 			]))
-				expect(statement).toMatch(/IF (NOT )?EXISTS|^DELETE FROM |^INSERT INTO /)
+				expect(statement).toMatch(/IF (NOT )?EXISTS|^DELETE FROM |^INSERT INTO | MODIFY TTL /)
 		}
 	})
 
@@ -767,7 +787,7 @@ describe("durable migration recovery", () => {
 				"local-0000-to-0001-raw-replay",
 			])
 			const recovered = await runLocalStoreMigration({ dataDir })
-			expect(recovered.phase).toBe("promoted")
+			expect("phase" in recovered && recovered.phase).toBe("promoted")
 			expect(await readMigrationJournal(dataDir)).toBeNull()
 			expect(await Bun.file(migrationHistoryPath(dataDir, migrationId)).exists()).toBe(true)
 			expect(readMarker(dataDir)).toMatchObject({
@@ -1537,6 +1557,8 @@ describe("v10 -> v11 product events module", () => {
 			"local-0032-to-0033-trace-index",
 			"local-0033-to-0034-traces-trace-key",
 			"local-0034-to-0035-drop-trace-detail-spans",
+			"local-0035-to-0036-aligned-ttls",
+			"local-0036-to-0037-source-usage-hourly",
 		])
 		expect(chain[0]?.to).toEqual(LOCAL_SCHEMA_V11)
 		// The dropped table is declared, and the backfilled ones say what they
@@ -1642,7 +1664,7 @@ describe("legacy raw replay 64-bit exactness", () => {
 		const sourceQueries: string[] = []
 		const targetStatements: string[] = []
 		let call = 0
-		const fakeSourceDb = {
+		const fakeSourceDb: MigrationDb = {
 			query: (sql: string): string => {
 				sourceQueries.push(sql)
 				call += 1
@@ -1655,8 +1677,11 @@ describe("legacy raw replay 64-bit exactness", () => {
 					__maple_tie_break: "3",
 				})}\n`
 			},
+			exec: (sql: string): void => {
+				sourceQueries.push(sql)
+			},
 		}
-		const fakeTargetDb = {
+		const fakeTargetDb: MigrationDb = {
 			query: (sql: string): string => {
 				targetStatements.push(sql)
 				return ""
@@ -1665,7 +1690,7 @@ describe("legacy raw replay 64-bit exactness", () => {
 				targetStatements.push(sql)
 			},
 		}
-		const context = {
+		const context: MigrationModuleContext = {
 			dataDir: "/tmp/fake",
 			sourceDataDir: "/tmp/fake-source",
 			targetDataDir: "/tmp/fake-target",
@@ -1679,13 +1704,12 @@ describe("legacy raw replay 64-bit exactness", () => {
 				to: LOCAL_SCHEMA_V1,
 				status: "running" as const,
 			},
-			openSource: async (fn: (db: typeof fakeSourceDb) => string | Promise<string>) => fn(fakeSourceDb),
-			openTarget: async (fn: (db: typeof fakeTargetDb) => string | void | Promise<string | void>) =>
-				fn(fakeTargetDb),
+			openSource: async (fn) => fn(fakeSourceDb),
+			openTarget: async (fn) => fn(fakeTargetDb),
 			closeStores: async () => undefined,
 			ensureCapacity: async () => undefined,
 			saveStep: async () => undefined,
-		} as MigrationModuleContext
+		}
 		const columns = [
 			{ name: "Timestamp", type: "DateTime64(9)" },
 			{ name: "Duration", type: "UInt64" },

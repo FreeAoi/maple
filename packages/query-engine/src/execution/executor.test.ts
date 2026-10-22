@@ -322,6 +322,44 @@ describe("makeWarehouseExecutor span instrumentation", () => {
 			assert.strictEqual(span.attributes.get("db.retry.attempts"), 2)
 		}),
 	)
+
+	const attemptsUntilFailure = (message: string) =>
+		Effect.gen(function* () {
+			const attempts = yield* Ref.make(0)
+			const executor = makeWarehouseExecutor({
+				...makeDeps([]),
+				createClient: () =>
+					Effect.succeed({
+						sql: () =>
+							Ref.update(attempts, (n) => n + 1).pipe(
+								Effect.andThen(Effect.fail(warehouseDriverFailure(new Error(message)))),
+							),
+						insert: () => Effect.void,
+					}),
+			})
+			const exit = yield* executor
+				.compiledQuery(tenant, scoped("SELECT 1 WHERE OrgId = 'org_test'"), { context: "limit429" })
+				.pipe(Effect.exit)
+			assert.strictEqual(exit._tag, "Failure")
+			return yield* Ref.get(attempts)
+		})
+
+	it.live("does not retry a 429 that names a plan limit", () =>
+		Effect.gen(function* () {
+			const daily = yield* attemptsUntilFailure(
+				"HTTP status 429: Organization daily request limit exceeded (1000/day)",
+			)
+			assert.strictEqual(daily, 1)
+		}),
+	)
+
+	it.live("still retries a 429 that is a plain rate limit", () =>
+		Effect.gen(function* () {
+			assert.strictEqual(yield* attemptsUntilFailure("HTTP status 429: Too many requests"), 3)
+			assert.strictEqual(yield* attemptsUntilFailure("HTTP status 429: vCPU usage limit exceeded"), 3)
+			assert.strictEqual(yield* attemptsUntilFailure("HTTP status 429: vCPU quota exceeded"), 3)
+		}),
+	)
 })
 
 // Capture the final SQL the executor hands to the client so a test can assert
@@ -376,6 +414,25 @@ describe("makeWarehouseExecutor compiled-query defaults", () => {
 			yield* executor.compiledQuery(tenant, untaggedCompiled, { context: "test", profile: "list" })
 			assert.isTrue(sqls[0]?.includes("max_execution_time=15"))
 			assert.isFalse(sqls[0]?.includes("max_execution_time=30"))
+		}),
+	)
+
+	it.effect("applies the profile budget after a statement's own SETTINGS", () =>
+		Effect.gen(function* () {
+			const sqls: Array<string> = []
+			const executor = makeWarehouseExecutor(
+				makeRecordingDeps({ config: clickhouseConfig, clientCacheKey: "read:org_test" }, sqls),
+			)
+			const withOwnSettings = rawCompiledQuery<{ readonly c: number }>({
+				reason: "test-fixture",
+				justification: "Synthetic SQL asserting executor/compile behaviour, not a product query.",
+				sql: "SELECT count() AS c FROM traces WHERE OrgId = 'org_test'\nSETTINGS max_execution_time=900",
+				tenantScope: "single-tenant",
+			})
+			yield* executor.compiledQuery(tenant, withOwnSettings, { context: "test", profile: "list" })
+			const sql = sqls[0] ?? ""
+			// ClickHouse applies the last occurrence, so the profile's value must follow.
+			assert.match(sql, /SETTINGS max_execution_time=900, .*max_execution_time=15/)
 		}),
 	)
 

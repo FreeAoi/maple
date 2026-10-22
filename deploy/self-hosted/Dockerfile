@@ -10,7 +10,7 @@ EXPOSE 3472
 CMD ["bun", "run", "--cwd", "apps/self-hosted", "start"]
 
 FROM build AS web-build
-ENV VITE_API_BASE_URL=/ VITE_ELECTRIC_SYNC_URL=/ VITE_MAPLE_AUTH_MODE=self_hosted
+ENV VITE_API_BASE_URL=/ VITE_ELECTRIC_SYNC_URL=/ VITE_INGEST_URL=/ingest VITE_MAPLE_AUTH_MODE=self_hosted
 ENV VITE_MAPLE_CAPTURE=off VITE_MAPLE_REPLAY=off
 RUN bun run --cwd apps/web build
 

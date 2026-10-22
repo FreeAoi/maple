@@ -41,8 +41,37 @@ const orgB = Schema.decodeUnknownSync(OrgId)("org_b")
 const user = Schema.decodeUnknownSync(UserId)("user_a")
 const missingId = Schema.decodeUnknownSync(SourceId)("0f8e6c1a-2b3d-4e5f-8a9b-0c1d2e3f4a5b")
 
+/**
+ * An integration source as its service creates it, with what its poller last reported. Fixture
+ * rows reuse their own id as their source's.
+ */
+const insertSource = (
+	testDb: TestDb,
+	id: string,
+	platform: string,
+	name: string,
+	poll: { readonly okAt?: number; readonly error?: string; readonly disconnected?: boolean } = {},
+) =>
+	Effect.promise(() =>
+		executeSql(
+			testDb,
+			`INSERT INTO sources (id, org_id, name, platform, kind, last_poll_ok_at, last_poll_error,
+				disconnected_at, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, 'integration', $5, $6, $7, now(), now())`,
+			[
+				id,
+				orgA,
+				name,
+				platform,
+				poll.okAt === undefined ? null : new Date(poll.okAt).toISOString(),
+				poll.error ?? null,
+				poll.disconnected === true ? new Date().toISOString() : null,
+			],
+		),
+	)
+
 const ownSources = (keys: SourcesService["Service"], orgId: OrgId) =>
-	keys.list(orgId).pipe(Effect.map((sources) => sources.filter((source) => !source.isDefault)))
+	keys.list(orgId).pipe(Effect.map((sources) => sources.filter((source) => source.kind !== "default")))
 
 describe("SourcesService", () => {
 	it.effect("creates a source whose token is stored only as its lookup hash", () => {
@@ -79,8 +108,8 @@ describe("SourcesService", () => {
 
 			const listed = yield* keys.list(orgA)
 			assert.deepStrictEqual(
-				listed.map((source) => source.isDefault),
-				[true, false],
+				listed.map((source) => source.kind),
+				["default", "token"],
 			)
 			assert.deepStrictEqual(listed[1], created.source)
 		}).pipe(Effect.provide(makeLayer(testDb)))
@@ -354,6 +383,56 @@ describe("SourcesService", () => {
 		}).pipe(Effect.provide(makeLayer(testDb)))
 	})
 
+	it.effect("a refusal in the last 15 minutes makes the source failing", () => {
+		const testDb = createTestDb(trackedDbs)
+
+		return Effect.gen(function* () {
+			const keys = yield* SourcesService
+			const created = yield* keys.create(
+				orgA,
+				user,
+				new CreateSourceRequest({ platform: "nodejs", name: "k" }),
+			)
+			yield* TestClock.adjust("1 hour")
+			const stamp = (column: string, ms: number) =>
+				Effect.promise(() =>
+					executeSql(
+						testDb,
+						`UPDATE sources SET ${column} = to_timestamp($1::bigint / 1000.0) WHERE id = $2`,
+						[ms, created.source.id],
+					),
+				)
+			// The test clock is at one hour.
+			yield* stamp("last_used_at", 1_800_000)
+			yield* stamp("last_rejected_at", 3_300_000)
+			yield* Effect.promise(() =>
+				executeSql(testDb, "UPDATE sources SET last_rejection = $1 WHERE id = $2", [
+					"Rate limited at 200 requests per second",
+					created.source.id,
+				]),
+			)
+			const failing = (yield* keys.get(orgA, created.source.id)).health
+			assert.strictEqual(failing.status, "failing")
+			assert.strictEqual(failing.problem, "Rate limited at 200 requests per second")
+
+			// Fifteen minutes without a refusal: it clears on its own.
+			yield* stamp("last_rejected_at", 2_000_000)
+			assert.strictEqual((yield* keys.get(orgA, created.source.id)).health.status, "healthy")
+
+			// A new token or new rules: the old refusal no longer applies.
+			yield* stamp("last_rejected_at", 3_400_000)
+			assert.strictEqual((yield* keys.get(orgA, created.source.id)).health.status, "failing")
+			yield* keys.roll(orgA, user, created.source.id)
+			assert.strictEqual((yield* keys.get(orgA, created.source.id)).health.status, "healthy")
+			yield* stamp("last_rejected_at", 3_500_000)
+			// Saving the same rules lifts nothing; a new rate limit does.
+			yield* keys.update(orgA, user, created.source.id, new UpdateSourceRequest({ rateLimitRps: null }))
+			assert.strictEqual((yield* keys.get(orgA, created.source.id)).health.status, "failing")
+			yield* keys.update(orgA, user, created.source.id, new UpdateSourceRequest({ rateLimitRps: 500 }))
+			assert.strictEqual((yield* keys.get(orgA, created.source.id)).health.status, "healthy")
+		}).pipe(Effect.provide(makeLayer(testDb)))
+	})
+
 	it.effect("lists one default source per org that only takes a name and description", () => {
 		const testDb = createTestDb(trackedDbs)
 
@@ -362,7 +441,7 @@ describe("SourcesService", () => {
 			const [first] = yield* keys.list(orgA)
 			const [again] = yield* keys.list(orgA)
 			assert.strictEqual(first?.id, again?.id)
-			assert.isTrue(first?.isDefault)
+			assert.strictEqual(first?.kind, "default")
 			assert.isNull(first?.keyPrefix)
 			if (first === undefined) return
 
@@ -390,14 +469,45 @@ describe("SourcesService", () => {
 		}).pipe(Effect.provide(makeLayer(testDb)))
 	})
 
-	it.effect("gives each scrape target a source with its scrape health and drops it with the target", () => {
+	it.effect("keeps a scrape target that PlanetScale adopted while listing sources", () => {
+		const testDb = createTestDb(trackedDbs)
+		const target = "9d1e2f3a-0000-4000-8000-000000000003"
+		return Effect.gen(function* () {
+			const keys = yield* SourcesService
+			yield* Effect.promise(async () => {
+				await executeSql(
+					testDb,
+					`INSERT INTO sources (id, org_id, name, platform, kind, created_at, updated_at)
+					 VALUES ('0f8e6c1a-2b3d-4e5f-8a9b-0c1d2e3f4a50', $1, 'branches', 'prometheus', 'integration', now(), now())`,
+					[orgA],
+				)
+				// Adopted by a PlanetScale connection: managed, still pointing at its Prometheus source.
+				await executeSql(
+					testDb,
+					`INSERT INTO scrape_targets (id, org_id, name, url, managed_by, source_id, created_at, updated_at)
+					 VALUES ($1, $2, 'branches', 'http://ps/metrics', 'planetscale:conn_1', '0f8e6c1a-2b3d-4e5f-8a9b-0c1d2e3f4a50', now(), now())`,
+					[target, orgA],
+				)
+			})
+			yield* keys.list(orgA)
+			const rows = yield* Effect.promise(() =>
+				testDb.pglite.query<{ id: string }>("SELECT id FROM scrape_targets"),
+			)
+			assert.deepStrictEqual(
+				rows.rows.map((row) => row.id),
+				[target],
+			)
+		}).pipe(Effect.provide(makeLayer(testDb)))
+	})
+
+	it.effect("reads an integration source's health from what its poller reported, and pauses it", () => {
 		const testDb = createTestDb(trackedDbs)
 		const insertTarget = (id: string, name: string, lastScrapeAt: number | null, error: string | null) =>
 			Effect.promise(() =>
 				executeSql(
 					testDb,
-					`INSERT INTO scrape_targets (id, org_id, name, url, scrape_interval_seconds, last_scrape_at, last_scrape_error, created_at, updated_at)
-					 VALUES ($1, $2, $3, 'http://node:9100/metrics', 15, $4, $5, now(), now())`,
+					`INSERT INTO scrape_targets (id, org_id, source_id, name, url, scrape_interval_seconds, last_scrape_at, last_scrape_error, created_at, updated_at)
+					 VALUES ($1, $2, $1, $3, 'http://node:9100/metrics', 15, $4, $5, now(), now())`,
 					[
 						id,
 						orgA,
@@ -411,6 +521,12 @@ describe("SourcesService", () => {
 		return Effect.gen(function* () {
 			const keys = yield* SourcesService
 			yield* TestClock.adjust("1 hour")
+			yield* insertSource(testDb, "9d1e2f3a-0000-4000-8000-000000000001", "prometheus", "node", {
+				okAt: 3_600_000 - 30_000,
+			})
+			yield* insertSource(testDb, "9d1e2f3a-0000-4000-8000-000000000002", "prometheus", "broken", {
+				error: "connection refused",
+			})
 			yield* insertTarget("9d1e2f3a-0000-4000-8000-000000000001", "node", 3_600_000 - 30_000, null)
 			yield* insertTarget("9d1e2f3a-0000-4000-8000-000000000002", "broken", null, "connection refused")
 
@@ -428,12 +544,6 @@ describe("SourcesService", () => {
 				first.find((source) => source.name === "broken")?.health.problem,
 				"connection refused",
 			)
-			// Listing again keeps the same ids instead of minting new sources.
-			const again = yield* ownSources(keys, orgA)
-			assert.deepStrictEqual(
-				again.map((source) => source.id).sort(),
-				first.map((source) => source.id).sort(),
-			)
 
 			const broken = first.find((source) => source.name === "broken")
 			if (broken === undefined) return
@@ -445,16 +555,27 @@ describe("SourcesService", () => {
 				new UpdateSourceRequest({ name: "scraper" }),
 			)
 			assert.deepStrictEqual([renamed.name, renamed.health.status], ["scraper", "failing"])
+			// Integration sources pause like token sources; the pause wins over the integration's health.
+			const paused = yield* keys.pause(orgA, user, broken.id, null)
+			assert.deepStrictEqual([paused.status, paused.health.status], ["paused", "paused"])
+			assert.strictEqual(
+				(yield* ownSources(keys, orgA)).find((source) => source.id === broken.id)?.health.status,
+				"paused",
+			)
+			const resumed = yield* keys.resume(orgA, user, broken.id)
+			assert.deepStrictEqual([resumed.status, resumed.health.status], ["active", "failing"])
 			const refused = yield* keys.delete(orgA, broken.id).pipe(Effect.flip)
 			assert.strictEqual(refused._tag, "@maple/http/errors/SourceValidationError")
 
-			yield* Effect.promise(() =>
-				executeSql(testDb, "DELETE FROM scrape_targets WHERE id = $1", [
-					"9d1e2f3a-0000-4000-8000-000000000002",
-				]),
+			// Deleting the source deletes the target that sends as it.
+			yield* Effect.promise(() => executeSql(testDb, "DELETE FROM sources WHERE id = $1", [broken.id]))
+			const targets = yield* Effect.promise(() =>
+				testDb.pglite.query<{ id: string }>("SELECT id FROM scrape_targets"),
 			)
-			// Removed but not yet reconciled: the source reads as disconnected.
-			assert.strictEqual((yield* keys.get(orgA, broken.id)).health.status, "disconnected")
+			assert.deepStrictEqual(
+				targets.rows.map((row) => row.id),
+				["9d1e2f3a-0000-4000-8000-000000000001"],
+			)
 			assert.deepStrictEqual(
 				(yield* ownSources(keys, orgA)).map((source) => source.name),
 				["node"],
@@ -467,20 +588,43 @@ describe("SourcesService", () => {
 		}).pipe(Effect.provide(makeLayer(testDb)))
 	})
 
-	it.effect("gives each GitHub installation its own source and health", () => {
+	it.effect("reads a scrape target that is switched off as paused", () => {
+		const testDb = createTestDb(trackedDbs)
+		return Effect.gen(function* () {
+			const keys = yield* SourcesService
+			yield* insertSource(testDb, "9d1e2f3a-0000-4000-8000-000000000009", "prometheus", "off")
+			yield* Effect.promise(() =>
+				executeSql(
+					testDb,
+					`INSERT INTO scrape_targets (id, org_id, source_id, name, url, enabled, created_at, updated_at)
+					 VALUES ($2, $1, $2, 'off', 'http://off/metrics', false, now(), now())`,
+					[orgA, "9d1e2f3a-0000-4000-8000-000000000009"],
+				),
+			)
+			const [off] = yield* ownSources(keys, orgA)
+			assert.deepStrictEqual([off?.health.status, off?.health.problem], ["paused", "Scraping is turned off"])
+		}).pipe(Effect.provide(makeLayer(testDb)))
+	})
+
+	it.effect("reads a revoked GitHub installation as disconnected", () => {
 		const testDb = createTestDb(trackedDbs)
 		const insertInstallation = (id: string, login: string, status: string) =>
 			Effect.promise(() =>
 				executeSql(
 					testDb,
-					`INSERT INTO vcs_installations (id, org_id, provider, external_installation_id, account_login, account_type, external_account_id, status, installed_by_user_id, created_at, updated_at)
-					 VALUES ($1, $2, 'github', $3, $4, 'Organization', $3, $5, 'user_a', now(), now())`,
+					`INSERT INTO vcs_installations (id, org_id, source_id, provider, external_installation_id, account_login, account_type, external_account_id, status, installed_by_user_id, created_at, updated_at)
+					 VALUES ($1, $2, $1, 'github', $3, $4, 'Organization', $3, $5, 'user_a', now(), now())`,
 					[id, orgA, `ext-${login}`, login, status],
 				),
 			)
 
 		return Effect.gen(function* () {
 			const keys = yield* SourcesService
+			yield* insertSource(testDb, "7a1e2f3a-0000-4000-8000-000000000001", "github", "GitHub acme")
+			yield* insertSource(testDb, "7a1e2f3a-0000-4000-8000-000000000002", "github", "GitHub globex", {
+				error: "The GitHub installation is suspended",
+				disconnected: true,
+			})
 			yield* insertInstallation("7a1e2f3a-0000-4000-8000-000000000001", "acme", "active")
 			yield* insertInstallation("7a1e2f3a-0000-4000-8000-000000000002", "globex", "suspended")
 

@@ -135,7 +135,20 @@
 		// implementation of `parseWarehouseDateTime` itself is the one permanent entry.
 		{
 			"files": [
-				"apps/web/**",
+				"apps/web/src/components/infra/gcp/list-model.ts",
+				"apps/web/src/components/integrations/gcp-connector-state.ts",
+				"apps/web/src/components/integrations/gcp-usage.ts",
+				"apps/web/src/components/integrations/planetscale-setup-steps.ts",
+				"apps/web/src/components/releases/release-model.ts",
+				"apps/web/src/components/replays/replay-timeline.ts",
+				"apps/web/src/components/settings/audit-log-filters.ts",
+				"apps/web/src/components/settings/keys-table.ts",
+				"apps/web/src/lab/alerts-fixture.ts",
+				"apps/web/src/lab/cloudflare-fixture.ts",
+				"apps/web/src/lab/gcp-infra-fixture.ts",
+				"apps/web/src/lab/gcp-workload-fixture.ts",
+				"apps/web/src/lib/billing/spend.ts",
+				"apps/web/src/lib/models/error-signal.ts",
 				"packages/web-data/**",
 				"apps/cli/**",
 				"packages/ui/**",
@@ -185,14 +198,17 @@
 			}
 		},
 		// Test cases that cannot catch a bug: assertion-free, existence-only, constant pins,
-		// Tailwind class pins, and source greps. Rationale per rule in scripts/oxlint-plugins/test-slop.mjs.
+		// Tailwind class pins, source greps, exact command lists and SQL projection pins.
+		// Rationale per rule in scripts/oxlint-plugins/test-slop.mjs.
 		{
 			"files": ["**/*.test.ts", "**/*.test.tsx"],
 			"plugins": ["vitest"],
 			"rules": {
 				"test-slop/no-classname-assertions": "error",
 				"test-slop/no-constant-pin": "error",
+				"test-slop/no-exact-name-list": "error",
 				"test-slop/no-source-text-assertions": "error",
+				"test-slop/no-sql-text-pin": "error",
 				"test-slop/no-weak-only-assertions": "error",
 				"vitest/expect-expect": [
 					"error",
@@ -232,6 +248,13 @@
 				"vitest/require-to-throw-message": "off",
 				"vitest/valid-expect": "off",
 				"vitest/valid-title": "off"
+			}
+		},
+		// The raw-SQL preparer is a text rewriter: its output SQL text is the behavior under test.
+		{
+			"files": ["packages/query-engine/src/runtime/raw-sql*.test.ts"],
+			"rules": {
+				"test-slop/no-sql-text-pin": "off"
 			}
 		},
 		// "shape" is Electric's own protocol noun — `/v1/shape` is the endpoint this
@@ -630,9 +653,7 @@
 		}
 	],
 	// Vendored third-party source is read as a unit and re-pulled wholesale from its upstream,
-	// so house rules that would be rewrites are not applied to it. The dot-matrix loader runtime
-	// comes from the `@dotmatrix` shadcn registry (see `registries` in `apps/web/components.json`);
-	// re-add a variant with `shadcn add`, don't hand-edit these.
+	// so house rules that would be rewrites are not applied to it.
 	"ignorePatterns": [
 		".agents/**",
 		".codex/**",
@@ -641,10 +662,6 @@
 		".factory/**",
 		".impeccable/**",
 		".superset/**",
-		"apps/web/src/routeTree.gen.ts",
-		"apps/web/src/components/ui/dotm-*.tsx",
-		"apps/web/src/lib/dotmatrix-core.tsx",
-		"apps/web/src/lib/dotmatrix-hooks.ts",
 		"scripts/oxlint-plugins/anti-slop/**"
 	]
 }

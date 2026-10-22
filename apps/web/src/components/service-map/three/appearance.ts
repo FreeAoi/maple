@@ -2,14 +2,7 @@ import { Color } from "three"
 import { errorRateLevel } from "@maple/ui/lib/error-rate"
 import type { InkPalette } from "./palette"
 
-export {
-	FACE_TONE,
-	type InkPalette,
-	type MachineFinish,
-	type MachineKind,
-	mapPalette,
-	paperBackground,
-} from "./palette"
+export { FACE_TONE, type InkPalette, type MachineKind, mapPalette } from "./palette"
 
 /** Mix toward the paper so dimmed parts recede without transparency sorting. */
 export function fade(color: string, paper: string, amount: number) {

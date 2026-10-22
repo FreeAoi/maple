@@ -1,5 +1,8 @@
 const normalize = (configured: string | undefined, fallback: string) => {
 	const trimmed = configured?.trim()
+	if (trimmed?.startsWith("/") && typeof window !== "undefined") {
+		return new URL(trimmed, window.location.origin).href.replace(/\/$/, "")
+	}
 	return trimmed && trimmed.length > 0 ? trimmed.replace(/\/$/, "") : fallback
 }
 

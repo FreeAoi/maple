@@ -6,6 +6,7 @@ import {
 	GcpResourceNumber,
 	GcpScopeType,
 	ScrapeTargetId,
+	SupabaseProjectRef,
 	UserId,
 } from "../primitives"
 import { SessionAuthorization } from "./current-tenant"
@@ -973,6 +974,143 @@ export class RailwayDisconnectResponse extends Schema.Class<RailwayDisconnectRes
 	disconnected: Schema.Boolean,
 }) {}
 
+/** One project discovered under the connected Supabase organization. */
+export class SupabaseProjectStatus extends Schema.Class<SupabaseProjectStatus>("SupabaseProjectStatus")({
+	ref: SupabaseProjectRef,
+	name: Schema.String,
+	region: Schema.String,
+	/** Supabase's lifecycle status as reported, e.g. `ACTIVE_HEALTHY` or `INACTIVE`. */
+	status: Schema.String,
+	metricsEnabled: Schema.Boolean,
+	logDrainEnabled: Schema.Boolean,
+	/** Whether Maple polls this project's logs (opt-in). */
+	logsEnabled: Schema.Boolean,
+	logsLastPolledAt: Schema.NullOr(Schema.Number),
+	/** The last logs poll's error, cleared by the next good poll. */
+	logsError: Schema.NullOr(Schema.String),
+	lastSeenAt: Schema.Number,
+}) {}
+
+export class SupabaseOrganizationSummary extends Schema.Class<SupabaseOrganizationSummary>(
+	"SupabaseOrganizationSummary",
+)({
+	id: Schema.String,
+	slug: Schema.String,
+	name: Schema.String,
+}) {}
+
+/** Connection state of the Supabase integration (Management API OAuth, one organization per org). */
+export class SupabaseIntegrationStatus extends Schema.Class<SupabaseIntegrationStatus>(
+	"SupabaseIntegrationStatus",
+)({
+	/** False when this Maple deployment has no Supabase OAuth app configured. */
+	configured: Schema.Boolean,
+	connected: Schema.Boolean,
+	organization: Schema.NullOr(SupabaseOrganizationSummary),
+	connectedByUserId: Schema.NullOr(UserId),
+	connectedAt: Schema.NullOr(Schema.Number),
+	/** True when Supabase rejected the grant; discovery stops until the org reconnects. */
+	revoked: Schema.Boolean,
+	lastDiscoveryAt: Schema.NullOr(Schema.Number),
+	lastDiscoveryError: Schema.NullOr(Schema.String),
+	/** Projects currently present in the organization, by name. */
+	projects: Schema.Array(SupabaseProjectStatus),
+}) {}
+
+export class SupabaseConnectRequest extends Schema.Class<SupabaseConnectRequest>("SupabaseConnectRequest")({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class SupabaseConnectResponse extends Schema.Class<SupabaseConnectResponse>("SupabaseConnectResponse")(
+	{
+		redirectUrl: Schema.String,
+		state: Schema.String,
+	},
+) {}
+
+/** Per-project switches. */
+export class SupabaseProjectUpdateRequest extends Schema.Class<SupabaseProjectUpdateRequest>(
+	"SupabaseProjectUpdateRequest",
+)({
+	metricsEnabled: Schema.optionalKey(Schema.Boolean),
+	logsEnabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class SupabaseDisconnectResponse extends Schema.Class<SupabaseDisconnectResponse>(
+	"SupabaseDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+export const SupabaseAdvisorLevel = Schema.Literals(["ERROR", "WARN", "INFO"])
+export type SupabaseAdvisorLevel = typeof SupabaseAdvisorLevel.Type
+
+/** Which Management API advisor reported a lint. */
+export const SupabaseAdvisorKind = Schema.Literals(["performance", "security"])
+export type SupabaseAdvisorKind = typeof SupabaseAdvisorKind.Type
+
+/** One advisor finding (a Splinter lint such as `unindexed_foreign_keys`), as stored and served. */
+export const SupabaseAdvisorLint = Schema.Struct({
+	advisor: SupabaseAdvisorKind,
+	/** The lint id, e.g. `rls_disabled_in_public`. */
+	name: Schema.String,
+	title: Schema.String,
+	level: SupabaseAdvisorLevel,
+	/** `PERFORMANCE`, `SECURITY`, `HEALTH`. */
+	categories: Schema.Array(Schema.String),
+	description: Schema.String,
+	/** The finding itself, naming the object (markdown-ish text from Supabase). */
+	detail: Schema.String,
+	/** A docs URL. */
+	remediation: Schema.String,
+	/** The database object the lint is about, when it names one. */
+	schema: Schema.NullOr(Schema.String),
+	object: Schema.NullOr(Schema.String),
+	/** `table`, `view`, `function`, `extension`, `auth`... */
+	objectType: Schema.NullOr(Schema.String),
+	cacheKey: Schema.String,
+})
+export type SupabaseAdvisorLint = typeof SupabaseAdvisorLint.Type
+
+/** One `pg_stat_statements` entry, ranked by total execution time. */
+export const SupabaseTopQuery = Schema.Struct({
+	/** `queryid` as text (a 64-bit hash). */
+	queryId: Schema.String,
+	/** Normalized statement text (`$1` placeholders), cut at 2000 chars. */
+	query: Schema.String,
+	calls: Schema.Number,
+	totalExecMs: Schema.Number,
+	meanExecMs: Schema.Number,
+	rows: Schema.Number,
+})
+export type SupabaseTopQuery = typeof SupabaseTopQuery.Type
+
+export class SupabaseAdvisorsByLevel extends Schema.Class<SupabaseAdvisorsByLevel>("SupabaseAdvisorsByLevel")(
+	{
+		error: Schema.Array(SupabaseAdvisorLint),
+		warn: Schema.Array(SupabaseAdvisorLint),
+		info: Schema.Array(SupabaseAdvisorLint),
+	},
+) {}
+
+/**
+ * A project's polled advisors (hourly) and slowest statements (every 15 minutes). A null
+ * `*CheckedAt` means never polled; an `*Error` is the last poll's failure, with the previous
+ * good result kept beside it.
+ */
+export class SupabaseProjectInsights extends Schema.Class<SupabaseProjectInsights>("SupabaseProjectInsights")(
+	{
+		projectRef: SupabaseProjectRef,
+		advisors: SupabaseAdvisorsByLevel,
+		advisorsCheckedAt: Schema.NullOr(Schema.Number),
+		advisorsError: Schema.NullOr(Schema.String),
+		/** Top 10 by total execution time since the project's stats were last reset. */
+		topQueries: Schema.Array(SupabaseTopQuery),
+		queriesCheckedAt: Schema.NullOr(Schema.Number),
+		queriesError: Schema.NullOr(Schema.String),
+	},
+) {}
+
 export class IntegrationsForbiddenError extends HttpTaggedError<IntegrationsForbiddenError>()(
 	"@maple/http/errors/IntegrationsForbiddenError",
 	{
@@ -1298,6 +1436,48 @@ export class IntegrationsApiGroup extends HttpApiGroup.make("integrations")
 	.add(
 		HttpApiEndpoint.delete("railwayDisconnect", "/railway", {
 			success: RailwayDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("supabaseStatus", "/supabase/status", {
+			success: SupabaseIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		// Starts the Management API OAuth flow (PKCE); the callback binds the granted organization.
+		HttpApiEndpoint.post("supabaseConnect", "/supabase/connect", {
+			payload: SupabaseConnectRequest,
+			success: SupabaseConnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsConfigurationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Runs project discovery now instead of waiting for the hourly cron.
+		HttpApiEndpoint.post("supabaseSync", "/supabase/sync", {
+			success: SupabaseIntegrationStatus,
+			error: [IntegrationsForbiddenError, IntegrationsNotConnectedError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.patch("supabaseUpdateProject", "/supabase/projects/:ref", {
+			params: { ref: SupabaseProjectRef },
+			payload: SupabaseProjectUpdateRequest,
+			success: SupabaseIntegrationStatus,
+			error: [IntegrationsForbiddenError, IntegrationsNotFoundError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("supabaseProjectInsights", "/supabase/projects/:ref/insights", {
+			params: { ref: SupabaseProjectRef },
+			success: SupabaseProjectInsights,
+			error: [IntegrationsNotFoundError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("supabaseDisconnect", "/supabase", {
+			success: SupabaseDisconnectResponse,
 			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
 		}),
 	)

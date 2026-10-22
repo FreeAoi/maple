@@ -3,30 +3,22 @@
  *
  * Two families live here: **labs** are visual galleries that render a component
  * family over fixture data (widgets, provenance nodes, trace views), **benches**
- * are the synthetic perf harnesses the Playwright gates in `perf/` drive. All of
- * them are 404 in production builds — the `/lab` layout route throws `notFound()`
- * outside `import.meta.env.DEV` — and everything under `src/lab/` is forbidden
- * from the startup bundle by `perf/check-bundle-budget.ts`.
+ * are synthetic perf harnesses. Each has a lazy module in `entries/`, so none of
+ * them reaches the startup bundle.
  *
- * `registry.test.ts` asserts this list and the route tree agree, so adding a
- * file under `src/routes/lab/` without an entry here fails the test rather than
- * silently missing from the `/lab` index page.
- *
- * Deliberately dependency-free at runtime: `src/lib/public-routes.ts` imports it
- * and `main.tsx` needs that before the router exists. The route-tree import is
- * type-only so a typo in `path` is a typecheck error, not a dead link.
+ * `registry.test.ts` asserts this list and `entries/` agree, so adding an entry
+ * module without a line here fails the test rather than silently missing from
+ * the `/lab` index page.
  */
-import type { FileRoutesByTo } from "../routeTree.gen"
-
 export const LAB_ROOT = "/lab"
 
-export type LabPath = Extract<keyof FileRoutesByTo, `${typeof LAB_ROOT}/${string}`>
+export type LabPath = `${typeof LAB_ROOT}/${string}`
 
 export interface LabEntry {
 	path: LabPath
 	title: string
 	description: string
-	/** Gallery of a component family (`lab`) or a Playwright perf harness (`bench`). */
+	/** Gallery of a component family (`lab`) or a perf harness (`bench`). */
 	kind: "lab" | "bench"
 	/**
 	 * `none`: renders from fixtures with no API and no session, so the auth gate

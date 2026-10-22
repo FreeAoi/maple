@@ -2,15 +2,18 @@ import { HttpApiBuilder } from "effect/http-api"
 import type { Source } from "@maple/domain/http"
 import { CreateSourceRequest, CurrentTenant, UpdateSourceRequest } from "@maple/domain/http"
 import {
+	GcpConnectorPublicId,
 	MapleApiV2,
 	paginateArray,
+	ScrapeTargetPublicId,
 	SourcePublicId,
 	timestamp,
 	timestampOrNull,
 	V2InsufficientPermissions,
 } from "@maple/domain/http/v2"
 import type { V2Source, V2SourceUpdateParams } from "@maple/domain/http/v2"
-import { Effect, Schema } from "effect"
+import { GcpConnectorId, ScrapeTargetId } from "@maple/domain/primitives"
+import { Effect, Option, Schema } from "effect"
 import { recordHttpAudit } from "@maple/backend/services/audit/AuditLogService"
 import { SourceUsageService } from "@maple/backend/services/org/SourceUsageService"
 import { SourcesService } from "@maple/backend/services/org/SourcesService"
@@ -19,10 +22,27 @@ import { timestampMs } from "@maple/backend/platform/time"
 import { diffAuditChanges, pickPresentFields } from "@/routes/v2/audit-changes"
 
 const encodePublicSourceId = Schema.encodeSync(SourcePublicId)
+const decodePublicSourceId = Schema.decodeUnknownOption(SourcePublicId)
 const toIsoTimestamp = (epochMs: number) => timestamp(new Date(epochMs).toISOString())
 
 const adminOnly = (action: string) => () =>
 	V2InsufficientPermissions.make(`Only org admins can ${action} sources`)
+
+const decodeScrapeTargetId = Schema.decodeUnknownOption(ScrapeTargetId)
+const decodeGcpConnectorId = Schema.decodeUnknownOption(GcpConnectorId)
+const encodeScrapeTargetId = Schema.encodeSync(ScrapeTargetPublicId)
+const encodeGcpConnectorId = Schema.encodeSync(GcpConnectorPublicId)
+
+/** The id a client can look the integration record up by: its public form where the API has one. */
+export const integrationIdOf = (source: Source): string | null => {
+	const raw = source.integrationId
+	if (raw === null) return null
+	if (source.platform === "prometheus")
+		return Option.match(decodeScrapeTargetId(raw), { onNone: () => raw, onSome: encodeScrapeTargetId })
+	if (source.platform === "gcp")
+		return Option.match(decodeGcpConnectorId(raw), { onNone: () => raw, onSome: encodeGcpConnectorId })
+	return raw
+}
 
 const toV2Source = (source: Source): V2Source => ({
 	id: source.id,
@@ -30,8 +50,10 @@ const toV2Source = (source: Source): V2Source => ({
 	name: source.name,
 	description: source.description,
 	platform: source.platform,
-	is_default: source.isDefault,
+	kind: source.kind,
+	is_default: source.kind === "default",
 	key_prefix: source.keyPrefix,
+	integration_id: integrationIdOf(source),
 	status: source.status,
 	allowed_signals: source.allowedSignals,
 	rate_limit_rps: source.rateLimitRps,
@@ -47,6 +69,7 @@ const toV2Source = (source: Source): V2Source => ({
 		status: source.health.status,
 		last_data_at: timestampOrNull(source.health.lastDataAt),
 		problem: source.health.problem,
+		resources: source.health.resources,
 	},
 })
 
@@ -183,7 +206,35 @@ export const HttpV2SourcesLive = HttpApiBuilder.group(MapleApiV2, "sources", (ha
 							hour: toIsoTimestamp(bucket.hour),
 							spans: bucket.spans,
 							logs: bucket.logs,
+							metrics: bucket.metrics,
+							bytes: bucket.bytes,
 						})),
+					}
+				}),
+			)
+			.handle("usageSummary", () =>
+				Effect.gen(function* () {
+					const tenant = yield* adminTenant("view")
+					const summary = yield* sourceUsage.summary(tenant)
+					return {
+						object: "source_usage_summary" as const,
+						window_start: toIsoTimestamp(summary.windowStart),
+						window_end: toIsoTimestamp(summary.windowEnd),
+						// The rollup keys on the stamped `src_` id; one that does not decode names no source.
+						data: summary.totals.flatMap((total) =>
+							Option.match(decodePublicSourceId(total.sourceId), {
+								onNone: () => [],
+								onSome: (id) => [
+									{
+										source_id: id,
+										spans: total.spans,
+										logs: total.logs,
+										metrics: total.metrics,
+										bytes: total.bytes,
+									},
+								],
+							}),
+						),
 					}
 				}),
 			)

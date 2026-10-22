@@ -1,5 +1,4 @@
 // Every `/lab/kit/overlays?item=<name>` value, one overlay rendered open per item.
-// `packages/ui-parity/src/scenarios/kit.ts` parses this array, so keep it a plain literal list.
 export const OVERLAY_ITEMS = [
 	"dialog",
 	"alert-dialog",
@@ -20,5 +19,3 @@ export const OVERLAY_ITEMS = [
 	"toast-warning",
 	"toast-loading",
 ] as const
-
-export type OverlayItem = (typeof OVERLAY_ITEMS)[number]

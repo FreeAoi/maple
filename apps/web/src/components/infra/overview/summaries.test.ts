@@ -5,7 +5,7 @@ import type { RailwayServiceRow } from "@maple/web-data/warehouse/railway-infra"
 import type { PlanetScaleDatabaseStat } from "@maple/web-data/warehouse/service-map"
 
 import { gcpFleet } from "../gcp/tabs"
-import type { HostRow } from "../host-table"
+import type { ListHostsResponse } from "@maple/domain/http"
 import {
 	summarizeCloudflare,
 	summarizeGcp,
@@ -14,6 +14,8 @@ import {
 	summarizePods,
 	summarizeRailway,
 } from "./summaries"
+
+type HostRow = ListHostsResponse["data"][number]
 
 const END = "2026-10-04T12:00:00Z"
 

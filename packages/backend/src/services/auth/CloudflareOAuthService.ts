@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 import {
 	IntegrationsNotConnectedError,
 	IntegrationsPersistenceError,
@@ -9,13 +9,19 @@ import {
 	type UserId,
 } from "@maple/domain/http"
 import * as PG from "@maple-dev/effect-orm/postgres"
-import { OAuthAuthStates } from "@maple/db/tables"
+import { CloudflareLogpushConnectors, OAuthAuthStates } from "@maple/db/tables"
 import { Array as Arr, Clock, Context, Effect, Layer, Option, Redacted, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { listAccounts } from "@maple/backend/services/integrations/CloudflareApi"
+import { integrationSourceName } from "@maple/backend/services/org/integration-sources"
 import { Database } from "@maple/backend/platform/DatabaseLive"
 import { Env, type EnvConfig } from "@maple/backend/platform/Env"
-import { makeOAuthConnectionHelpers, OAUTH_STATE_TTL_MS } from "./oauth/connection-helpers"
+import {
+	deriveCodeChallenge,
+	generateCodeVerifier,
+	makeOAuthConnectionHelpers,
+	OAUTH_STATE_TTL_MS,
+} from "./oauth/connection-helpers"
 
 const CLOUDFLARE_PROVIDER = "cloudflare"
 
@@ -54,15 +60,6 @@ const grantedAccountsOfRow = (row: {
 		onSome: (accounts) => (Arr.isReadonlyArrayNonEmpty(accounts) ? accounts : fallback),
 	})
 }
-
-/**
- * PKCE (RFC 7636). Cloudflare's OAuth requires PKCE (S256) for public clients — a multi-tenant SaaS
- * that any Cloudflare user can connect — and accepts it for confidential clients too, so we always
- * send it. The `code_verifier` is stashed on the auth-state row and replayed at token exchange.
- */
-const generateCodeVerifier = (): string => randomBytes(32).toString("base64url")
-const deriveCodeChallenge = (verifier: string): string =>
-	createHash("sha256").update(verifier).digest("base64url")
 
 interface ResolvedCloudflareOAuthConfig {
 	readonly clientId: string
@@ -199,6 +196,17 @@ export class CloudflareOAuthService extends Context.Service<
 			providerLabel: "Cloudflare",
 			database,
 			env,
+			source: {
+				platform: "cloudflare",
+				name: integrationSourceName.cloudflare,
+				// Logpush jobs set up before the connection send as it from now on.
+				link: (db, orgId, sourceId) =>
+					db.run(
+						PG.update(CloudflareLogpushConnectors)
+							.set({ sourceId })
+							.where(($) => [$.orgId.eq(orgId), $.sourceId.isNull()]),
+					),
+			},
 		})
 
 		/** Best-effort token revocation on disconnect — failures are logged, never surfaced. */
@@ -221,6 +229,7 @@ export class CloudflareOAuthService extends Context.Service<
 			yield* Effect.annotateCurrentSpan({ orgId })
 			const config = yield* resolveConfig(env)
 			const state = randomBytes(24).toString("base64url")
+			// Cloudflare requires PKCE (S256) for public clients and accepts it for confidential ones.
 			const codeVerifier = generateCodeVerifier()
 			const currentTime = yield* Clock.currentTimeMillis
 

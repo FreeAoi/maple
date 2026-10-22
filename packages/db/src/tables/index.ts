@@ -60,6 +60,7 @@ import {
 import { OrgOpenRouterKeys } from "./openrouter-keys"
 import { RailwayConnections, RailwayEnvironments } from "./railway"
 import { ScrapeTargets, ScrapeTargetChecks } from "./scrape-targets"
+import { SupabaseConnections, SupabaseProjectInsights, SupabaseProjects } from "./supabase"
 import { OrgSupportChannels } from "./support-channels"
 import {
 	VcsInstallations,
@@ -112,6 +113,7 @@ export * from "./openrouter-keys"
 export * from "./railway"
 export * from "./scrape-targets"
 export * from "./sources"
+export * from "./supabase"
 export * from "./support-channels"
 export * from "./vcs"
 
@@ -181,6 +183,9 @@ export const allTables: ReadonlyArray<PgSchemaTable<string, ColumnDefs, string>>
 	RailwayEnvironments,
 	ScrapeTargets,
 	ScrapeTargetChecks,
+	SupabaseConnections,
+	SupabaseProjects,
+	SupabaseProjectInsights,
 	OrgSupportChannels,
 	VcsInstallations,
 	VcsRepositories,

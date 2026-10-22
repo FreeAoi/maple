@@ -1,11 +1,9 @@
 import type { ServiceOverview } from "@maple/query-engine"
 
 /**
- * Deterministic synthetic topology for the service-map bench, shared by the React
- * bench (`service-map-bench.tsx`) and the Foldkit port. Framework-free.
+ * Deterministic synthetic topology for the service-map bench. Framework-free.
  *
- * The row types restate `@/api/warehouse/*` structurally: those modules resolve `@/`
- * against apps/web, which the Foldkit app cannot follow.
+ * The row types restate the warehouse row types structurally.
  */
 
 type ServicePlatform = "kubernetes" | "cloudflare" | "gcp" | "lambda" | "web" | "unknown"
@@ -54,9 +52,6 @@ interface CloudflareService {
 // Fixed window so callsPerSecond (and thus particle pressure) is driven purely
 // by generated callCount, independent of wall-clock.
 export const DURATION_SECONDS = 3600
-export const END_TIME = "2026-06-05T00:00:00.000Z"
-export const START_TIME = "2026-06-04T23:00:00.000Z"
-
 export type BenchRps = "low" | "med" | "high"
 
 export interface BenchParams {

@@ -15,7 +15,7 @@ import type { Log } from "@maple/web-data/warehouse/logs"
 import { domainThresholdToForm, formatSignalValue } from "@maple/web-data/alerts/form-utils"
 import { formatUsage } from "../lib/billing/usage"
 
-// Relative and domain-typed imports keep this fixture loadable from apps/web-foldkit.
+// Relative and domain-typed imports keep this fixture loadable from apps/web.
 type HostRow = ListHostsResponse["data"][number]
 type PodRow = ListPodsResponse["data"][number]
 

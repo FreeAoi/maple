@@ -7,9 +7,6 @@ import { toIsoBucket } from "@maple/web-data/warehouse/timeseries-utils"
 
 const HOUR_MS = 3_600_000
 
-/** What marks a log entry as forwarded by this integration: see `apps/ingest/src/gcp_logging.rs`. */
-export const GCP_LOG_SOURCE = { key: "maple_ingest_source", value: "gcp-logpush" } as const
-
 const ERROR_SEVERITY = /^(err|crit|alert|emerg|fatal)/i
 const WARNING_SEVERITY = /^warn/i
 

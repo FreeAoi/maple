@@ -17,9 +17,9 @@ const cronCases = [
 			"prReviewPostMerge",
 		],
 	],
-	["*/15 * * * *", ["digest"]],
-	["0 * * * *", ["serviceMapRollup"]],
-	["* * * * *", ["alert", "error", "escalation", "fixVerification"]],
+	["*/15 * * * *", ["digest", "supabaseInsights"]],
+	["0 * * * *", ["serviceMapRollup", "supabaseDiscovery"]],
+	["* * * * *", ["alert", "error", "escalation", "fixVerification", "supabaseLogs"]],
 ] as const
 
 /** Every tick recording its name when it runs, with `overrides` swapped in. */
@@ -41,6 +41,9 @@ const recordingTicks = (
 		prReviewPostMerge: tick("prReviewPostMerge"),
 		railwayMetrics: tick("railwayMetrics"),
 		serviceMapRollup: tick("serviceMapRollup"),
+		supabaseDiscovery: tick("supabaseDiscovery"),
+		supabaseLogs: tick("supabaseLogs"),
+		supabaseInsights: tick("supabaseInsights"),
 		...overrides,
 	}
 }

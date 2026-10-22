@@ -1,4 +1,4 @@
-// The Google Cloud list lab's fixtures, shared with apps/web-foldkit's `/lab/gcp-infra`.
+// The Google Cloud list lab's fixtures, shared with apps/web's `/lab/gcp-infra`.
 // Imports stay relative: the Foldkit typecheck resolves `@/` to its own source.
 
 import type { GcpInfraServiceId } from "@maple/domain/gcp-infra"

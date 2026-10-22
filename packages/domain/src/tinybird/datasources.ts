@@ -341,6 +341,37 @@ export const serviceUsage = defineDatasource("service_usage", {
 export type ServiceUsageRow = InferRow<typeof serviceUsage>
 
 /**
+ * Per-source ingestion volume per hour, keyed by the `maple_source_id` resource
+ * attribute the gateway stamps (the public `src_` id). Read by
+ * `sourceUsageHourlyQuery` and `sourceUsageTotalsQuery` (source-usage.ts).
+ */
+export const sourceUsageHourly = defineDatasource("source_usage_hourly", {
+	tenantColumn: "OrgId",
+	description:
+		"Hourly span, log and metric data point counts with estimated bytes per source (maple_source_id). Uses SummingMergeTree, populated by materialized views.",
+	jsonPaths: false,
+	schema: {
+		OrgId: t.string().lowCardinality().brand(OrgId),
+		SourceId: t.string(),
+		Hour: utcDateTime(),
+		SpanCount: t.uint64(),
+		SpanSizeBytes: t.uint64(),
+		LogCount: t.uint64(),
+		LogSizeBytes: t.uint64(),
+		MetricCount: t.uint64(),
+		MetricSizeBytes: t.uint64(),
+	},
+	// Unpartitioned like service_usage: one row per source-hour stays tiny. 90 days
+	// matches the minutely-tier retention; reads only cover the last 24 hours.
+	engine: engine.summingMergeTree({
+		sortingKey: ["OrgId", "SourceId", "Hour"],
+		ttl: "Hour + INTERVAL 90 DAY",
+	}),
+})
+
+export type SourceUsageHourlyRow = InferRow<typeof sourceUsageHourly>
+
+/**
  * Lightweight projection of traces for service map JOIN queries.
  * Pre-extracts deployment.environment from Map columns.
  * Sorted by (OrgId, TraceId, SpanId) to align with the JOIN key.
@@ -367,7 +398,7 @@ export const serviceMapSpans = defineDatasource("service_map_spans", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "TraceId", "SpanId", "Timestamp"],
-		ttl: "Timestamp + INTERVAL 30 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 30 DAY",
 	}),
 })
 
@@ -399,7 +430,7 @@ export const serviceMapChildren = defineDatasource("service_map_children", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "TraceId", "ParentSpanId", "Timestamp"],
-		ttl: "Timestamp + INTERVAL 30 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 30 DAY",
 	}),
 })
 
@@ -772,7 +803,7 @@ export const serviceOverviewSpans = defineDatasource("service_overview_spans", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "ServiceName", "Timestamp"],
-		ttl: "Timestamp + INTERVAL 30 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 30 DAY",
 	}),
 	indexes: [
 		{
@@ -921,7 +952,7 @@ export const errorEvents = defineDatasource("error_events", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "FingerprintHash", "Timestamp"],
-		ttl: "Timestamp + INTERVAL 90 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 90 DAY",
 	}),
 })
 
@@ -970,7 +1001,7 @@ export const errorEventsByTime = defineDatasource("error_events_by_time", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "Timestamp", "FingerprintHash"],
-		ttl: "Timestamp + INTERVAL 90 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 90 DAY",
 	}),
 })
 
@@ -1018,7 +1049,7 @@ export const errorFingerprintsMinutely = defineDatasource("error_fingerprints_mi
 	engine: engine.aggregatingMergeTree({
 		partitionKey: "toYYYYMM(Minute)",
 		sortingKey: ["OrgId", "Minute", "FingerprintHash"],
-		ttl: "Minute + INTERVAL 90 DAY",
+		ttl: "toDate(Minute) + INTERVAL 90 DAY",
 	}),
 })
 
@@ -1056,7 +1087,7 @@ export const traceListMv = defineDatasource("trace_list_mv", {
 	engine: engine.mergeTree({
 		partitionKey: "toDate(Timestamp)",
 		sortingKey: ["OrgId", "Timestamp", "TraceId"],
-		ttl: "Timestamp + INTERVAL 30 DAY",
+		ttl: "toDate(Timestamp) + INTERVAL 30 DAY",
 	}),
 	indexes: [
 		{
@@ -1109,7 +1140,7 @@ export const traceFacetsHourly = defineDatasource("trace_facets_hourly", {
 			"ServiceNamespace",
 			"HasError",
 		],
-		ttl: "Hour + INTERVAL 30 DAY",
+		ttl: "toDate(Hour) + INTERVAL 30 DAY",
 	}),
 })
 
@@ -1608,7 +1639,7 @@ export const metricCatalog = defineDatasource("metric_catalog", {
 	engine: engine.aggregatingMergeTree({
 		partitionKey: "toDate(Hour)",
 		sortingKey: ["OrgId", "MetricType", "ServiceName", "MetricName", "Hour"],
-		ttl: "Hour + INTERVAL 90 DAY",
+		ttl: "toDate(Hour) + INTERVAL 90 DAY",
 	}),
 })
 
@@ -1635,7 +1666,7 @@ export const attributeKeysHourly = defineDatasource("attribute_keys_hourly", {
 	engine: engine.aggregatingMergeTree({
 		partitionKey: "toDate(Hour)",
 		sortingKey: ["OrgId", "AttributeScope", "Hour", "AttributeKey"],
-		ttl: "Hour + INTERVAL 90 DAY",
+		ttl: "toDate(Hour) + INTERVAL 90 DAY",
 	}),
 })
 
@@ -1664,7 +1695,7 @@ export const attributeValuesHourly = defineDatasource("attribute_values_hourly",
 	engine: engine.aggregatingMergeTree({
 		partitionKey: "toDate(Hour)",
 		sortingKey: ["OrgId", "AttributeScope", "AttributeKey", "Hour", "AttributeValue"],
-		ttl: "Hour + INTERVAL 90 DAY",
+		ttl: "toDate(Hour) + INTERVAL 90 DAY",
 	}),
 })
 
