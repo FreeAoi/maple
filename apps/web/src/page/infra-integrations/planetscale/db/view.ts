@@ -1,4 +1,7 @@
-import { derivePlanetScaleSetup } from "../../../../components/integrations/planetscale-setup-steps"
+import {
+	derivePlanetScaleSetup,
+	metricsCollectionFailing,
+} from "../../../../components/integrations/planetscale-setup-steps"
 import { countLabel } from "@maple/ui/lib/format"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
@@ -18,16 +21,15 @@ import { type SelectEntry, view as selectView } from "../../../../ui/select-view
 import * as Tooltip from "../../../../ui/tooltip"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
-import { integrationNotConnected } from "../../kit/empty-states"
 import { heroChip } from "../../../infra/kit/hero-chip"
-import { pageHero } from "../../../infra/kit/page-parts"
+import { pageHeroParts } from "../../../infra/kit/page-parts"
 import { formatAbsolute } from "../../../kit/relative-time"
 import { pageTime } from "../../kit/page-time"
 import { activeFilterChips, applyBranchFilters } from "../filters"
 import {
 	BRANCH_ABSENCE_COPY,
-	METRICS_PAUSED_MESSAGE,
 	metricsNotice,
+	planetscaleConnectCta,
 	revokedNotice,
 	setupState,
 } from "../notices"
@@ -150,8 +152,6 @@ const dataSections = (
 	const selected = filters.branches ?? []
 	const candidates = applyBranchFilters(candidatesOf(model), filters)
 	const selectedBranch = selectedBranchOf(model)
-	const status = statusOf(model)
-	const metricsPaused = status?.metrics_auth === "missing"
 	const selectedCandidate = candidates.find((candidate) => candidate.name === selectedBranch?.name) ?? null
 	const reason = selectedCandidate === null ? null : absenceReason(selectedCandidate)
 	const events =
@@ -172,11 +172,7 @@ const dataSections = (
 									theme,
 									timeZone: clock.timeZone,
 									markers: eventsToChartMarkers(events),
-									emptyMessage: metricsPaused
-										? METRICS_PAUSED_MESSAGE
-										: reason !== null
-											? BRANCH_ABSENCE_COPY[reason]
-											: undefined,
+									emptyMessage: reason !== null ? BRANCH_ABSENCE_COPY[reason] : undefined,
 									selected,
 									trigger,
 								}),
@@ -193,13 +189,13 @@ const dataSections = (
 						onFailure: (failure) =>
 							errorState(h, {
 								failure,
-								title: "Failed to load branch stats",
+								title: "Couldn't load branch stats",
 								onRetry: Message.ClickedRetryBranchStats(),
 							}),
 						onStale: ({ error }) =>
 							errorState(h, {
 								failure: error,
-								title: "Failed to load branch stats",
+								title: "Couldn't load branch stats",
 								onRetry: Message.ClickedRetryBranchStats(),
 							}),
 						onRefreshing: () =>
@@ -209,9 +205,7 @@ const dataSections = (
 								measure: model.measure,
 								sort: model.breakdownSort,
 								isWaiting: true,
-								emptyMessage: metricsPaused
-									? METRICS_PAUSED_MESSAGE
-									: "No branches match these filters.",
+								emptyMessage: "No branches match these filters.",
 							}),
 						onSuccess: () =>
 							breakdownPanel(h, {
@@ -220,9 +214,7 @@ const dataSections = (
 								measure: model.measure,
 								sort: model.breakdownSort,
 								isWaiting: false,
-								emptyMessage: metricsPaused
-									? METRICS_PAUSED_MESSAGE
-									: "No branches match these filters.",
+								emptyMessage: "No branches match these filters.",
 							}),
 					}),
 				],
@@ -353,28 +345,51 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	})
 	const body = (trigger: Trigger): ReadonlyArray<Html> =>
 		status !== null && !status.connected
-			? [
-					integrationNotConnected(h, {
-						icon: icon(h, "PlanetScaleIcon", { size: 16 }),
-						title: "Connect PlanetScale to see database health",
-						description:
-							"Authorize your PlanetScale organization with one click and Maple tracks every branch's health (connections, CPU, memory, replication lag) with nothing to install.",
-						integration: "planetscale",
-						actionLabel: "Connect PlanetScale",
-						docsPage: "planetscale",
-					}),
-				]
+			? [planetscaleConnectCta(h)]
 			: [
 					...(status?.revoked_at != null ? [revokedNotice(h)] : []),
-					...(status?.metrics_auth === "missing" && !never ? [metricsNotice(h)] : []),
+					...(status !== null &&
+					status.revoked_at === null &&
+					!never &&
+					metricsCollectionFailing(status, clock.nowMs)
+						? [metricsNotice(h, status)]
+						: []),
 					...(never && status !== null
-						? [setupState(h, derivePlanetScaleSetup(status, clock.nowMs).steps)]
+						? [setupState(h, derivePlanetScaleSetup(status, clock.nowMs).checks)]
 						: []),
 					...(resolution.kind === "unknown"
 						? [unknownBranchNotice(h, resolution.name, resolution.fallback?.name ?? null)]
 						: []),
 					dataSections(h, model, clock, trigger, model.themeColors),
 				]
+	const heroActions: ReadonlyArray<Html> =
+		database === null
+			? []
+			: [
+					button(
+						h,
+						{
+							variant: "outline",
+							size: "sm",
+							attributes: [h.AriaHasPopup("menu"), h.AriaExpanded(false)],
+						},
+						[icon(h, "BellIcon", { size: 14 }), "Alert on this"],
+					),
+				]
+	const hero = pageHeroParts(h, {
+		title: model.dbName,
+		description: "Branch-level health, live from PlanetScale.",
+		meta:
+			database === null
+				? undefined
+				: [
+						heroChip(h, database.kind === "postgresql" ? "Postgres" : "MySQL / Vitess"),
+						...(database.region ? [heroChip(h, database.region)] : []),
+						...(database.plan ? [heroChip(h, database.plan)] : []),
+						heroChip(h, countLabel(database.branches.length, "branch", "branches")),
+						...filterChipRail(h, model),
+					],
+	})
 	return h.div(
 		[h.Class("contents"), h.OnMount(ResolveThemeColors({ tokens: CHART_TOKENS }))],
 		[
@@ -404,58 +419,17 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 									filtersOf(model),
 									AsyncData.isLoading(model.databases.data),
 								),
-								actions: branchSelect(h, model, timeControls),
+								titleContent: hero.title,
+								actions:
+									heroActions.length === 0
+										? branchSelect(h, model, timeControls)
+										: h.div(
+												[h.Class("flex flex-wrap items-center gap-2")],
+												[...heroActions, branchSelect(h, model, timeControls)],
+											),
 								// TODO(alert-menu): see the note at the top of this file.
 							},
-							[
-								pageHero(h, {
-									title: model.dbName,
-									description: "Branch-level health, live from PlanetScale.",
-									actions:
-										database === null
-											? undefined
-											: [
-													button(
-														h,
-														{
-															variant: "outline",
-															size: "sm",
-															attributes: [
-																h.AriaHasPopup("menu"),
-																h.AriaExpanded(false),
-															],
-														},
-														[icon(h, "BellIcon", { size: 14 }), "Alert on this"],
-													),
-												],
-									meta:
-										database === null
-											? undefined
-											: [
-													heroChip(
-														h,
-														database.kind === "postgresql"
-															? "Postgres"
-															: "MySQL / Vitess",
-													),
-													...(database.region
-														? [heroChip(h, database.region)]
-														: []),
-													...(database.plan ? [heroChip(h, database.plan)] : []),
-													heroChip(
-														h,
-														countLabel(
-															database.branches.length,
-															"branch",
-															"branches",
-														),
-													),
-													...filterChipRail(h, model),
-												],
-								}),
-								...body(trigger),
-								...(portal === null ? [] : [portal]),
-							],
+							[hero.body, ...body(trigger), ...(portal === null ? [] : [portal])],
 						),
 				},
 			}),

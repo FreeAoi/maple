@@ -13,6 +13,7 @@ import {
 	throughputPlot,
 	TRACED_KEY,
 } from "../fixed-metric-series"
+import { pinnedTimeXAxis } from "@maple/ui/components/plot/bucket-axis"
 import { timeseriesXAxis } from "@maple/ui/components/plot/timeseries-axis"
 import { timeseriesYAxis } from "../timeseries"
 import { asFiniteNumber, type TimeseriesRow } from "../timeseries-rows"
@@ -39,15 +40,28 @@ const STROKE_WIDTH = 2
 const FILL_OPACITY = 0.6
 const at = (row: TimeseriesRow) => row.date
 const valueOf = (key: string) => (row: TimeseriesRow) => asFiniteNumber(row[key])
+/** A missing value stays null, so the line and its focus dot leave a gap instead of dropping to 0. */
+const gapValueOf = (key: string) => (row: TimeseriesRow) =>
+	row[key] == null ? null : asFiniteNumber(row[key])
 const read = (key: string) => (row: TimeseriesRow) => {
 	const value = row[key]
 	return typeof value === "number" ? value : null
 }
 
 const colorOf = (spec: FixedMetricSpec, key: string): string => spec.colors[key] ?? ""
-/** `margin: yAxisWidth == null ? undefined : { left: yAxisWidth }`. */
+/** `margin: yAxisWidth == null ? undefined : { left: yAxisWidth }`, plus an optional right lock. */
 const marginOf = (spec: FixedMetricSpec) =>
-	spec.marginLeft === undefined ? undefined : { left: spec.marginLeft }
+	spec.marginLeft === undefined && spec.marginRight === undefined
+		? undefined
+		: {
+				...(spec.marginLeft === undefined ? undefined : { left: spec.marginLeft }),
+				...(spec.marginRight === undefined ? undefined : { right: spec.marginRight }),
+			}
+/** The x axis: pinned to the spec's window when it sets one, else over the drawn rows. */
+const xAxisOf = (spec: FixedMetricSpec, model: FixedMetricModel) =>
+	spec.xDomainMs === undefined
+		? timeseriesXAxis(model.axisContext)
+		: pinnedTimeXAxis(model.axisContext, spec.xDomainMs)
 const chromeOf = (spec: FixedMetricSpec) => ({
 	border: colorOf(spec, "border"),
 	background: colorOf(spec, "background"),
@@ -63,7 +77,9 @@ const bucketTooltip =
 	(points: ReadonlyArray<Point>): Option.Option<ChartTooltip> =>
 		Option.map(Option.fromNullishOr(points[0]), ({ datum }) => {
 			// `resolveTooltipHighlight`: the series nearest the cursor is emphasised.
-			const highlighted = focus.highlight(series.map((entry) => [entry.label, entry.value(datum)] as const))
+			const highlighted = focus.highlight(
+				series.map((entry) => [entry.label, entry.value(datum)] as const),
+			)
 			const base = {
 				heading: formatBucketLabel(datum.bucket, model.axisContext, "tooltip"),
 				rows: series.flatMap((entry) => {
@@ -80,7 +96,9 @@ const bucketTooltip =
 							]
 				}),
 			}
-			return highlighted === undefined ? ChartTooltip.Bucket(base) : ChartTooltip.Bucket({ ...base, highlighted })
+			return highlighted === undefined
+				? ChartTooltip.Bucket(base)
+				: ChartTooltip.Bucket({ ...base, highlighted })
 		})
 
 const throughputChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartValue, number> => {
@@ -157,7 +175,7 @@ const throughputChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, Chart
 			focusCrosshair(chrome),
 		],
 		scales: {
-			x: timeseriesXAxis(model.axisContext),
+			x: xAxisOf(spec, model),
 			y: timeseriesYAxis({
 				rows,
 				visibleKeys: [THROUGHPUT_KEY, ERROR_KEY, TRACED_KEY],
@@ -265,13 +283,13 @@ const errorRateChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartV
 			focusCrosshair(chrome),
 		],
 		scales: {
-			x: timeseriesXAxis(model.axisContext),
+			x: xAxisOf(spec, model),
 			y: timeseriesYAxis({
 				rows: plotRows,
 				visibleKeys: ["errorRate"],
 				softMin: 0,
 				softMax: errorRateCeiling(plotRows),
-				format: formatErrorRate,
+				unit: "percent",
 			}).y,
 		},
 		focus: "group-x",
@@ -279,7 +297,11 @@ const errorRateChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartV
 		tooltip: spec.showTooltip ? cursorTooltip<TimeseriesRow>(focus.anchor) : false,
 	})
 	const series = [{ label: "Error rate", color, value: read("errorRate"), format: formatErrorRate }]
-	return { definition, focusKeyOf: (point) => point.datum.bucket, tooltipOf: bucketTooltip(model, series, focus) }
+	return {
+		definition,
+		focusKeyOf: (point) => point.datum.bucket,
+		tooltipOf: bucketTooltip(model, series, focus),
+	}
 }
 
 const latencyChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartValue, number> => {
@@ -287,7 +309,10 @@ const latencyChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartVal
 	const focus = tooltipFocusCapture()
 	const { plotRows } = model
 	const chrome = chromeOf(spec)
-	const series = LATENCY_SERIES.map((entry) => ({ ...entry, color: colorOf(spec, entry.key) }))
+	const series = (spec.latencySeries ?? LATENCY_SERIES).map((entry) => ({
+		...entry,
+		color: colorOf(spec, entry.key),
+	}))
 	const keys = series.map((entry) => entry.key)
 	const { solid, dashed } = splitAtFirstPartial(plotRows, keys, model.trimOptions)
 	const partialDash = roundCapDasharray(4, 4, STROKE_WIDTH)
@@ -295,7 +320,7 @@ const latencyChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartVal
 		lineY(slice, {
 			id: dash ? `${entry.key}-partial` : entry.key,
 			x: at,
-			y: valueOf(entry.key),
+			y: gapValueOf(entry.key),
 			stroke: entry.color,
 			strokeWidth: STROKE_WIDTH,
 			strokeDasharray: dash ? partialDash : undefined,
@@ -305,12 +330,12 @@ const latencyChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartVal
 		marks: [
 			...series.map((entry) => line(solid, entry, false)),
 			...(dashed.length > 0 ? series.map((entry) => line(dashed, entry, true)) : []),
-			...series.map((entry) => focusDot(plotRows, at, valueOf(entry.key), entry.color, chrome)),
+			...series.map((entry) => focusDot(plotRows, at, gapValueOf(entry.key), entry.color, chrome)),
 			focusCrosshair(chrome),
 		],
 		scales: {
-			x: timeseriesXAxis(model.axisContext),
-			y: timeseriesYAxis({ rows: plotRows, visibleKeys: keys, format: formatLatency }).y,
+			x: xAxisOf(spec, model),
+			y: timeseriesYAxis({ rows: plotRows, visibleKeys: keys, unit: "duration_ms" }).y,
 		},
 		focus: "group-x",
 		focusRing: false,
@@ -376,7 +401,7 @@ const apdexChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartValue
 			focusCrosshair(chrome),
 		],
 		scales: {
-			x: timeseriesXAxis(model.axisContext),
+			x: xAxisOf(spec, model),
 			y: timeseriesYAxis({ rows: plotRows, visibleKeys: ["apdexScore"], softMin: 0, softMax: 1 }).y,
 		},
 		focus: "group-x",
@@ -385,7 +410,11 @@ const apdexChart = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartValue
 	})
 	const format = (score: number) => score.toFixed(2)
 	const series = [{ label: "Apdex", color, value: read("apdexScore"), format }]
-	return { definition, focusKeyOf: (point) => point.datum.bucket, tooltipOf: bucketTooltip(model, series, focus) }
+	return {
+		definition,
+		focusKeyOf: (point) => point.datum.bucket,
+		tooltipOf: bucketTooltip(model, series, focus),
+	}
 }
 
 export const buildFixedMetric = (spec: FixedMetricSpec): BuiltChart<TimeseriesRow, ChartValue, number> => {

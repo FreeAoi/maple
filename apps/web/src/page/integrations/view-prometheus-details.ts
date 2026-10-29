@@ -20,7 +20,8 @@ import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from ".
 import { relativeTime } from "../kit/relative-time"
 import { Message } from "./message"
 import type { Model } from "./model"
-import { AUTH_TYPE_LABELS, hostnameOf, type ScheduledStatus, toneBadge } from "./view-prometheus"
+import { hostnameOf } from "./prometheus"
+import { AUTH_TYPE_LABELS, type ScheduledStatus, toneBadge } from "./view-prometheus"
 
 // `ScrapeTargetDetails`, `MetricBox` and `ScrapeTargetChecksTable`.
 // TODO(tooltip): a check's message renders its trigger; the full-message popup is the overlay port's.
@@ -79,9 +80,9 @@ const checksTable = (
 		onIdle: () => skeletonList(h, { rows: 3, gap: "2" }),
 		onLoading: () => skeletonList(h, { rows: 3, gap: "2" }),
 		onFailure: (failure) =>
-			errorState(h, { failure, title: "Failed to load scheduled checks", variant: "row" }),
+			errorState(h, { failure, title: "Couldn't load scheduled checks", variant: "row" }),
 		onStale: ({ error }) =>
-			errorState(h, { failure: error, title: "Failed to load scheduled checks", variant: "row" }),
+			errorState(h, { failure: error, title: "Couldn't load scheduled checks", variant: "row" }),
 		onRefreshing: () => checksRows(h, checks, timeZone),
 		onSuccess: () => checksRows(h, checks, timeZone),
 	})

@@ -56,6 +56,21 @@ const TABLE_NOTES: Record<string, ReadonlyArray<string>> = {
 		"Scanners borrow crawler user agents and mostly get 404s: count pages actually read with `HttpStatus < 400` (0 means the span carried no status).",
 		"Sorting key: `(OrgId, Timestamp, TraceId)`; filled forward by its MV from migration 0033, never backfilled.",
 	],
+	ci_runs: [
+		"One row per CI workflow run attempt: the root span of a `github-actions` trace, with `Owner`, `Repository`, `Pipeline` (workflow name), `Result` (success, failure, timeout, error, cancellation, skip), `Branch`, `Revision`, `PullRequest` (0 = none) and `Attempt` pre-extracted. ALWAYS prefer this over `traces` + `SpanAttributes['cicd.pipeline.*']`.",
+		"`Duration` is NANOSECONDS. Leave out `Result = 'skip'` for durations and success rates: a skipped run did nothing.",
+		"Keeps 365 days, past the 30-day raw trace its `TraceId` links to. Sorting key: `(OrgId, Timestamp, TraceId)`.",
+	],
+	ci_jobs: [
+		"One row per CI job (a child of a run span; steps and runner waits are not included), with `Job`, `Result`, `QueueMs` (wait for a runner), `RunnerName`, `RunnerLabels` and `FailureReason` pre-extracted. Join to `ci_runs` on `TraceId`.",
+		"`Duration` is NANOSECONDS and includes the queue wait. A skipped job, or one cancelled before a runner took it (`Duration = 0`), never ran.",
+		"Keeps 365 days. Sorting key: `(OrgId, Timestamp, TraceId)`.",
+	],
+	service_endpoint_details_hourly: [
+		"HTTP Server spans with a response status, one row per (service, hour, env, normalized `SpanName` = `METHOD /route`, `HttpStatusCode`, `ErrorType` = `error.type`). ALWAYS prefer this over `traces` + `SpanAttributes['http.response.status_code']` for per-endpoint status, error-type, latency, body-size and user-agent breakdowns.",
+		"Aggregate state columns: merge `DurationQuantiles` with `quantilesTDigestMerge(0.5, 0.95, 0.99)` (NANOSECONDS), `BodySizeQuantiles` with `quantilesTDigestIfMerge(0.5, 0.95, 0.99)` (bytes), `UserAgents` with `approx_top_kMerge(10)`, and `SlowestTraceId`/`SlowestTimestamp`/`SlowestBodySize` with `argMaxMerge` (`SlowestBodySize` -1 = no body size). Sum `SpanCount`/`EstimatedSpanCount`/`BodyCount`.",
+		"Keeps 90 days at hour grain. Sorting key: `(OrgId, ServiceName, Hour, DeploymentEnv, SpanName, HttpStatusCode, ErrorType)`.",
+	],
 	service_overview_spans: [
 		"Pre-materialized projection of entry-point spans only (Server/Consumer kinds + root spans). Use for per-service request count, error rate, p50/p95/p99 latency.",
 		"`Duration` is NANOSECONDS — divide by 1e6 for ms.",

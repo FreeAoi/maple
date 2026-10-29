@@ -28,6 +28,22 @@ const main = Effect.gen(function* () {
 		Layer.succeed(McpOAuthRateLimit, rateLimiter(60, 60)),
 		Layer.succeed(VcsSyncQueueProducer, unavailableQueue),
 		Layer.succeed(PlanetScaleWebhookQueueProducer, unavailableQueue),
+		Layer.succeed(SecurityAuditWorkflowStarter, {
+			create: () =>
+				Effect.fail(
+					new WorkflowStartError({
+						message: "Cloud security audit workflows are not configured",
+						cause: undefined,
+					}),
+				),
+			cancel: () =>
+				Effect.fail(
+					new WorkflowCancelError({
+						message: "Cloud security audit workflows are not configured",
+						cause: undefined,
+					}),
+				),
+		}),
 	)
 	const platform = Layer.mergeAll(DatabasePgLive, FetchHttpClient.layer, BunHttpServer.layerHttpServices)
 	const sync = ElectricSyncRouter.pipe(
@@ -125,6 +141,9 @@ import {
 	PlanetScaleWebhookQueueProducer,
 	QueueSendError,
 	VcsSyncQueueProducer,
+	SecurityAuditWorkflowStarter,
+	WorkflowStartError,
+	WorkflowCancelError,
 } from "@maple/backend/platform/bindings"
 import { AllRoutes as ApiRoutes, ApiAuthLive } from "../../api/src/runtime/http-graph"
 import { HttpServicesLive } from "../../api/src/runtime/service-graph"

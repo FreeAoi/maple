@@ -42,6 +42,16 @@ const dispatchDelivery = (
 const failingChatPost = () =>
 	Effect.fail(new AlertDeliveryError({ message: "unexpected postChatAlert", destinationType: "chat" }))
 
+/** These tests send to no Linear destination. */
+const unusedLinear: EffectTransportDeps["linear"] = {
+	request: () =>
+		Effect.fail(new AlertDeliveryError({ message: "unexpected Linear call", destinationType: "linear" })),
+	findThread: () =>
+		Effect.fail(new AlertDeliveryError({ message: "unexpected Linear call", destinationType: "linear" })),
+	saveThread: () =>
+		Effect.fail(new AlertDeliveryError({ message: "unexpected Linear call", destinationType: "linear" })),
+}
+
 const baseContext: TemplateRenderContext = {
 	ruleId: "rule_1" as TemplateRenderContext["ruleId"],
 	ruleName: "Checkout error rate",
@@ -82,6 +92,7 @@ const DESTINATION_ID = Schema.decodeUnknownSync(AlertDestinationId)("7c6b5a49-38
 /** Dispatch deps for non-email destinations — email sends must not happen. */
 const noEmailDeps: EffectTransportDeps = {
 	postChatAlert: failingChatPost,
+	linear: unusedLinear,
 	sendEmail: () =>
 		Effect.fail(new AlertDeliveryError({ message: "unexpected sendEmail", destinationType: "email" })),
 }
@@ -399,6 +410,39 @@ describe("dispatchDelivery", () => {
 		}),
 	)
 
+	it.effect("webhook: reads only a bounded prefix of an endless error body", () =>
+		Effect.gen(function* () {
+			const webhookContext: DispatchContext = {
+				...pagerdutyContext,
+				destination: { ...destinationRow, name: "Webhook", type: "webhook" },
+				publicConfig: { summary: "POST hooks.example.test", channelLabel: null },
+				secretConfig: {
+					type: "webhook",
+					url: "https://hooks.example.test/maple",
+					signingSecret: null,
+				},
+			}
+			const pulled = { count: 0 }
+			const chunk = new TextEncoder().encode("boom ".repeat(200))
+			const fetchFn: typeof fetch = async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						pull: (controller) => {
+							pulled.count++
+							controller.enqueue(chunk)
+						},
+					}),
+					{ status: 500 },
+				)
+
+			const error = yield* Effect.flip(
+				dispatchDelivery(webhookContext, "{}", fetchFn, 5_000, LINK, CHAT, noEmailDeps),
+			)
+			assert.include(error.message, "delivery failed with 500: boom boom")
+			assert.isBelow(pulled.count, 100)
+		}),
+	)
+
 	const failingFetch: typeof fetch = async () => {
 		throw new Error("fetch must not be called for email dispatch")
 	}
@@ -420,6 +464,7 @@ describe("dispatchDelivery", () => {
 			const sent: Array<{ to: string; subject: string; html: string }> = []
 			const deps: EffectTransportDeps = {
 				postChatAlert: failingChatPost,
+				linear: unusedLinear,
 				sendEmail: (to, subject, html) =>
 					Effect.sync(() => {
 						sent.push({ to, subject, html })
@@ -446,6 +491,7 @@ describe("dispatchDelivery", () => {
 		Effect.gen(function* () {
 			const deps: EffectTransportDeps = {
 				postChatAlert: failingChatPost,
+				linear: unusedLinear,
 				sendEmail: () =>
 					Effect.fail(
 						new AlertDeliveryError({
@@ -470,6 +516,7 @@ describe("dispatchDelivery", () => {
 			const sent: string[] = []
 			const deps: EffectTransportDeps = {
 				postChatAlert: failingChatPost,
+				linear: unusedLinear,
 				sendEmail: (to) =>
 					to === "oncall@acme.test"
 						? Effect.fail(
@@ -496,6 +543,7 @@ describe("dispatchDelivery", () => {
 		Effect.gen(function* () {
 			const deps: EffectTransportDeps = {
 				postChatAlert: failingChatPost,
+				linear: unusedLinear,
 				sendEmail: () =>
 					Effect.fail(
 						new AlertDeliveryError({

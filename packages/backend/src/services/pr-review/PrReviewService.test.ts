@@ -13,9 +13,11 @@ import {
 	type PullRequestReviewThread,
 	type VcsSyncJob,
 	PR_REVIEW_FAILURE_COPY,
+	type PrReviewFailureReason,
 	PrReviewFinding,
 	PrReviewId,
 	PrReviewMergeStep,
+	PrReviewOrgSettings,
 	PrReviewReport,
 	PrReviewContractBreak,
 	type PullRequestFile,
@@ -56,6 +58,7 @@ import {
 	renderCheckSummary,
 	renderSummaryComment,
 	prReviewCommentMarker,
+	reviewCheckFor,
 	withReviewStatus,
 } from "./PrReviewService"
 import { FindingEmbedder, type FindingEmbedderApi, PrReviewEmbeddingError } from "./FindingEmbedder"
@@ -129,6 +132,8 @@ const layerFor = (
 		readonly replyFailures?: { remaining: number }
 		/** Present and true: reading the pull request's files fails. */
 		readonly filesUnreadable?: { value: boolean }
+		/** The author's permission on the repository; `read` when absent. */
+		readonly permission?: string
 	} = {},
 ) => {
 	// Only the one write is reached; every read dies so a test that strays says so loudly.
@@ -170,7 +175,7 @@ const layerFor = (
 							return { url: "https://github.com/acme/shop/pull/1#reply" }
 						}),
 		reactToComment: unused,
-		fetchCommenterPermission: unused,
+		fetchCommenterPermission: () => Effect.succeed(options.permission ?? "read"),
 		commitFiles: unused,
 		searchCode: (_installation, _repo, query) =>
 			options.searchSnippets !== undefined
@@ -314,7 +319,7 @@ const breakingTelemetry = new PrReviewTelemetry({
 	removed: [],
 })
 
-const seed = (enabled: boolean) =>
+const seed = (enabled: boolean, isPrivate = true) =>
 	Effect.gen(function* () {
 		const repo = yield* VcsRepository
 		yield* repo.upsertInstallation({
@@ -336,7 +341,7 @@ const seed = (enabled: boolean) =>
 				fullName: "octo/repo",
 				defaultBranch: "main",
 				htmlUrl: "https://github.com/octo/repo",
-				isPrivate: true,
+				isPrivate,
 				isArchived: false,
 			},
 		])
@@ -571,25 +576,201 @@ describe("PrReviewService.onPullRequestEvent", () => {
 		}).pipe(Effect.provide(layerFor(testDb)))
 	})
 
-	it.effect("reviews an outside author's pull request only when a member asks for it", () => {
+	it.effect(
+		"reviews an outside author's pull request on a public repository only when a member asks for it",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			return Effect.gen(function* () {
+				yield* seed(true, false)
+				const reviews = yield* PrReviewService
+				const contributor = yield* reviews.onPullRequestEvent(
+					orgId,
+					job({ authorAssociation: "CONTRIBUTOR" }),
+				)
+				assert.equal(contributor.skipReason, "external_author")
+				const { authorAssociation: _association, ...unknownAuthor } = job()
+				assert.equal(
+					(yield* reviews.onPullRequestEvent(orgId, unknownAuthor)).skipReason,
+					"external_author",
+				)
+				assert.equal(begun.length, 0)
+				const asked = yield* reviews.reviewNow(orgId, job({ authorAssociation: "NONE" }))
+				assert.equal(asked.outcome, "started")
+				assert.equal(begun.length, 1)
+			}).pipe(Effect.provide(layerFor(testDb, { begun })))
+		},
+	)
+
+	it.effect(
+		"reviews a fork pull request from an outside author once the repository opts in, then waits for a maintainer",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			const checks: Array<string> = []
+			// Shaped like MapleTechLabs/maple#1899: a first-time contributor's fork, no push access.
+			const fork = (overrides: Partial<PullRequestEventJob> = {}) =>
+				job({
+					authorLogin: "jasonkuhrt",
+					authorAssociation: "NONE",
+					headRepoFullName: "jasonkuhrt/repo",
+					...overrides,
+				})
+			return Effect.gen(function* () {
+				const repositoryId = yield* seed(true, false)
+				const repo = yield* VcsRepository
+				const reviews = yield* PrReviewService
+
+				const off = yield* reviews.onPullRequestEvent(orgId, fork())
+				assert.equal(off.skipReason, "external_author")
+				assert.equal(begun.length, 0)
+
+				yield* repo.setPrReviewConfig(
+					orgId,
+					repositoryId,
+					new PrReviewRepositoryConfig({ reviewExternalContributors: true }),
+				)
+				const on = yield* reviews.onPullRequestEvent(orgId, fork())
+				assert.equal(on.outcome, "started")
+				assert.equal(begun.length, 1)
+				yield* reviews.submitReview(
+					orgId,
+					on.reviewId!,
+					new SubmitPrReviewRequest({ report: report([]) }),
+				)
+
+				// Pushing again does not spend another review: the head waits for a maintainer.
+				const pushed = yield* reviews.onPullRequestEvent(
+					orgId,
+					fork({ action: "synchronize", headSha: HEAD_2 }),
+				)
+				assert.equal(pushed.skipReason, "automatic_limit")
+				assert.include(checks, `${HEAD_2.slice(0, 7)}:skipped`)
+				assert.equal(begun.length, 1)
+				const asked = yield* reviews.reviewNow(
+					orgId,
+					fork({ action: "synchronize", headSha: HEAD_2 }),
+				)
+				assert.equal(asked.outcome, "started")
+				assert.equal(begun.length, 2)
+			}).pipe(Effect.provide(layerFor(testDb, { begun, checks })))
+		},
+	)
+
+	it.effect(
+		"keeps an outside author at one automatic review when they push while it runs, and at three a day",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			const outsider = (overrides: Partial<PullRequestEventJob> = {}) =>
+				job({ authorLogin: "stranger", authorAssociation: "NONE", ...overrides })
+			return Effect.gen(function* () {
+				const repositoryId = yield* seed(true, false)
+				const repo = yield* VcsRepository
+				yield* repo.setPrReviewConfig(
+					orgId,
+					repositoryId,
+					new PrReviewRepositoryConfig({ reviewExternalContributors: true }),
+				)
+				const reviews = yield* PrReviewService
+				assert.equal((yield* reviews.onPullRequestEvent(orgId, outsider())).outcome, "started")
+				// The first review is still running: superseding it must not reset the cap.
+				const midRun = yield* reviews.onPullRequestEvent(
+					orgId,
+					outsider({ action: "synchronize", headSha: HEAD_2 }),
+				)
+				assert.equal(midRun.skipReason, "automatic_limit")
+				assert.equal(begun.length, 1)
+
+				// The same head opened against other base branches is a new pull request each time.
+				const opened = yield* Effect.forEach([613, 614, 615], (number) =>
+					reviews.onPullRequestEvent(orgId, outsider({ number, headSha: sha("a".repeat(40)) })),
+				)
+				assert.deepEqual(
+					opened.map((outcome) => outcome.skipReason ?? outcome.outcome),
+					["started", "started", "quota"],
+				)
+				assert.equal(begun.length, 3)
+			}).pipe(Effect.provide(layerFor(testDb, { begun })))
+		},
+	)
+
+	it.effect(
+		"takes the outside-contributor opt-in from the organization's defaults, and lets a repository opt out",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			return Effect.gen(function* () {
+				const repositoryId = yield* seed(true, false)
+				const repo = yield* VcsRepository
+				yield* repo.setPrReviewSettings(
+					orgId,
+					new PrReviewOrgSettings({
+						defaults: new PrReviewRepositoryConfig({ reviewExternalContributors: true }),
+					}),
+					asUserId("user_1"),
+				)
+				const reviews = yield* PrReviewService
+				const outsider = job({ authorLogin: "stranger", authorAssociation: "FIRST_TIME_CONTRIBUTOR" })
+				assert.equal((yield* reviews.onPullRequestEvent(orgId, outsider)).outcome, "started")
+
+				yield* repo.setPrReviewConfig(
+					orgId,
+					repositoryId,
+					new PrReviewRepositoryConfig({ reviewExternalContributors: false }),
+				)
+				const optedOut = yield* reviews.onPullRequestEvent(orgId, job({ ...outsider, number: 613 }))
+				assert.equal(optedOut.skipReason, "external_author")
+				assert.equal(begun.length, 1)
+			}).pipe(Effect.provide(layerFor(testDb, { begun })))
+		},
+	)
+
+	it.effect(
+		"reviews an outside author's head once a maintainer approves its CI, without re-reviewing it",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			return Effect.gen(function* () {
+				yield* seed(true, false)
+				const reviews = yield* PrReviewService
+				const approved = yield* reviews.onCiApproved(orgId, job({ authorAssociation: "CONTRIBUTOR" }))
+				assert.equal(approved.outcome, "started")
+				assert.equal(begun.length, 1)
+				// Every workflow of the run reports the approval; the head is reviewed once.
+				const again = yield* reviews.onCiApproved(orgId, job({ authorAssociation: "CONTRIBUTOR" }))
+				assert.equal(again.skipReason, "duplicate")
+				assert.equal(begun.length, 1)
+			}).pipe(Effect.provide(layerFor(testDb, { begun })))
+		},
+	)
+
+	it.effect(
+		"reviews a public repository's pull request by an author who can push, whatever association the webhook reports",
+		() => {
+			const testDb = createTestDb(trackedDbs)
+			const begun: Array<Begun> = []
+			return Effect.gen(function* () {
+				yield* seed(true, false)
+				const reviews = yield* PrReviewService
+				const member = yield* reviews.onPullRequestEvent(
+					orgId,
+					job({ authorAssociation: "CONTRIBUTOR" }),
+				)
+				assert.equal(member.outcome, "started")
+				assert.equal(begun.length, 1)
+			}).pipe(Effect.provide(layerFor(testDb, { begun, permission: "write" })))
+		},
+	)
+
+	it.effect("reviews a private repository's pull request whatever association the webhook reports", () => {
 		const testDb = createTestDb(trackedDbs)
 		const begun: Array<Begun> = []
 		return Effect.gen(function* () {
 			yield* seed(true)
 			const reviews = yield* PrReviewService
-			const contributor = yield* reviews.onPullRequestEvent(
-				orgId,
-				job({ authorAssociation: "CONTRIBUTOR" }),
-			)
-			assert.equal(contributor.skipReason, "external_author")
-			const { authorAssociation: _association, ...unknownAuthor } = job()
-			assert.equal(
-				(yield* reviews.onPullRequestEvent(orgId, unknownAuthor)).skipReason,
-				"external_author",
-			)
-			assert.equal(begun.length, 0)
-			const asked = yield* reviews.reviewNow(orgId, job({ authorAssociation: "NONE" }))
-			assert.equal(asked.outcome, "started")
+			const member = yield* reviews.onPullRequestEvent(orgId, job({ authorAssociation: "CONTRIBUTOR" }))
+			assert.equal(member.outcome, "started")
 			assert.equal(begun.length, 1)
 		}).pipe(Effect.provide(layerFor(testDb, { begun })))
 	})
@@ -857,6 +1038,29 @@ describe("PrReviewService.submitReview", () => {
 			assert.equal(published.length, 1)
 			assert.equal(published[0]!.comments.length, 1)
 			assert.notInclude(published[0]!.summaryComment.body, "Still open from earlier reviews")
+		}).pipe(Effect.provide(layerFor(testDb, { published, comments })))
+	})
+
+	it.effect("tells the pull request why the pass before a partial stopped", () => {
+		const testDb = createTestDb(trackedDbs)
+		const published: Array<PullRequestReviewPublication> = []
+		const comments: Array<string> = []
+		return Effect.gen(function* () {
+			yield* seed(true)
+			const reviews = yield* PrReviewService
+			const started = yield* reviews.onPullRequestEvent(orgId, job())
+			yield* reviews.submitReview(
+				orgId,
+				started.reviewId!,
+				new SubmitPrReviewRequest({
+					report: report([]),
+					partial: true,
+					partialReason: "answered_in_prose",
+				}),
+			)
+			assert.equal(published.length, 0)
+			assert.include(comments.at(-1)!, PR_REVIEW_FAILURE_COPY.answered_in_prose)
+			assert.notInclude(comments.at(-1)!, PR_REVIEW_FAILURE_COPY.ended_early)
 		}).pipe(Effect.provide(layerFor(testDb, { published, comments })))
 	})
 
@@ -1321,6 +1525,33 @@ describe("withReviewStatus", () => {
 		)
 		assert.include(failed, "could not finish")
 		assert.notInclude(failed, "is reviewing")
+	})
+
+	it("asks for a fix, not a retry, when a retry cannot help", () => {
+		const reviewing =
+			withReviewStatus(undefined, MARKER, { kind: "reviewing", headSha: HEAD }, "@maple-review-bot") ??
+			""
+		const failedFor = (reason: PrReviewFailureReason) =>
+			withReviewStatus(
+				reviewing,
+				MARKER,
+				{ kind: "failed", headSha: HEAD, reason },
+				"@maple-review-bot",
+			) ?? ""
+		const misconfigured = failedFor("service_misconfigured")
+		assert.include(misconfigured, "on Maple's side")
+		assert.include(
+			misconfigured,
+			"Once that is fixed, comment `@maple-review-bot review` to run it again.",
+		)
+		assert.notInclude(misconfigured, "try again")
+		assert.include(failedFor("provider_unavailable"), "Comment `@maple-review-bot review` to try again.")
+		const check = reviewCheckFor(
+			{ kind: "failed", headSha: HEAD, reason: "org_key_rejected" },
+			"@maple-review-bot",
+		)
+		assert.include(check.summary, "replace it in Maple's organization settings")
+		assert.notInclude(check.summary, "try again")
 	})
 
 	it("deletes its own notice when a newer push replaces the review", () => {

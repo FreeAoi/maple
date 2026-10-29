@@ -25,6 +25,8 @@ import { registerListSourcesTool } from "./list-sources"
 import { registerCiRunsTool } from "./ci-runs"
 import { registerCompareCommitsTool } from "./compare-commits"
 import { registerIntegrationWriteTools } from "./integration-writes"
+import { registerUptimeMonitorTools } from "./uptime-monitors"
+import { registerIngestRuleTools } from "./ingest-rules"
 import { registerGetInstrumentationRecommendationsTool } from "./get-instrumentation-recommendations"
 import { registerGetServiceTopOperationsTool } from "./get-service-top-operations"
 import { registerServiceDeploymentsTool } from "./service-deployments"
@@ -55,6 +57,7 @@ import { registerSetIssueSeverityTool } from "./set-issue-severity"
 import { registerTransitionErrorIssueTool } from "./transition-error-issue"
 import { registerTransitionErrorIssuesTool } from "./transition-error-issues"
 import { registerUpdateErrorNotificationPolicyTool } from "./update-error-notification-policy"
+import { registerGetErrorNotificationPolicyTool } from "./get-error-notification-policy"
 import { registerListDashboardsTool } from "./list-dashboards"
 import { registerListMetricsTool } from "./list-metrics"
 import { registerListServicesTool } from "./list-services"
@@ -188,21 +191,24 @@ const isEmptyStructSchema = (base: Record<string, unknown>): boolean => {
  * Safe only while no MCP parameter is GENUINELY nullable — `Schema.NullOr` would
  * render identically and be wrongly narrowed here. `registry.test.ts` pins that
  * invariant by decoding `null` into every parameter of every tool.
+ * The one exception, `P.optionalNullableNumberOneOf`, is optional and names null in its description.
  */
 const collapseNullableUnions = (node: unknown): unknown => {
 	if (Array.isArray(node)) return node.map(collapseNullableUnions)
 	if (node === null || typeof node !== "object") return node
 	const obj = node as Record<string, unknown>
 	const anyOf = obj.anyOf
-	if (Array.isArray(anyOf) && anyOf.length === 2) {
-		const nullIndex = anyOf.findIndex(
-			(member) => (member as Record<string, unknown> | null)?.type === "null",
-		)
-		if (nullIndex !== -1) {
+	if (Array.isArray(anyOf)) {
+		// Nested unions arrive flattened: `optional(Union([A, B]))` is `anyOf: [A, B, null]`.
+		const kept = anyOf.filter((member) => !isJsonObject(member) || member.type !== "null")
+		if (kept.length > 0 && kept.length < anyOf.length) {
 			const { anyOf: _replaced, ...siblings } = obj
-			const kept = anyOf[1 - nullIndex] as Record<string, unknown>
 			// Siblings last: a `description` on the property outranks one on the branch.
-			return collapseNullableUnions({ ...kept, ...siblings })
+			return collapseNullableUnions(
+				kept.length === 1 && isJsonObject(kept[0])
+					? { ...kept[0], ...siblings }
+					: { anyOf: kept, ...siblings },
+			)
 		}
 	}
 	return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, collapseNullableUnions(value)]))
@@ -427,6 +433,8 @@ const collectMapleToolDefinitions = (): ReadonlyArray<MapleToolDefinition> => {
 	registerCiRunsTool(registrar)
 	registerCompareCommitsTool(registrar)
 	registerIntegrationWriteTools(registrar)
+	registerUptimeMonitorTools(registrar)
+	registerIngestRuleTools(registrar)
 	registerSourceCodeTools(registrar)
 	registerSandboxTools(registrar)
 	registerPullRequestTools(registrar)
@@ -443,6 +451,7 @@ const collectMapleToolDefinitions = (): ReadonlyArray<MapleToolDefinition> => {
 	registerRegisterAgentTool(registrar)
 	registerSendMapleFeedbackTool(registrar)
 	registerListErrorIncidentsTool(registrar)
+	registerGetErrorNotificationPolicyTool(registrar)
 	registerUpdateErrorNotificationPolicyTool(registrar)
 
 	return definitions

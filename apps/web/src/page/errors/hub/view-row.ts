@@ -45,10 +45,11 @@ export const LANE = {
 	volume: "hidden w-[52px] shrink-0 items-center justify-end gap-2 @lg/page:flex @2xl/page:w-[148px]",
 	spark: "hidden min-w-0 flex-1 @2xl/page:block",
 	count: "w-[52px] shrink-0 text-right",
-	service: "hidden w-[92px] shrink-0 @xl/page:block",
+	// Inset so the right-aligned Events count and the left-aligned Service read as two columns.
+	service: "hidden w-[116px] shrink-0 pl-3 @xl/page:block",
 	state: "hidden w-[104px] shrink-0 @3xl/page:block",
 	actor: "w-5 shrink-0",
-	lastSeen: "w-[64px] shrink-0",
+	lastSeen: "w-[76px] shrink-0 whitespace-nowrap",
 } as const
 
 export const ROW_SHELL = "flex items-center gap-3 px-3"
@@ -81,7 +82,12 @@ export const signalHeader = (h: H, selection: HeaderSelection | null): Html =>
 		),
 		h.span([h.Class(LANE.service)], ["Service"]),
 		h.span([h.Class(LANE.state)], ["Status"]),
-		h.span([h.Class(LANE.actor)], []),
+		// The avatar lane is narrower than its label: the label runs left into Status's spare width,
+		// so it only shows where that lane does.
+		h.span(
+			[h.Class(cn(LANE.actor, "flex justify-end whitespace-nowrap"))],
+			[h.span([h.Class("hidden @3xl/page:inline")], ["Assignee"])],
+		),
 		h.span([h.Class(cn(LANE.lastSeen, "text-right"))], ["Last seen"]),
 	])
 
@@ -195,17 +201,24 @@ export const signalRow = (h: H, signal: ErrorSignal, state: RowState): Html => {
 							h,
 							{
 								text: swap ? signal.detail : rowTitle,
+								// The exception type never truncates on wide rows; only the detail gives way.
 								className:
-									"font-medium text-foreground @4xl/page:max-w-[60%] @4xl/page:shrink-0",
+									"font-medium text-foreground @4xl/page:max-w-[75%] @4xl/page:shrink-0",
 							},
 							[rowTitle],
 						),
 						...(rowDetail
 							? [
-									truncatedText(h, {
-										text: rowDetail,
-										className: "hidden flex-1 text-muted-foreground @4xl/page:inline",
-									}),
+									// A line clamp, not `truncate`: the ellipsis follows the last glyph, never a space.
+									h.span(
+										[
+											h.Class(
+												"hidden min-w-0 flex-1 break-all text-muted-foreground @4xl/page:line-clamp-1",
+											),
+											h.Title(rowDetail),
+										],
+										[rowDetail],
+									),
 								]
 							: []),
 						...(activity === null ? [] : [activity]),
@@ -265,7 +278,7 @@ const volumeLane = (
 					h.Title(
 						signal.windowCount === null
 							? `None in the last 24 hours · ${signal.totalCount.toLocaleString("en-US")} all time`
-							: `${signal.windowCount.toLocaleString("en-US")} in the last 24 hours · ${signal.totalCount.toLocaleString("en-US")} all time`,
+							: `${signal.windowCount.toLocaleString("en-US")} in the last 24 hours${isSurging ? ", surging" : ""} · ${signal.totalCount.toLocaleString("en-US")} all time`,
 					),
 				],
 				[

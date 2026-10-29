@@ -46,7 +46,7 @@ const liveChip = (h: H, isLive: boolean): Html =>
 /** `ListToolbar`: the status tabs and the count readout. */
 const toolbar = (h: H, model: Model, count: number | null): Html =>
 	h.div(
-		[h.Class("flex flex-wrap items-center gap-2 gap-y-1.5 border-b border-border/60 px-2 py-1.5")],
+		[h.Class("flex flex-wrap items-center gap-2 gap-y-1.5 pb-3")],
 		[
 			h.submodel({
 				slotId: "anomalies-status-tabs",
@@ -118,8 +118,12 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	return dashboardPage(
 		h,
 		{
+			title: "Anomalies",
 			filters: filtersRail(h, model, all, AsyncData.isLoading(data) || AsyncData.isIdle(data)),
-			actions: liveChip(h, isLiveOf(model.search)),
+			// The live toggle is an action; while reads fail the error block owns the retry status.
+			actions: AsyncData.hasError(data) ? undefined : liveChip(h, isLiveOf(model.search)),
+			// The toolbar sits one header gap under the title, as tabs do on tabbed pages.
+			scrollClassName: "pt-0",
 		},
 		[
 			h.div(
@@ -136,6 +140,6 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 
 const failed = (h: H, failure: Parameters<typeof errorState<Message>>[1]["failure"]): Html =>
 	h.div(
-		[h.Class("p-4")],
-		[errorState(h, { failure, title: "Failed to load anomalies", onRetry: Message.ClickedRetry() })],
+		[h.Class("pt-4")],
+		[errorState(h, { failure, title: "Couldn't load anomalies", onRetry: Message.ClickedRetry() })],
 	)

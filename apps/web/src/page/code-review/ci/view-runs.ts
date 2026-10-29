@@ -14,7 +14,7 @@ import { panel } from "../../../ui/panel"
 import { skeletonList } from "../../../ui/skeleton"
 import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "../../../ui/table"
 import { truncatedId } from "../../../ui/truncated-id"
-import { nothingInWindow } from "../kit/layout"
+import { nothingInWindow } from "../../kit/nothing-in-window"
 import { ciResultBadge, traceLink } from "../kit/parts"
 import { relativeTime } from "../../kit/relative-time"
 import { Message, type Model } from "./model"
@@ -134,7 +134,7 @@ const runRow = (h: H, run: CodeReviewCiRun, time: TimeContext): Html => {
 					h.div([h.Class("truncate font-medium"), h.Title(run.pipeline)], [run.pipeline]),
 					runMeta(h, run, prUrl),
 					...failedJobs(h, run),
-					traceLink(h, run, "mt-1 -ml-2 sm:hidden"),
+					...traceLink(h, run, time.nowMs, "mt-1 -ml-2 sm:hidden"),
 				],
 				"px-3 py-2.5 leading-normal",
 			),
@@ -154,7 +154,7 @@ const runRow = (h: H, run: CodeReviewCiRun, time: TimeContext): Html => {
 					h.span(
 						[h.Class("inline-flex items-center justify-end gap-1")],
 						[
-							traceLink(h, run),
+							...traceLink(h, run, time.nowMs),
 							...(runUrl === null
 								? []
 								: [
@@ -217,7 +217,7 @@ export const runsList = (h: H, model: Model, time: TimeContext, canClear: boolea
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,
-				title: "Failed to load CI runs",
+				title: "Couldn't load CI runs",
 				onRetry: Message.ClickedRetryRuns(),
 			}),
 		onData: (response) => {

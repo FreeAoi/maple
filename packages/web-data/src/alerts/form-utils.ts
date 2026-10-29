@@ -8,6 +8,7 @@ import {
 	AlertRuleDocument,
 	AlertRulePreviewFiringSpan,
 	AlertRulePreviewPoint,
+	AlertQueryTiming,
 	AlertRulePreviewResponse,
 	AlertRulePreviewSeries,
 	HazelChannelId,
@@ -24,6 +25,7 @@ import {
 	type ChatWorkspaceId,
 	type QueryBuilderQueryDraftPayload,
 	MAX_ALERT_BREACH_WINDOW,
+	AlertEvaluationIntervalMinutes,
 } from "@maple/domain/http"
 import type {
 	V2AlertCheck,
@@ -37,7 +39,7 @@ import type {
 } from "@maple/domain/http/v2"
 import { fromV2Threshold } from "@maple/domain/http/v2"
 import type { QueryEngineAlertReducer } from "@maple/query-engine"
-import { Array as Arr, Schema } from "effect"
+import { Array as Arr, Option, Schema } from "effect"
 import {
 	buildTimeseriesQuerySpec,
 	createQueryDraft,
@@ -87,6 +89,8 @@ export type RuleFormState = {
 	/** The critical tier over a warning one; null on a one-tier rule. */
 	escalation: EscalationTierForm | null
 	windowMinutes: string
+	/** Minutes between checks; "" checks every fifth of the window. */
+	evaluationIntervalMinutes: string
 	minimumSampleCount: string
 	/** Count an empty window as a breach instead of skipping it. */
 	alertOnNoData: boolean
@@ -129,6 +133,7 @@ export const signalLabels: Record<AlertSignalType, string> = {
 	throughput: "Throughput",
 	builder_query: "Query builder",
 	raw_query: "Raw SQL",
+	uptime: "Uptime check",
 } satisfies Record<AlertSignalType, string>
 
 export const RAW_QUERY_REDUCER_LABELS: Record<QueryEngineAlertReducer, string> = {
@@ -181,6 +186,9 @@ export function formatSignalValue(signalType: AlertSignalType, value: number | n
 		case "builder_query":
 		case "raw_query":
 			return formatNumber(value)
+		// An uptime rule observes 1 while its monitor is down, else 0.
+		case "uptime":
+			return value >= 1 ? "Down" : "Up"
 	}
 }
 
@@ -236,6 +244,14 @@ export function domainThresholdToForm(subject: ThresholdSubject, value: number):
 	// toPrecision(12) drops float noise: 0.07 * 100 is 7.000000000000001.
 	return isPercentSignal(subject) ? String(Number((value * 100).toPrecision(12))) : String(value)
 }
+
+const decodeEvaluationInterval = Schema.decodeUnknownOption(AlertEvaluationIntervalMinutes)
+
+/** The interval the form picked, or null for the window's own. */
+export const formEvaluationInterval = (form: RuleFormState): AlertEvaluationIntervalMinutes | null =>
+	form.evaluationIntervalMinutes.trim().length === 0
+		? null
+		: Option.getOrNull(decodeEvaluationInterval(Number(form.evaluationIntervalMinutes)))
 
 function parsePositiveNumber(value: string, fallback: number): number {
 	const parsed = Number(value)
@@ -303,6 +319,7 @@ export function defaultRuleForm(serviceName?: string): RuleFormState {
 		recoveryValue: "",
 		escalation: null,
 		windowMinutes: "5",
+		evaluationIntervalMinutes: "",
 		minimumSampleCount: "50",
 		alertOnNoData: false,
 		consecutiveBreachesRequired: "2",
@@ -358,6 +375,8 @@ export function ruleToFormState(rule: AlertRuleDocument): RuleFormState {
 						destinationIds: [...escalation.destinationIds],
 					},
 		windowMinutes: String(rule.windowMinutes),
+		evaluationIntervalMinutes:
+			rule.evaluationIntervalMinutes === null ? "" : String(rule.evaluationIntervalMinutes),
 		minimumSampleCount: String(rule.minimumSampleCount),
 		alertOnNoData: rule.noDataBehavior === "alert",
 		consecutiveBreachesRequired: String(rule.consecutiveBreachesRequired),
@@ -541,6 +560,7 @@ export function buildRuleCreateParamsV2(form: RuleFormState): V2AlertRuleCreateP
 		threshold: primary.value,
 		threshold_upper: primary.upper,
 		window_minutes: parsePositiveNumber(form.windowMinutes, 5),
+		evaluation_interval_minutes: formEvaluationInterval(form),
 		minimum_sample_count: parseNonNegativeNumber(form.minimumSampleCount, 0),
 		alert_on_no_data: form.alertOnNoData && !ruleFormIsGrouped(form),
 		consecutive_breaches_required: parsePositiveNumber(form.consecutiveBreachesRequired, 2),
@@ -613,6 +633,9 @@ export type DestinationFormState = {
 	chatConnector: string
 	chatChannelId: string
 	chatChannelName: string
+	/** Linear destination: the team issues open in, and its name for the suggested name. */
+	linearTeamId: string
+	linearTeamName: string
 }
 
 export const MAX_EMAIL_MEMBER_RECIPIENTS = 10
@@ -639,6 +662,8 @@ export function defaultDestinationForm(type: AlertDestinationType = "discord"): 
 		chatConnector: "",
 		chatChannelId: "",
 		chatChannelName: "",
+		linearTeamId: "",
+		linearTeamName: "",
 	}
 }
 
@@ -672,6 +697,8 @@ export function suggestedDestinationName(form: DestinationFormState): string {
 			return form.chatChannelName.length > 0 ? `#${form.chatChannelName}` : ""
 		case "hazel-oauth":
 			return form.hazelChannelName.length > 0 ? `Hazel #${form.hazelChannelName}` : "Hazel"
+		case "linear":
+			return form.linearTeamName.length > 0 ? `Linear ${form.linearTeamName}` : "Linear"
 		case "webhook":
 			return URL.canParse(form.url.trim()) ? new URL(form.url.trim()).host : "Webhook"
 		case "pagerduty":
@@ -711,6 +738,9 @@ export function destinationToFormState(destination: AlertDestinationDocument): D
 		chatChannelId: "",
 		chatChannelName:
 			destination.type === "chat" ? (destination.channelLabel?.replace(/^#/, "") ?? "") : "",
+		// The team's name is only in the server's "Linear · <team>" summary.
+		linearTeamId: destination.linearTeamId ?? "",
+		linearTeamName: destination.type === "linear" ? destination.summary.replace(/^Linear · /, "") : "",
 	}
 }
 
@@ -780,6 +810,14 @@ export function buildDestinationCreateParamsV2(form: DestinationFormState): V2Al
 				enabled: form.enabled,
 				workspace_id: form.chatWorkspaceId,
 				channel_id: form.chatChannelId.trim(),
+			}
+		case "linear":
+			// The team's key and name are read from Linear on save.
+			return {
+				type: "linear",
+				name: form.name.trim(),
+				enabled: form.enabled,
+				team_id: form.linearTeamId.trim(),
 			}
 	}
 }
@@ -874,6 +912,15 @@ export function buildDestinationUpdateParamsV2(form: DestinationFormState): V2Al
 				...(channelId ? { channel_id: channelId } : undefined),
 			}
 		}
+		case "linear": {
+			const teamId = form.linearTeamId.trim()
+			return {
+				type: "linear",
+				enabled: form.enabled,
+				...(name ? { name } : undefined),
+				...(teamId ? { team_id: teamId } : undefined),
+			}
+		}
 	}
 }
 
@@ -928,6 +975,19 @@ export function v2PreviewToResponse(result: V2AlertRulePreviewResult): AlertRule
 					severity: span.severity,
 				}),
 		),
+		...(result.series_failure === undefined ? undefined : { seriesFailure: result.series_failure }),
+		...(result.query_timing === undefined
+			? undefined
+			: {
+					queryTiming: new AlertQueryTiming({
+						elapsedMs: result.query_timing.elapsed_ms,
+						failure: result.query_timing.failure,
+						probeLimitMs: result.query_timing.probe_limit_ms,
+						intervalMinutes: result.query_timing.interval_minutes,
+						limitMs: result.query_timing.limit_ms,
+						fitsIntervalMinutes: result.query_timing.fits_interval_minutes,
+					}),
+				}),
 	})
 }
 
@@ -1098,7 +1158,11 @@ export function groupDeliveryEventsByDay(
 		if (last && last.key === key) {
 			last.events.push(event)
 		} else {
-			groups.push({ key, label: formatAlertDayHeading(event.scheduledAt, timeZone, nowMs), events: [event] })
+			groups.push({
+				key,
+				label: formatAlertDayHeading(event.scheduledAt, timeZone, nowMs),
+				events: [event],
+			})
 		}
 	}
 	return groups

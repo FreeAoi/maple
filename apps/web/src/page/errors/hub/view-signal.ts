@@ -86,6 +86,7 @@ export const signalSpark = (
 }
 
 /** `SignalActivity`: a live investigation, then comment and PR marks; nothing on an untouched row. */
+// The message takes the free width; the chips follow it at their natural size.
 export const signalActivity = (h: H, signal: ErrorSignal): Html | null => {
 	const prCount = signal.openPullRequestCount + signal.mergedPullRequestCount
 	if (signal.investigation === null && signal.commentCount === 0 && prCount === 0) return null
@@ -132,7 +133,7 @@ export const signalActivity = (h: H, signal: ErrorSignal): Html | null => {
 										: countLabel(prCount, "open pull request"),
 								),
 							],
-							[icon(h, "BranchForkIcon", { size: 11 }), String(prCount)],
+							[icon(h, "PullRequestIcon", { size: 11 }), String(prCount)],
 						),
 					]
 				: []),

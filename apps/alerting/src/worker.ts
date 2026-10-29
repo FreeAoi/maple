@@ -35,7 +35,7 @@ import { WorkerTelemetry } from "@maple/infra/worker-telemetry"
 import { bindChatSessions } from "@maple/backend/platform/chat-sessions"
 import { bindEmailSender } from "@maple/backend/platform/email-sender"
 import { chatConnectorOutboundConfigKeys } from "@maple/chat-platform"
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import { Cause, Config, Effect, Layer, Option, Ref } from "effect"
 import { FetchHttpClient, HttpClient, HttpServerResponse } from "effect/http"
 import { ALERTING_CRONS, scheduleFor } from "./schedule.ts"
@@ -65,6 +65,11 @@ const configuredEnv = (stage: MapleStage, region: MapleRegion, domains: MapleDom
 		optionalPlain("MAPLE_IGNORE_ORG_CLICKHOUSE"),
 		optionalSecret("AUTUMN_SECRET_KEY"),
 		optionalSecret("INTERNAL_SERVICE_TOKEN"),
+		// Linear alert destinations refresh the org's Linear token at delivery time.
+		optionalPlain("LINEAR_OAUTH_CLIENT_ID"),
+		optionalSecret("LINEAR_OAUTH_CLIENT_SECRET"),
+		// Signs the chart image URL in notifications; unset sends them text-only.
+		optionalSecret("MAPLE_SHARE_TOKEN_HMAC_KEY"),
 		// Push for incidents, plus OAuth refresh for the Cloudflare, PlanetScale and Supabase pollers.
 		apnsEnv,
 		cloudflareOAuthEnv,
@@ -84,7 +89,7 @@ const configuredEnv = (stage: MapleStage, region: MapleRegion, domains: MapleDom
 const props = Effect.gen(function* () {
 	if (globalThis.__ALCHEMY_RUNTIME__) return { main: import.meta.url }
 	const stack = yield* MapleStack
-	const { stage, region, domains, devEnv, db } = stack
+	const { stage, region, domains, devEnv, db, awsOidc } = stack
 	// For `IncidentClassifier`. Yielded, not `Worker.ref`: a ref cannot see a sibling this deploy creates.
 	const ai = yield* AiWorker
 	const env = yield* configuredEnv(stage, region, domains)
@@ -103,6 +108,7 @@ const props = Effect.gen(function* () {
 			// Cron fires hop through it so their ticks run where placement applies.
 			[SELF_BINDING]: Cloudflare.Workers.Self,
 			...env,
+			...awsOidc,
 			...devEnv,
 		},
 	}

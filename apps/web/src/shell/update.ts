@@ -1,22 +1,25 @@
 import { isClerkAuthEnabled } from "../lib/services/common/auth-mode"
-import { Option, Record } from "effect"
+import { Array, Equal, Option, Record, Struct } from "effect"
 import { AsyncData, Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import * as Dialog from "../ui/dialog"
 import * as Tooltip from "../ui/tooltip"
 import type { Resources } from "../platform/resources"
+import { integrationsAnswered, PENDING_INTEGRATIONS, settledSurfaces } from "../data/infra-surfaces"
 import {
 	FocusElement,
 	FocusSiblingMenuItem,
 	FocusShortcutSearch,
 	LogOut,
 	OpenGlobalChat,
+	SaveInfraSurfaces,
 	SaveNamespace,
 	SaveSidebarState,
 	SaveTheme,
 } from "./command"
 import {
 	LoadCloudflareStatus,
+	LoadAwsStatus,
 	LoadGcpStatus,
 	LoadInfraPresence,
 	LoadNamespaces,
@@ -42,7 +45,7 @@ import {
 	initRightSheet,
 	type Model,
 	NamespacesData,
-	NO_INTEGRATIONS,
+	shellProbe,
 	TenantData,
 } from "./model"
 
@@ -68,7 +71,7 @@ export const enter =
 			hasRequestedSidebarData: () => false,
 			// Nothing read for the previous org (an in-place org change) carries over.
 			infraPresence: () => InfraPresenceData.Idle(),
-			integrations: () => NO_INTEGRATIONS,
+			integrations: () => PENDING_INTEGRATIONS,
 			dashboards: () => DashboardsData.Idle(),
 			namespaces: () => NamespacesData.Idle(),
 		})
@@ -79,7 +82,9 @@ export const enter =
 				LoadTenant(),
 				...(sidebar.commands ?? []),
 				// Clerk: the reward pill (`OnboardingChecklistButton`) and who is looking at it.
-				...(isClerkAuthEnabled ? [toChecklist(Checklist.LoadChecklist()), toChecklist(Checklist.LoadViewer())] : []),
+				...(isClerkAuthEnabled
+					? [toChecklist(Checklist.LoadChecklist()), toChecklist(Checklist.LoadViewer())]
+					: []),
 			],
 		}
 	}
@@ -116,6 +121,7 @@ const requestInfraSurfaces = (model: Model): UpdateReturn =>
 							LoadRailwayStatus({ orgId }),
 							LoadGcpStatus({ orgId }),
 							LoadSupabaseStatus({ orgId }),
+							LoadAwsStatus({ orgId }),
 						],
 					},
 	})
@@ -140,11 +146,41 @@ const forOrg = (model: Model, orgId: string, apply: (model: Model) => Model): Up
 	model: Option.contains(model.maybeOrgId, orgId) ? apply(model) : model,
 })
 
-const toChecklist = Command.mapMessage((message: Checklist.Message) => Message.GotChecklistMessage({ message }))
+/** Once the org's live surfaces are complete, remember them if they changed. */
+const rememberSettled = (orgId: string, step: UpdateReturn): UpdateReturn => {
+	const model = step.model
+	const settled = settledSurfaces(shellProbe(model), model.integrations)
+	const remembered = model.rememberedSurfaces[orgId]
+	if (
+		settled === null ||
+		(remembered !== undefined && Array.makeEquivalence(Equal.equals)(remembered, settled))
+	)
+		return step
+	return {
+		model: modifyFields(model, { rememberedSurfaces: (all) => Record.set(all, orgId, settled) }),
+		commands: [SaveInfraSurfaces({ orgId, surfaces: settled })],
+	}
+}
+
+/** A probe or status answer for the org; the last status to answer tells the pages. */
+const surfacesAnswered = (model: Model, orgId: string, apply: (model: Model) => Model): UpdateReturn => {
+	// A late answer for an org the shell has left must not file this org's set under it.
+	if (!Option.contains(model.maybeOrgId, orgId)) return { model }
+	const step = rememberSettled(orgId, { model: apply(model) })
+	return !integrationsAnswered(model.integrations) && integrationsAnswered(step.model.integrations)
+		? { ...step, outMessage: OutMessage.SettledInfraSurfaces() }
+		: step
+}
+
+const toChecklist = Command.mapMessage((message: Checklist.Message) =>
+	Message.GotChecklistMessage({ message }),
+)
 
 const supportChannelStep = (model: Model, step: ReturnType<typeof SupportChannel.update>): UpdateReturn => ({
 	model: modifyFields(model, { supportChannel: () => step.model }),
-	commands: Command.mapMessages(step.commands ?? [], (message) => Message.GotSupportChannelMessage({ message })),
+	commands: Command.mapMessages(step.commands ?? [], (message) =>
+		Message.GotSupportChannelMessage({ message }),
+	),
 })
 
 /** The reward pill's countdown runs while the checklist is in progress. */
@@ -156,7 +192,8 @@ export const checklistTicked = (nowMs: number): Message =>
 /** The Connect panel's connection signal is polled while it is open. */
 export const isConnectPolling = (model: Model): boolean => ConnectPanel.isPolling(model.connect)
 
-export const connectPollTicked = (): Message => Message.GotConnectMessage({ message: ConnectPanel.Message.TickedPoll() })
+export const connectPollTicked = (): Message =>
+	Message.GotConnectMessage({ message: ConnectPanel.Message.TickedPoll() })
 
 /**
  * A signed-in route outside the shell (`/cli-login`, `/quick-start`): the root still mounts
@@ -174,13 +211,13 @@ export const enterBare = (model: Model): UpdateReturn =>
 export const routeChanged =
 	(isSamePage: boolean, hasTopBar = true) =>
 	(model: Model): UpdateReturn => ({
-	model: modifyFields(closeMenu(model), {
-		isMobileNavOpen: () => false,
-		filterSheet: (sheet) => (isSamePage ? sheet : initFilterSheet()),
-		rightSheet: (sheet) => (isSamePage ? sheet : initRightSheet()),
-	}),
-	commands: checklistRefreshOnNavigation(model, hasTopBar, isClerkAuthEnabled),
-})
+		model: modifyFields(closeMenu(model), {
+			isMobileNavOpen: () => false,
+			filterSheet: (sheet) => (isSamePage ? sheet : initFilterSheet()),
+			rightSheet: (sheet) => (isSamePage ? sheet : initRightSheet()),
+		}),
+		commands: checklistRefreshOnNavigation(model, hasTopBar, isClerkAuthEnabled),
+	})
 
 /**
  * Every checklist step is done on another page: a navigation re-reads it (`onResolved`), but only
@@ -189,7 +226,7 @@ export const routeChanged =
 export const checklistRefreshOnNavigation = (model: Model, hasTopBar: boolean, isClerk: boolean) =>
 	isClerk && hasTopBar && model.checklist.checklist !== null ? [toChecklist(Checklist.LoadChecklist())] : []
 
-const toggleSidebar = (model: Model): UpdateReturn =>
+const toggleSidebar = (model: Model, isInstant: boolean): UpdateReturn =>
 	model.isMobile
 		? model.isMobileNavOpen
 			? { model: modifyFields(model, { isMobileNavOpen: () => false }) }
@@ -198,6 +235,7 @@ const toggleSidebar = (model: Model): UpdateReturn =>
 				// A tooltip left open on the rail would reappear on the next collapse.
 				model: modifyFields(model, {
 					isSidebarOpen: (isOpen) => !isOpen,
+					isSidebarToggleInstant: () => isInstant,
 					railTooltip: () => initRailTooltip(),
 				}),
 				commands: [SaveSidebarState({ isOpen: !model.isSidebarOpen })],
@@ -207,15 +245,19 @@ type DialogStep = ReturnType<typeof Dialog.update>
 
 const filterSheetStep = (model: Model, step: DialogStep): UpdateReturn => ({
 	model: modifyFields(model, { filterSheet: () => step.model }),
-	commands: Command.mapMessages(step.commands ?? [], (message) => Message.GotFilterSheetMessage({ message })),
+	commands: Command.mapMessages(step.commands ?? [], (message) =>
+		Message.GotFilterSheetMessage({ message }),
+	),
 })
 
 const rightSheetStep = (model: Model, step: DialogStep): UpdateReturn => ({
 	model: modifyFields(model, { rightSheet: () => step.model }),
-	commands: Command.mapMessages(step.commands ?? [], (message) => Message.GotRightSheetMessage({ message })),
+	commands: Command.mapMessages(step.commands ?? [], (message) =>
+		Message.GotRightSheetMessage({ message }),
+	),
 })
 
-const clickedMenuTrigger =(model: Model, menu: Menu): UpdateReturn => {
+const clickedMenuTrigger = (model: Model, menu: Menu): UpdateReturn => {
 	if (Option.exists(openMenuOf(model), (open) => isSameMenu(open, menu))) return { model: closeMenu(model) }
 	const opened = modifyFields(model, {
 		openMenu: () => Option.some({ menu, maybePosition: Option.none() }),
@@ -269,7 +311,9 @@ const clerkOrgMenu = (model: Model, message: ClerkOrgSwitcher.Message): UpdateRe
 	const next = ClerkOrgSwitcher.update(model.clerkOrgMenu, message)
 	const stepped: UpdateReturn = {
 		model: modifyFields(model, { clerkOrgMenu: () => next.model }),
-		commands: Command.mapMessages(next.commands ?? [], (child) => Message.GotClerkOrgMenuMessage({ message: child })),
+		commands: Command.mapMessages(next.commands ?? [], (child) =>
+			Message.GotClerkOrgMenuMessage({ message: child }),
+		),
 	}
 	const out = next.outMessage
 	if (out === undefined) return stepped
@@ -291,14 +335,17 @@ const clerkOrgMenu = (model: Model, message: ClerkOrgSwitcher.Message): UpdateRe
 
 // UPDATE
 
-export const update =(model: Model, message: Message): UpdateReturn =>
+const foldMessage = (model: Model, message: Message): UpdateReturn =>
 	Message.match<UpdateReturn>(message, {
-		ClickedSidebarTrigger: () => toggleSidebar(model),
-		PressedSidebarShortcut: () => toggleSidebar(model),
-		ClickedPageSidebarTrigger: () => (model.isMobile ? toggleSidebar(model) : { model }),
+		ClickedSidebarTrigger: () => toggleSidebar(model, false),
+		PressedSidebarShortcut: () => toggleSidebar(model, true),
+		ClickedPageSidebarTrigger: () => (model.isMobile ? toggleSidebar(model, false) : { model }),
 		RequestedInfraSurfaces: () => requestInfraSurfaces(model),
 		ChangedViewport: ({ isMobile }) => {
-			const changed = modifyFields(closeMenu(model), { isMobile: () => isMobile, isMobileNavOpen: () => false })
+			const changed = modifyFields(closeMenu(model), {
+				isMobile: () => isMobile,
+				isMobileNavOpen: () => false,
+			})
 			return isMobile ? { model: changed } : requestSidebarData(changed)
 		},
 		DismissedMobileNav: () => ({ model: modifyFields(model, { isMobileNavOpen: () => false }) }),
@@ -310,11 +357,15 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 				rightSheet: () => initRightSheet(),
 			}),
 		}),
-		ChangedSmallViewport: ({ isBelowSm }) => ({ model: modifyFields(model, { isBelowSm: () => isBelowSm }) }),
+		ChangedSmallViewport: ({ isBelowSm }) => ({
+			model: modifyFields(model, { isBelowSm: () => isBelowSm }),
+		}),
 		ClickedOpenFilters: () => filterSheetStep(model, Dialog.open(model.filterSheet)),
 		ClickedOpenContext: () => rightSheetStep(model, Dialog.open(model.rightSheet)),
-		GotFilterSheetMessage: ({ message: child }) => filterSheetStep(model, Dialog.update(model.filterSheet, child)),
-		GotRightSheetMessage: ({ message: child }) => rightSheetStep(model, Dialog.update(model.rightSheet, child)),
+		GotFilterSheetMessage: ({ message: child }) =>
+			filterSheetStep(model, Dialog.update(model.filterSheet, child)),
+		GotRightSheetMessage: ({ message: child }) =>
+			rightSheetStep(model, Dialog.update(model.rightSheet, child)),
 		ClickedMenuTrigger: ({ menu }) => clickedMenuTrigger(model, menu),
 		DismissedMenu: () => ({ model: closeMenu(model) }),
 		MeasuredSidebarOverflow: () => ({ model }),
@@ -335,7 +386,9 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 			return { model: modifyFields(model, { theme: () => theme }), commands: [SaveTheme({ theme })] }
 		},
 		ClickedNamespace: ({ maybeNamespace }) => clickedNamespace(model, maybeNamespace),
-		ChangedNamespaceQuery: ({ value }) => ({ model: modifyFields(model, { namespaceQuery: () => value }) }),
+		ChangedNamespaceQuery: ({ value }) => ({
+			model: modifyFields(model, { namespaceQuery: () => value }),
+		}),
 		CompletedMountNamespaceSearch: () => ({ model }),
 		// Clerk signs out through the root (`useClerk().signOut()`); self-hosted clears its token.
 		ClickedLogOut: () =>
@@ -345,6 +398,7 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 		CompletedFocusElement: () => ({ model }),
 		CompletedSaveTheme: () => ({ model }),
 		CompletedSaveNamespace: () => ({ model }),
+		CompletedSaveInfraSurfaces: () => ({ model }),
 		CompletedSaveSidebarState: () => ({ model }),
 		CompletedLogOut: () => ({ model }),
 		ElapsedVersionPollInterval: () => ({ model, commands: [CheckDeployedCommit()] }),
@@ -367,15 +421,23 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 		}),
 		// Org-stamped answers: one for an org the shell has left is dropped.
 		SucceededLoadInfraPresence: ({ orgId, surfaces }) =>
-			forOrg(model, orgId, (current) => modifyFields(current, { infraPresence: () => InfraPresenceData.Success({ data: surfaces }) })),
+			surfacesAnswered(model, orgId, (current) =>
+				modifyFields(current, { infraPresence: () => InfraPresenceData.Success({ data: surfaces }) }),
+			),
 		FailedLoadInfraPresence: ({ orgId }) =>
-			forOrg(model, orgId, (current) => modifyFields(current, { infraPresence: () => InfraPresenceData.Failure({ error: "Failed" }) })),
+			surfacesAnswered(model, orgId, (current) =>
+				modifyFields(current, {
+					infraPresence: () => InfraPresenceData.Failure({ error: "Failed" }),
+				}),
+			),
 		SucceededLoadIntegration: ({ orgId, integration, isConnected }) =>
-			forOrg(model, orgId, (current) =>
-				modifyFields(current, { integrations: (known) => ({ ...known, [integration]: isConnected }) }),
+			surfacesAnswered(model, orgId, (current) =>
+				modifyFields(current, {
+					integrations: (known) => ({ ...known, [integration]: isConnected }),
+				}),
 			),
 		FailedLoadIntegration: ({ orgId, integration }) =>
-			forOrg(model, orgId, (current) =>
+			surfacesAnswered(model, orgId, (current) =>
 				modifyFields(current, { integrations: (known) => ({ ...known, [integration]: false }) }),
 			),
 		// A result for an org the shell has left is dropped.
@@ -399,7 +461,9 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 					}
 				: { model },
 		SucceededLoadNamespaces: ({ orgId, namespaces }) =>
-			forOrg(model, orgId, (current) => modifyFields(current, { namespaces: () => NamespacesData.Success({ data: namespaces }) })),
+			forOrg(model, orgId, (current) =>
+				modifyFields(current, { namespaces: () => NamespacesData.Success({ data: namespaces }) }),
+			),
 		GotRailTooltipMessage: ({ message: child }) => {
 			const next = Tooltip.update(model.railTooltip, child)
 			return {
@@ -412,7 +476,8 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 		GotClerkOrgMenuMessage: ({ message: child }) => clerkOrgMenu(model, child),
 		GotSupportChannelMessage: ({ message: child }) =>
 			supportChannelStep(model, SupportChannel.update(model.supportChannel, child)),
-		ClickedSupportChannel: () => supportChannelStep(closeMenu(model), SupportChannel.open(model.supportChannel)),
+		ClickedSupportChannel: () =>
+			supportChannelStep(closeMenu(model), SupportChannel.open(model.supportChannel)),
 		GotChecklistMessage: ({ message: child }) => {
 			const next = Checklist.update(model.checklist, child)
 			return {
@@ -426,7 +491,9 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 			const next = ConnectPanel.update(model.connect, child, { orgId, pinnedNamespace })
 			return {
 				model: modifyFields(model, { connect: () => next.model }),
-				commands: Command.mapMessages(next.commands ?? [], (message) => Message.GotConnectMessage({ message })),
+				commands: Command.mapMessages(next.commands ?? [], (message) =>
+					Message.GotConnectMessage({ message }),
+				),
 			}
 		},
 		ClickedUpdatePaymentMethod: () => ({ model, commands: [OpenCustomerPortal()] }),
@@ -442,7 +509,9 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 		}),
 		CompletedDismissQuotaBanner: () => ({ model }),
 		FailedLoadNamespaces: ({ orgId }) =>
-			forOrg(model, orgId, (current) => modifyFields(current, { namespaces: () => NamespacesData.Failure({ error: "Failed" }) })),
+			forOrg(model, orgId, (current) =>
+				modifyFields(current, { namespaces: () => NamespacesData.Failure({ error: "Failed" }) }),
+			),
 		ClickedSearch: () => openPalette(model),
 		// Mod+K while the palette is open keeps it open: a no-op.
 		PressedPaletteShortcut: () => openPalette(model),
@@ -455,3 +524,15 @@ export const update =(model: Model, message: Message): UpdateReturn =>
 		MeasuredShortcutsPanel: () => ({ model }),
 		ClickedKeyboardShortcuts: () => openShortcuts(closeMenu(model)),
 	})
+
+/**
+ * `modifyFields` always builds a new object, so a message that changed no field (a version check
+ * that found the same commit) would re-render the whole app. Hand back the old Model instead.
+ */
+export const update = (model: Model, message: Message): UpdateReturn => {
+	const result = foldMessage(model, message)
+	const next = result.model
+	return next !== model && Struct.keys(model).every((key) => model[key] === next[key])
+		? { ...result, model }
+		: result
+}

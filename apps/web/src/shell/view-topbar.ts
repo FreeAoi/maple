@@ -20,7 +20,12 @@ import type { Model } from "./model"
 // The top bar's breadcrumbs.
 
 /** A page's trail: data, so it stays a page input (`DashboardPage`'s `breadcrumbs`). */
-export type BreadcrumbEntry = Readonly<{ label: string; href?: string }>
+export type BreadcrumbEntry = Readonly<{
+	label: string
+	href?: string
+	/** The page draws this label as its own `<h1>`: a lone crumb like this is for screen readers only. */
+	isPageHeading?: boolean
+}>
 
 const CRUMB_LABEL = "block max-w-[40ch] truncate"
 
@@ -66,6 +71,13 @@ const checklistPill = (h: HtmlBuilder<Message>, model: Model): Html =>
 		toParentMessage: (message) => Message.GotChecklistMessage({ message }),
 	})
 
+/** The Sources list and /sources/new draw their own "Connect source", so the top bar's would repeat it. */
+export const hidesTopbarConnect = (currentPath: string): boolean => /^\/sources(\/new)?\/?$/.test(currentPath)
+
+/** A lone crumb that repeats the page's `<h1>`, so it is kept for screen readers only. */
+const isTitleOnly = (breadcrumbs: ReadonlyArray<BreadcrumbEntry>): boolean =>
+	breadcrumbs.length === 1 && breadcrumbs[0]?.isPageHeading === true
+
 export const topbar = (
 	h: HtmlBuilder<Message>,
 	model: Model,
@@ -73,6 +85,7 @@ export const topbar = (
 	pageActions: Html,
 	/** `FilterSidebarTrigger` / `RightSidebarTrigger`: below `lg`, one per rail the page renders. */
 	railTriggers: ReadonlyArray<Html> = [],
+	showsConnect = true,
 ): Html =>
 	h.header(
 		[
@@ -85,11 +98,11 @@ export const topbar = (
 				className: "-ml-1",
 				attributes: [h.OnClick(Message.ClickedSidebarTrigger())],
 			}),
-			separator(h, "vertical", "mr-2 h-4"),
+			...(isTitleOnly(breadcrumbs) ? [] : [separator(h, "vertical", "mr-2 h-4")]),
 			breadcrumb(h, "min-w-0 flex-1", [
 				breadcrumbList(
 					h,
-					"flex-nowrap",
+					isTitleOnly(breadcrumbs) ? "sr-only" : "flex-nowrap",
 					breadcrumbs.flatMap((entry, index) => [
 						...(index > 0 ? [breadcrumbSeparator(h, "shrink-0")] : []),
 						crumb(h, entry),
@@ -101,7 +114,7 @@ export const topbar = (
 				[
 					askMapleButton(h),
 					...(isClerkAuthEnabled ? [checklistPill(h, model)] : []),
-					connectButton(h, model),
+					...(showsConnect ? [connectButton(h, model)] : []),
 					...railTriggers,
 					pageActions,
 				],

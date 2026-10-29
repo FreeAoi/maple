@@ -5,11 +5,13 @@ import { requestKey } from "../../data/request-key"
 import type { Resources } from "../../platform/resources"
 import type { PageContext, PageReturn } from "../contract"
 import {
+	LoadAws,
 	LoadChat,
 	LoadCloudflare,
 	LoadGcp,
 	LoadGithub,
 	LoadHazel,
+	LoadLinear,
 	LoadPlanetscale,
 	LoadPlanetscaleDatabases,
 	LoadRailway,
@@ -30,8 +32,10 @@ const OPERATIONS = {
 	planetscale: "planetscaleIntegration.status",
 	planetscaleDatabases: "planetscaleIntegration.databases",
 	gcp: "gcpIntegration.status",
+	aws: "awsIntegration.status",
 	supabase: "integrations.supabaseStatus",
 	hazel: "integrations.hazelStatus",
+	linear: "integrations.linearStatus",
 	github: "integrations.githubStatus",
 	chat: "chatIntegration.connectors",
 	scrapeTargets: "scrapeTargets.list",
@@ -102,6 +106,12 @@ export const requestStatus = (
 				(all, gcp) => ({ ...all, gcp }),
 				(slotKey) => LoadGcp({ key: slotKey, refresh }),
 			)
+		case "aws":
+			return go(
+				s.aws,
+				(all, aws) => ({ ...all, aws }),
+				(slotKey) => LoadAws({ key: slotKey }),
+			)
 		case "supabase":
 			return go(
 				s.supabase,
@@ -113,6 +123,12 @@ export const requestStatus = (
 				s.hazel,
 				(all, hazel) => ({ ...all, hazel }),
 				(slotKey) => LoadHazel({ key: slotKey }),
+			)
+		case "linear":
+			return go(
+				s.linear,
+				(all, linear) => ({ ...all, linear }),
+				(slotKey) => LoadLinear({ key: slotKey }),
 			)
 		case "github":
 			return go(
@@ -155,8 +171,10 @@ export const STATUS_NAMES: ReadonlyArray<keyof Statuses> = [
 	"planetscale",
 	"planetscaleDatabases",
 	"gcp",
+	"aws",
 	"supabase",
 	"hazel",
+	"linear",
 	"github",
 	"chat",
 	"scrapeTargets",

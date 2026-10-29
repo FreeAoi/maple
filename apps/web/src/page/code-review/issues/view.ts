@@ -16,7 +16,8 @@ import type { PageViewInputs } from "../../contract"
 import * as TimeRangePicker from "../../kit/time-range-picker"
 import { ALL } from "../kit/frame"
 import { filtersView } from "../kit/filters-view"
-import { codeReviewLayout, nothingInWindow } from "../kit/layout"
+import { nothingInWindow } from "../../kit/nothing-in-window"
+import { codeReviewLayout } from "../kit/layout"
 import type { SheetMessage } from "../kit/review-sheet"
 import * as ReviewSheetView from "../kit/review-sheet-view"
 import { type FilterKey, Message, type Model } from "./model"
@@ -64,31 +65,27 @@ const FILTERS: ReadonlyArray<{
 		label: "State",
 		field: "stateSelect",
 		entries: entries(
-			"Any state",
+			"All states",
 			PrReviewFindingStatus.literals.map((value) => [value, FINDING_STATUS_LABELS[value]]),
 		),
 	},
 ]
 
-const filterSelects = (h: H, model: Model): Html =>
-	h.div(
-		[h.Class("flex flex-wrap items-center gap-2")],
-		FILTERS.map(({ filter, label, field, entries: options }) =>
-			h.submodel({
-				slotId: model[field].id,
-				model: model[field],
-				view: selectView,
-				toParentMessage: (message: Select.Message) =>
-					Message.GotFilterSelectMessage({ filter, message }),
-				viewInputs: {
-					entries: options,
-					size: "sm",
-					ariaLabel: label,
-					className: "w-40",
-					toView: (parts) => h.div([h.Class("contents")], parts),
-				},
-			}),
-		),
+const filterSelects = (h: H, model: Model): ReadonlyArray<Html> =>
+	FILTERS.map(({ filter, label, field, entries: options }) =>
+		h.submodel({
+			slotId: model[field].id,
+			model: model[field],
+			view: selectView,
+			toParentMessage: (message: Select.Message) => Message.GotFilterSelectMessage({ filter, message }),
+			viewInputs: {
+				entries: options,
+				size: "sm",
+				ariaLabel: label,
+				className: "w-40",
+				toView: (parts) => h.div([h.Class("contents")], parts),
+			},
+		}),
 	)
 
 const isFiltered = (model: Model) =>
@@ -104,7 +101,7 @@ const content = (h: H, model: Model, timeZone: string): Html =>
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,
-				title: "Failed to load issues",
+				title: "Couldn't load issues",
 				onRetry: Message.ClickedRetry(),
 			}),
 		onData: (response) => {
@@ -142,25 +139,26 @@ const authorsOf = (model: Model): ReadonlyArray<string> =>
 		onSome: (analytics) => analytics.authors.map((row) => row.author),
 	})
 
-export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, inputs, h) =>
-	codeReviewLayout(
+export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, inputs, h) => {
+	const filters = filtersView(h, {
+		frame: model.frame,
+		search: model.search,
+		reviewedOnly: true,
+		kind: "author",
+		options: authorsOf(model),
+		selected: model.search.author,
+		defaultPreset: DEFAULT_PRESET,
+		presets: TimeRangePicker.LONG_RANGE_PRESET_VALUES,
+		toMessage: (message) => Message.GotFrameMessage({ message }),
+		isFailed: AsyncData.isFailure(model.findings.data),
+	})
+	return codeReviewLayout(
 		{
 			h,
 			active: "issues",
 			search: model.search,
-			nowMs: model.frame.nowMs,
-			timeZone: inputs.context.timeZone,
-			toolbar: filtersView(h, {
-				frame: model.frame,
-				search: model.search,
-				reviewedOnly: true,
-				kind: "author",
-				options: authorsOf(model),
-				selected: model.search.author,
-				defaultPreset: DEFAULT_PRESET,
-				presets: TimeRangePicker.LONG_RANGE_PRESET_VALUES,
-				toMessage: (message) => Message.GotFrameMessage({ message }),
-			}),
+			toolbar: filters.actions,
+			filters: [...filters.filters, ...filterSelects(h, model)],
 			overlay: h.submodel({
 				slotId: "code-review-issues-sheet",
 				model: model.sheet,
@@ -169,6 +167,6 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 				toParentMessage: (message: SheetMessage) => Message.GotSheetMessage({ message }),
 			}),
 		},
-		[filterSelects(h, model), content(h, model, inputs.context.timeZone)],
-	),
-)
+		[content(h, model, inputs.context.timeZone)],
+	)
+})

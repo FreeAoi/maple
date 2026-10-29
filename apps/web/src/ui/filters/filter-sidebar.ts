@@ -1,7 +1,7 @@
 import { refreshingClass } from "@maple/ui/lib/refreshing"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { LoadFailure } from "../../data/load-failure"
+import { isSameFailure, type LoadFailure } from "../../data/load-failure"
 import { button } from "../button"
 import { separator } from "../display"
 import { errorState } from "../error-state"
@@ -11,10 +11,13 @@ import { skeleton } from "../skeleton"
 
 // Port of packages/ui/src/components/filters/filter-sidebar.tsx, plus its error state.
 
-/** `FilterSidebarFrame`: dims while a refetch runs over the facets it shows. */
+/**
+ * `FilterSidebarFrame`: dims while a refetch runs over the facets it shows. `isIdle` marks a rail
+ * with nothing to offer, so the inline rail (`filterRail`) gives its width back to the content.
+ */
 export const filterSidebarFrame = <M>(
 	h: HtmlBuilder<M>,
-	options: Readonly<{ isWaiting?: boolean; className?: string }>,
+	options: Readonly<{ isWaiting?: boolean; isIdle?: boolean; className?: string }>,
 	children: ReadonlyArray<Html>,
 ): Html => {
 	const isWaiting = options.isWaiting ?? false
@@ -22,6 +25,7 @@ export const filterSidebarFrame = <M>(
 		[
 			h.Class(cn("flex h-full w-full flex-col", refreshingClass(isWaiting), options.className)),
 			...(isWaiting ? [h.AriaBusy(true)] : []),
+			...(options.isIdle === true ? [h.DataAttribute("rail-idle", "")] : []),
 		],
 		children,
 	)
@@ -131,25 +135,46 @@ export const filterSidebarLoading = <M>(h: HtmlBuilder<M>, sectionCount = 3): Ht
 
 /** `FilterSidebarEmpty`: nothing to filter and no filter set. */
 export const filterSidebarEmpty = <M>(h: HtmlBuilder<M>): Html =>
-	filterSidebarFrame(h, {}, [
+	filterSidebarFrame(h, { isIdle: true }, [
 		filterSidebarHeader(h),
 		separator(h, "horizontal", "my-2"),
 		h.div(
 			[h.Class("space-y-1 py-2 pr-4")],
 			[
-				h.p([h.Class("text-xs font-medium text-foreground")], ["Nothing to filter yet"]),
+				h.p([h.Class("font-prose text-xs font-medium text-foreground")], ["Nothing to filter yet"]),
 				h.p(
-					[h.Class("text-xs leading-relaxed text-muted-foreground")],
+					[h.Class("font-prose text-xs leading-relaxed text-muted-foreground")],
 					["Filters fill in from the values in your data once it arrives."],
 				),
 			],
 		),
 	])
 
-/** The filter sidebar's failure state. */
-export const filterSidebarError = <M>(h: HtmlBuilder<M>, failure: LoadFailure, onRetry?: M): Html =>
-	filterSidebarFrame(h, {}, [
+/**
+ * The filter sidebar's failure state. One quiet line when the main panel shows the same failure
+ * (`mainFailure`); otherwise the rail is the only place it shows, so it keeps the full message.
+ */
+export const filterSidebarError = <M>(
+	h: HtmlBuilder<M>,
+	failure: LoadFailure,
+	onRetry?: M,
+	mainFailure?: LoadFailure,
+): Html => {
+	// The main panel shows the same failure, so the inline rail steps aside.
+	const isEchoed = mainFailure !== undefined && isSameFailure(mainFailure, failure)
+	return filterSidebarFrame(h, { isIdle: isEchoed }, [
 		filterSidebarHeader(h),
 		separator(h, "horizontal", "my-2"),
-		errorState(h, { failure, onRetry, variant: "inline" }),
+		isEchoed
+			? errorState(h, {
+					failure,
+					onRetry,
+					variant: "quiet",
+					title: "Filters unavailable",
+					// The main panel shows the same failure with its own Try again.
+					hidesRetryButton: true,
+					className: "py-2 pr-4",
+				})
+			: errorState(h, { failure, onRetry, variant: "inline" }),
 	])
+}

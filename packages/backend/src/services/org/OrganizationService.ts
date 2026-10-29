@@ -25,6 +25,7 @@ import {
 	AlertDeliveryEvents,
 	AlertDestinations,
 	AlertIncidents,
+	AlertLinearIssues,
 	AlertRuleStates,
 	AlertRules,
 	ApiKeys,
@@ -33,11 +34,13 @@ import {
 	ChatWorkspaces,
 	CliDeviceAuthorizations,
 	CloudflareLogpushConnectors,
+	AwsConnections,
 	GcpConnectors,
 	GcpResources,
 	Dashboards,
 	DashboardShares,
 	DashboardVersions,
+	DeviceCredentials,
 	DigestSubscriptions,
 	ErrorIncidents,
 	ErrorIssueEvents,
@@ -54,6 +57,9 @@ import {
 	OrgClickHouseSettings,
 	OrgIngestKeys,
 	OrgOpenRouterKeys,
+	OrgIngestRules,
+	OrgIngestRuleSettings,
+	OrgIngestRuleStats,
 	PlanetscaleConnections,
 	PlanetscaleIssueReceipts,
 	RailwayConnections,
@@ -61,6 +67,8 @@ import {
 	ScrapeTargets,
 	Sources,
 	SupabaseConnections,
+	UptimeMonitorStates,
+	UptimeMonitors,
 	SupabaseProjectInsights,
 	SupabaseProjects,
 	VcsCommits,
@@ -71,6 +79,14 @@ import {
 	PrReviewMergeSteps,
 	PrReviewReplies,
 	PrReviewEdits,
+	SecurityAuditEvents,
+	SecurityAuditOrgReservations,
+	SecurityAuditOrgSettings,
+	SecurityAuditFindings,
+	SecurityAuditRunFindings,
+	SecurityAuditRuns,
+	SecurityAuditTargets,
+	SecurityAuditUnits,
 	VcsInstallations,
 	VcsRepositories,
 } from "@maple/db/tables"
@@ -114,6 +130,8 @@ const ORG_SCOPED_TABLES: ReadonlyArray<OrgScopedTable> = [
 	AlertIncidents,
 	AlertRuleStates,
 	AlertRules,
+	// Before its destination: a thread row references it.
+	AlertLinearIssues,
 	AlertDestinations,
 	ApiKeys,
 	CancellationReviews,
@@ -121,6 +139,10 @@ const ORG_SCOPED_TABLES: ReadonlyArray<OrgScopedTable> = [
 	Sources,
 	OrgClickHouseSettings,
 	ScrapeTargets,
+	// A surviving monitor keeps Maple probing the org's endpoints, and its heartbeat token
+	// keeps accepting pings. The state rows also go with the monitor by foreign key.
+	UptimeMonitorStates,
+	UptimeMonitors,
 	OAuthConnections,
 	OAuthAuthStates,
 	// The binding that makes a chat workspace's members act as the org. Deleting
@@ -135,6 +157,8 @@ const ORG_SCOPED_TABLES: ReadonlyArray<OrgScopedTable> = [
 	GcpConnectors,
 	// Also removed with its connector, by the foreign key.
 	GcpResources,
+	// A surviving row would keep Maple signing tokens for, and assuming, the customer's role.
+	AwsConnections,
 	ErrorIssueEvents,
 	ErrorIssueStates,
 	ErrorIncidents,
@@ -156,6 +180,8 @@ const ORG_SCOPED_TABLES: ReadonlyArray<OrgScopedTable> = [
 	// hourly, so a deleted org's MCP client kept working for up to 30 days.
 	McpOAuthRefreshTokens,
 	MobileDevices,
+	// Device-held widget keys: their tokens re-read the row, so deleting it ends them.
+	DeviceCredentials,
 	// A share link is a public bearer credential: `resolveByToken` matches the
 	// token hash and `revoked_at is null` and nothing else, then queries the
 	// warehouse as the org. It only went dead on deletion by accident of a
@@ -176,11 +202,24 @@ const ORG_SCOPED_TABLES: ReadonlyArray<OrgScopedTable> = [
 	SupabaseConnections,
 	// The org's own OpenRouter key: a recreated org with the same id must not inherit it.
 	OrgOpenRouterKeys,
+	// Drop rules and the hash salt: a recreated org must not silently lose data to old rules.
+	OrgIngestRules,
+	OrgIngestRuleSettings,
+	OrgIngestRuleStats,
 	// APNs update tokens for running Live Activities. `mobile_devices` is purged
 	// here already; leaving these behind keeps a live push channel open.
 	LiveActivities,
 	// Nothing secret, but the channel belongs to the org; a recreated org starts fresh.
 	OrgSupportChannels,
+	// Security audit evidence about the org's source code: exploit traces must not outlive the org.
+	SecurityAuditEvents,
+	SecurityAuditOrgReservations,
+	SecurityAuditOrgSettings,
+	SecurityAuditRunFindings,
+	SecurityAuditFindings,
+	SecurityAuditUnits,
+	SecurityAuditRuns,
+	SecurityAuditTargets,
 ]
 
 /**
@@ -213,6 +252,7 @@ export const UNPURGED_ORG_SCOPED_TABLES = [
 	"AnomalyIncidents",
 	"CloudflareAnalyticsState",
 	"CloudflareHyperdriveConfigs",
+	"CloudflareZoneSettings",
 	"ErrorFingerprintCandidates",
 	"ErrorIssuePullRequests",
 	"ErrorIssueVerifications",
@@ -283,7 +323,7 @@ export interface OrganizationServiceApi {
 }
 
 export class OrganizationService extends Context.Service<OrganizationService, OrganizationServiceApi>()(
-	"@maple/api/services/OrganizationService",
+	"@maple/backend/services/OrganizationService",
 	{
 		make: Effect.gen(function* () {
 			const database = yield* Database

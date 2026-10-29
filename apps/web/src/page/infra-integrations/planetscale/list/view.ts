@@ -1,4 +1,7 @@
-import { derivePlanetScaleSetup } from "../../../../components/integrations/planetscale-setup-steps"
+import {
+	derivePlanetScaleSetup,
+	metricsCollectionFailing,
+} from "../../../../components/integrations/planetscale-setup-steps"
 import { EMPTY_VALUE, formatNumber } from "@maple/ui/lib/format"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
@@ -12,8 +15,7 @@ import { icon } from "../../../../ui/icon"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import { docsLink, emptyActions } from "../../../kit/signal-empty-state"
-import { integrationNotConnected } from "../../kit/empty-states"
-import { pageHero } from "../../../infra/kit/page-parts"
+import { pageHeroParts } from "../../../infra/kit/page-parts"
 import { pageTime } from "../../kit/page-time"
 import { statRail, statRailItem, statRailLoading } from "../../../kit/stat-rail"
 import type { DatabaseList, DatabaseStat, PlanetscaleStatus } from "../data"
@@ -21,9 +23,8 @@ import { formatLag, formatStoragePercent, lagTone, utilizationTone } from "../me
 import {
 	inventoryIsStale,
 	inventoryNotice,
-	METRICS_PAUSED_MESSAGE,
-	METRICS_PAUSED_SHORT,
 	metricsNotice,
+	planetscaleConnectCta,
 	revokedNotice,
 	setupState,
 } from "../notices"
@@ -103,7 +104,6 @@ const content = (
 	const statsData = model.stats.data
 	const stats =
 		AsyncData.isSuccess(statsData) || AsyncData.isRefreshing(statsData) ? statsData.data : NO_STATS
-	const metricsPaused = status.metrics_auth === "missing"
 	const never = neverCollected(model)
 	const branchTotal = inventory.databases.reduce((sum, db) => sum + db.branches.length, 0)
 	const showInventoryNotice =
@@ -114,7 +114,9 @@ const content = (
 		[h.Class("space-y-6")],
 		[
 			...(status.revoked_at !== null ? [revokedNotice(h)] : []),
-			...(metricsPaused && !never ? [metricsNotice(h)] : []),
+			...(status.revoked_at === null && !never && metricsCollectionFailing(status, clock.nowMs)
+				? [metricsNotice(h, status)]
+				: []),
 			...(showInventoryNotice
 				? [
 						inventoryNotice(h, {
@@ -127,12 +129,22 @@ const content = (
 			...statsFailure.map((error) =>
 				errorState(h, {
 					failure: error,
-					title: "Failed to load database stats",
+					title: "Couldn't load database stats",
 					onRetry: Message.ClickedRetryStats(),
 					variant: "row",
 				}),
 			),
-			...(never ? [setupState(h, derivePlanetScaleSetup(status, clock.nowMs).steps)] : []),
+			...(never
+				? [
+						setupState(
+							h,
+							derivePlanetScaleSetup(status, clock.nowMs, {
+								databases: inventory.databases.length,
+								branches: branchTotal,
+							}).checks,
+						),
+					]
+				: []),
 			statRail(h, {}, [
 				statRailItem(h, {
 					compact: true,
@@ -154,21 +166,15 @@ const content = (
 									totals.storageMax === null
 										? "neutral"
 										: utilizationTone(totals.storageMax),
-								subline: metricsPaused
-									? METRICS_PAUSED_SHORT
-									: (totals.storageOwner ?? undefined),
+								subline: totals.storageOwner ?? undefined,
 							}),
 							statRailItem(h, {
 								compact: true,
 								eyebrow: "Worst replica lag",
-								value:
-									metricsPaused && stats.length === 0
-										? EMPTY_VALUE
-										: formatLag(totals.lagMax),
+								value: formatLag(totals.lagMax),
 								tone: lagTone(totals.lagMax),
-								subline: metricsPaused
-									? METRICS_PAUSED_SHORT
-									: totals.lagOwner !== null && totals.lagMax > 0
+								subline:
+									totals.lagOwner !== null && totals.lagMax > 0
 										? totals.lagOwner
 										: `${formatNumber(totals.connections)} connections`,
 							}),
@@ -182,9 +188,7 @@ const content = (
 						sort: sortOf(model),
 						isWaiting: AsyncData.isRefreshing(statsData) || AsyncData.isLoading(statsData),
 						metricsPaused: never,
-						emptyMessage: metricsPaused
-							? METRICS_PAUSED_MESSAGE
-							: "No databases in the inventory.",
+						emptyMessage: "No databases in the inventory.",
 					}),
 		],
 	)
@@ -194,15 +198,7 @@ const failure = (h: H, error: LoadFailure): Html => errorState(h, { failure: err
 
 const connected = (h: H, model: Model, status: PlanetscaleStatus, clock: Clock): Html =>
 	!status.connected
-		? integrationNotConnected(h, {
-				icon: icon(h, "PlanetScaleIcon", { size: 16 }),
-				title: "Connect PlanetScale to see database health",
-				description:
-					"Authorize your PlanetScale organization with one click and Maple tracks every branch's health (connections, CPU, memory, replication lag) with nothing to install.",
-				integration: "planetscale",
-				actionLabel: "Connect PlanetScale",
-				docsPage: "planetscale",
-			})
+		? planetscaleConnectCta(h)
 		: AsyncData.match(model.databases.data, {
 				onIdle: () => loading(h),
 				onLoading: () => loading(h),
@@ -214,10 +210,16 @@ const connected = (h: H, model: Model, status: PlanetscaleStatus, clock: Clock):
 
 export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, inputs, h) => {
 	const clock = { nowMs: model.nowMs, timeZone: inputs.context.timeZone }
+	const hero = pageHeroParts(h, {
+		title: "PlanetScale",
+		description:
+			"Database health from your PlanetScale organization: connections, CPU, memory, storage, and replication lag for every branch.",
+	})
 	return dashboardPage(
 		h,
 		{
 			scrollClassName: "gap-6",
+			titleContent: hero.title,
 			actions: pageTime(h, {
 				search: model.search,
 				defaultPreset: DEFAULT_PRESET,
@@ -230,11 +232,7 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 			}),
 		},
 		[
-			pageHero(h, {
-				title: "PlanetScale",
-				description:
-					"Database health from your PlanetScale organization: connections, CPU, memory, storage, and replication lag for every branch.",
-			}),
+			hero.body,
 			AsyncData.match(model.status.data, {
 				onIdle: () => loading(h),
 				onLoading: () => loading(h),

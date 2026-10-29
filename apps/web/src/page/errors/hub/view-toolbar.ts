@@ -123,7 +123,7 @@ const toolbarSearch = (h: H, draft: string): Html =>
 		id: "errors-search",
 		size: "sm",
 		className: cn("max-w-sm", "w-52"),
-		placeholder: "Search issues...",
+		placeholder: "Search issues…",
 		value: draft,
 		onInput: (value) => Message.ChangedSearchDraft({ value }),
 		onClear: Message.ChangedSearchDraft({ value: "" }),
@@ -132,7 +132,7 @@ const toolbarSearch = (h: H, draft: string): Html =>
 /** `ListToolbar`: view tabs, then search, sort, severity and the count readout. */
 export const toolbar = (h: H, model: Model, count: ReadonlyArray<string> | null): Html =>
 	h.div(
-		[h.Class("flex flex-wrap items-center gap-2 gap-y-1.5 border-b border-border/60 px-2 py-1.5")],
+		[h.Class("flex flex-wrap items-center gap-2 gap-y-1.5 pb-3")],
 		[
 			h.submodel({
 				slotId: "errors-view-tabs",

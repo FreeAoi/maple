@@ -1,5 +1,6 @@
 import { HttpServerRequest } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
+import { recordHttpAudit } from "@maple/backend/services/audit/AuditLogService"
 import {
 	CloudflareDisconnectResponse,
 	CloudflareHyperdrivesResponse,
@@ -27,6 +28,10 @@ import {
 	HazelStartConnectResponse,
 	IntegrationsForbiddenError,
 	IntegrationsUpstreamError,
+	LinearDisconnectResponse,
+	LinearIntegrationStatus,
+	LinearStartConnectResponse,
+	LinearTeamsListResponse,
 	IntegrationsValidationError,
 	MapleInternalApi,
 	RailwayDisconnectResponse,
@@ -70,12 +75,16 @@ import { GithubConnectService } from "@maple/backend/services/integrations/vcs/v
 import { VcsCommitService } from "@maple/backend/services/integrations/vcs/VcsCommitService"
 import { VcsSourceService } from "@maple/backend/services/integrations/vcs/VcsSourceService"
 import { HazelOAuthService } from "@maple/backend/services/auth/HazelOAuthService"
+import { LinearOAuthService } from "@maple/backend/services/auth/LinearOAuthService"
 import { requireAdmin as requireAdminRole } from "@maple/backend/services/auth/auth"
 import {
 	CLOUDFLARE_CALLBACK_PATH,
 	GITHUB_CALLBACK_PATH,
 	HAZEL_CALLBACK_PATH,
+	LINEAR_CALLBACK_PATH,
 } from "@/routes/integrations-callback.http"
+import { isTrustedCallbackOrigin, resolveRequestOrigin } from "@/routes/v2/integrations.http"
+import { makeOAuthCompleter } from "@/routes/oauth-complete"
 
 const asExternalUserId = Schema.decodeUnknownSync(ExternalUserId)
 const asUserId = Schema.decodeUnknownSync(UserId)
@@ -88,32 +97,6 @@ const asUserId = Schema.decodeUnknownSync(UserId)
  */
 const CLOUDFLARE_PRIME_TIMEOUT = "20 seconds"
 
-const resolveRequestOrigin = (req: HttpServerRequest.HttpServerRequest): string => {
-	const headers = req.headers as Record<string, string | undefined>
-	const forwardedHost = headers["x-forwarded-host"]
-	const forwardedProto = headers["x-forwarded-proto"]
-	const host = forwardedHost ?? headers.host
-	if (host) {
-		const proto =
-			forwardedProto ?? (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https")
-		return `${proto}://${host}`
-	}
-	// Fall back to parsing req.url which is absolute under wrangler/CF Workers.
-	return Option.match(Option.liftThrowable(() => new URL(req.url))(), {
-		onNone: () => "",
-		onSome: (parsed) => `${parsed.protocol}//${parsed.host}`,
-	})
-}
-
-const resolveCallbackUrl = (req: HttpServerRequest.HttpServerRequest): string =>
-	`${resolveRequestOrigin(req)}${HAZEL_CALLBACK_PATH}`
-
-const resolveGithubCallbackUrl = (req: HttpServerRequest.HttpServerRequest): string =>
-	`${resolveRequestOrigin(req)}${GITHUB_CALLBACK_PATH}`
-
-const resolveCloudflareCallbackUrl = (req: HttpServerRequest.HttpServerRequest): string =>
-	`${resolveRequestOrigin(req)}${CLOUDFLARE_CALLBACK_PATH}`
-
 const requireAdmin = (roles: ReadonlyArray<RoleName>) =>
 	requireAdminRole(
 		roles,
@@ -123,6 +106,7 @@ const requireAdmin = (roles: ReadonlyArray<RoleName>) =>
 export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "integrations", (handlers) =>
 	Effect.gen(function* () {
 		const hazel = yield* HazelOAuthService
+		const linear = yield* LinearOAuthService
 		const github = yield* GithubConnectService
 		const vcsCommits = yield* VcsCommitService
 		const vcsSource = yield* VcsSourceService
@@ -136,9 +120,30 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 		const gcp = yield* GcpConnectorService
 		const edgeCache = yield* EdgeCacheService
 		const env = yield* Env
+		const completeOAuth = yield* makeOAuthCompleter
+
+		// The callback URL is replayed as `redirect_uri` and its origin comes from a
+		// client-settable header, so it must belong to the app's own host family.
+		const trustedCallbackUrl = (path: string) =>
+			Effect.gen(function* () {
+				const origin = resolveRequestOrigin(yield* HttpServerRequest.HttpServerRequest)
+				if (!isTrustedCallbackOrigin(origin, env)) {
+					return yield* new IntegrationsForbiddenError({
+						message: "Integrations cannot be connected from this host",
+					})
+				}
+				return `${origin}${path}`
+			})
 
 		return (
 			handlers
+				// The caller's own session is the proof: a state only redeems for the user who began it.
+				.handle("oauthComplete", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						return yield* completeOAuth(payload, { orgId: tenant.orgId, userId: tenant.userId })
+					}),
+				)
 				.handle("hazelStatus", () =>
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
@@ -165,9 +170,9 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						const req = yield* HttpServerRequest.HttpServerRequest
+						const callbackUrl = yield* trustedCallbackUrl(HAZEL_CALLBACK_PATH)
 						const result = yield* hazel.startConnect(tenant.orgId, tenant.userId, {
-							callbackUrl: resolveCallbackUrl(req),
+							callbackUrl,
 							returnTo: payload.returnTo,
 						})
 						return new HazelStartConnectResponse(result)
@@ -207,6 +212,51 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 						yield* requireAdmin(tenant.roles)
 						const result = yield* hazel.disconnect(tenant.orgId)
 						return new HazelDisconnectResponse(result)
+					}),
+				)
+				.handle("linearStatus", () =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const status = yield* linear.getStatus(tenant.orgId)
+						return status.connected
+							? new LinearIntegrationStatus({
+									connected: true,
+									workspaceName: status.workspaceName,
+									connectedByUserId: status.connectedByUserId,
+									revoked: status.revoked,
+								})
+							: new LinearIntegrationStatus({
+									connected: false,
+									workspaceName: null,
+									connectedByUserId: null,
+									revoked: false,
+								})
+					}),
+				)
+				.handle("linearStart", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* requireAdmin(tenant.roles)
+						const callbackUrl = yield* trustedCallbackUrl(LINEAR_CALLBACK_PATH)
+						const result = yield* linear.startConnect(tenant.orgId, tenant.userId, {
+							callbackUrl,
+							returnTo: payload.returnTo,
+						})
+						return new LinearStartConnectResponse(result)
+					}),
+				)
+				.handle("linearTeams", () =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const teams = yield* linear.listTeams(tenant.orgId)
+						return new LinearTeamsListResponse({ teams })
+					}),
+				)
+				.handle("linearDisconnect", () =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* requireAdmin(tenant.roles)
+						return new LinearDisconnectResponse(yield* linear.disconnect(tenant.orgId))
 					}),
 				)
 				.handle("cloudflareStatus", () =>
@@ -413,12 +463,29 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						const req = yield* HttpServerRequest.HttpServerRequest
+						const callbackUrl = yield* trustedCallbackUrl(CLOUDFLARE_CALLBACK_PATH)
 						const result = yield* cloudflare.startConnect(tenant.orgId, tenant.userId, {
-							callbackUrl: resolveCloudflareCallbackUrl(req),
+							callbackUrl,
 							returnTo: payload.returnTo,
 						})
 						return new CloudflareStartConnectResponse(result)
+					}),
+				)
+				.handle("cloudflareZoneSettings", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* requireAdmin(tenant.roles)
+						yield* cloudflareAnalytics.setZoneSettings(tenant.orgId, tenant.userId, payload)
+						yield* recordHttpAudit("cloudflare_integration.zones_updated", {
+							metadata: {
+								accountId: payload.accountId,
+								watchNewZones: payload.watchNewZones,
+								pausedZoneIds: payload.zones
+									.filter((zone) => !zone.watched)
+									.map((zone) => zone.zoneId),
+							},
+						})
+						return yield* cloudflareAnalytics.getIntegrationStatus(tenant.orgId)
 					}),
 				)
 				.handle("cloudflareDisconnect", () =>
@@ -491,9 +558,9 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						const req = yield* HttpServerRequest.HttpServerRequest
+						const callbackUrl = yield* trustedCallbackUrl(SUPABASE_CALLBACK_PATH)
 						const result = yield* supabaseOAuth.startConnect(tenant.orgId, tenant.userId, {
-							callbackUrl: `${resolveRequestOrigin(req)}${SUPABASE_CALLBACK_PATH}`,
+							callbackUrl,
 							returnTo: payload.returnTo,
 						})
 						return new SupabaseConnectResponse(result)
@@ -511,10 +578,16 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						if (payload.logsEnabled !== undefined) {
-							yield* supabaseLogs.setLogsEnabled(tenant.orgId, params.ref, payload.logsEnabled)
-						}
-						return yield* supabase.updateProject(tenant.orgId, params.ref, payload)
+						// Drain first: switching a project from drain to polling turns the drain off before polling on.
+						const status = yield* supabase.updateProject(
+							tenant.orgId,
+							tenant.userId,
+							params.ref,
+							payload,
+						)
+						if (payload.logsEnabled === undefined) return status
+						yield* supabaseLogs.setLogsEnabled(tenant.orgId, params.ref, payload.logsEnabled)
+						return yield* supabase.getStatus(tenant.orgId)
 					}),
 				)
 				.handle("supabaseProjectInsights", ({ params }) =>
@@ -555,9 +628,9 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						const req = yield* HttpServerRequest.HttpServerRequest
+						const callbackUrl = yield* trustedCallbackUrl(GITHUB_CALLBACK_PATH)
 						const result = yield* github.startConnect(tenant.orgId, tenant.userId, {
-							callbackUrl: resolveGithubCallbackUrl(req),
+							callbackUrl,
 							returnTo: payload.returnTo,
 						})
 						return new GithubStartConnectResponse(result)

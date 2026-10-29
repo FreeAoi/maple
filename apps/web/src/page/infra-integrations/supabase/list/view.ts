@@ -16,10 +16,10 @@ import { icon } from "../../../../ui/icon"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import { statRail, statRailItem, statRailLoading } from "../../../kit/stat-rail"
-import { pageHero } from "../../../infra/kit/page-parts"
+import { pageHeroParts } from "../../../infra/kit/page-parts"
 import { integrationNotConnected } from "../../kit/empty-states"
 import { pageTime } from "../../kit/page-time"
-import { SUPABASE_CONNECT_HINT, SUPABASE_NOT_CONFIGURED, supabaseOnRamp } from "../connect"
+import { supabaseConnectCta } from "../connect"
 import { ERROR_RATE_LIMIT } from "../health"
 import type { SupabaseProjectRow, SupabaseStatus } from "../model"
 import { MANAGE_HREF } from "../panel"
@@ -33,9 +33,6 @@ import { supabaseTable, supabaseTableLoading } from "./view-table"
 // `/infra/supabase`: the organization's projects, their health and what needs a look.
 
 type H = HtmlBuilder<Message>
-
-const connectLink = (h: H, label: string): Html =>
-	linkButton(h, { href: MANAGE_HREF }, [icon(h, "SupabaseIcon"), label])
 
 const loading = (h: H): Html =>
 	h.div([h.Class("space-y-4")], [statRailLoading(h, 4, 4), supabaseTableLoading(h)])
@@ -131,7 +128,7 @@ const overview = (
 const projectsError = (h: H, failure: LoadFailure): Html =>
 	errorState(h, {
 		failure,
-		title: "Failed to load Supabase metrics",
+		title: "Couldn't load Supabase metrics",
 		onRetry: Message.ClickedRetryProjects(),
 	})
 
@@ -147,10 +144,7 @@ const projectsView = (h: H, model: Model, status: SupabaseStatus): Html =>
 
 /** Not connected is the on-ramp: no placeholder data, ever. */
 const byStatus = (h: H, model: Model, status: SupabaseStatus): Html => {
-	if (status.connected) return projectsView(h, model, status)
-	return status.configured
-		? supabaseOnRamp(h, SUPABASE_CONNECT_HINT, connectLink(h, "Connect Supabase"))
-		: supabaseOnRamp(h, SUPABASE_NOT_CONFIGURED, null)
+	return status.connected ? projectsView(h, model, status) : supabaseConnectCta(h, status.configured)
 }
 
 const statusView = (h: H, model: Model): Html =>
@@ -160,7 +154,7 @@ const statusView = (h: H, model: Model): Html =>
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,
-				title: "Failed to load the Supabase integration",
+				title: "Couldn't load the Supabase integration",
 				onRetry: Message.ClickedRetryStatus(),
 			}),
 		onStale: ({ data }) => byStatus(h, model, data),
@@ -186,26 +180,24 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 		h,
 		{
 			scrollClassName: "gap-6",
-			actions: pageTime(h, {
-				search: model.search,
-				defaultPreset: DEFAULT_PRESET,
-				window: model.window,
-				picker: model.timePicker,
-				toPickerMessage: (message) => Message.GotTimePickerMessage({ message }),
-				onReset: Message.ClickedResetTimeRange(),
-				onReload: Message.ClickedReload(),
-				isReloading: model.isReloading,
-			}),
-		},
-		[
-			pageHero(h, {
-				title: "Supabase",
-				description: description(model),
-				actions: [
+			titleContent: pageHeroParts(h, { title: "Supabase", description: description(model) }).title,
+			actions: h.div(
+				[h.Class("flex flex-wrap items-center gap-2")],
+				[
 					linkButton(h, { size: "sm", variant: "outline", href: MANAGE_HREF }, ["Manage projects"]),
+					pageTime(h, {
+						search: model.search,
+						defaultPreset: DEFAULT_PRESET,
+						window: model.window,
+						picker: model.timePicker,
+						toPickerMessage: (message) => Message.GotTimePickerMessage({ message }),
+						onReset: Message.ClickedResetTimeRange(),
+						onReload: Message.ClickedReload(),
+						isReloading: model.isReloading,
+					}),
 				],
-			}),
-			statusView(h, model),
-		],
+			),
+		},
+		[statusView(h, model)],
 	),
 )

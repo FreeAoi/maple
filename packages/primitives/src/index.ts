@@ -131,6 +131,47 @@ export const GcpResourceNumber = Schema.String.check(Schema.isPattern(/^[0-9]{1,
 )
 export type GcpResourceNumber = Schema.Schema.Type<typeof GcpResourceNumber>
 
+export const AwsConnectionId = MapleUuidId("@maple/AwsConnectionId", "AWS Connection ID")
+export type AwsConnectionId = Schema.Schema.Type<typeof AwsConnectionId>
+
+// Twelve digits, as AWS prints it. It is interpolated into role ARNs and setup scripts.
+export const AwsAccountId = Schema.String.check(Schema.isPattern(/^[0-9]{12}$/u)).pipe(
+	Schema.brand("@maple/AwsAccountId"),
+	Schema.annotate({ identifier: "@maple/AwsAccountId", title: "AWS Account ID" }),
+)
+export type AwsAccountId = Schema.Schema.Type<typeof AwsAccountId>
+
+/**
+ * What an AWS connection lets Maple read. Each module is its own managed policy on the role, so
+ * turning one on is a stack update, not a reconnect.
+ */
+export const AWS_MODULES = ["observability", "inventory", "security", "cost"] as const
+export const AwsModule = Schema.Literals(AWS_MODULES)
+export type AwsModule = Schema.Schema.Type<typeof AwsModule>
+
+/** A commercial or GovCloud AWS region code, like `us-east-1` or `us-gov-west-1`. */
+export const AwsRegion = Schema.String.check(Schema.isPattern(/^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/u)).pipe(
+	Schema.brand("@maple/AwsRegion"),
+	Schema.annotate({ identifier: "@maple/AwsRegion", title: "AWS Region" }),
+)
+export type AwsRegion = Schema.Schema.Type<typeof AwsRegion>
+
+/** CloudWatch namespaces a connection's metric stream may send. */
+export const AWS_METRIC_NAMESPACES = [
+	"AWS/ECS",
+	"ECS/ContainerInsights",
+	"AWS/ApplicationELB",
+	"AWS/NetworkELB",
+	"AWS/RDS",
+	"AWS/Lambda",
+	"AWS/SQS",
+	"AWS/EC2",
+	"AWS/DynamoDB",
+	"AWS/ApiGateway",
+] as const
+export const AwsMetricNamespace = Schema.Literals(AWS_METRIC_NAMESPACES)
+export type AwsMetricNamespace = Schema.Schema.Type<typeof AwsMetricNamespace>
+
 /** What a Google Cloud connector covers: one project, or everything under a folder or organization. */
 export const GcpScopeType = Schema.Literals(["project", "folder", "organization"])
 export type GcpScopeType = Schema.Schema.Type<typeof GcpScopeType>
@@ -161,6 +202,10 @@ export type MobileDeviceId = Schema.Schema.Type<typeof MobileDeviceId>
 /** One MCP OAuth grant: the refresh-token family a connected client rotates through. */
 export const McpConnectionId = MapleUuidId("@maple/McpConnectionId", "MCP Connection ID")
 export type McpConnectionId = Schema.Schema.Type<typeof McpConnectionId>
+
+/** A device-bound (DPoP) credential: one registered public key for one installation and org. */
+export const DeviceCredentialId = MapleUuidId("@maple/DeviceCredentialId", "Device Credential ID")
+export type DeviceCredentialId = Schema.Schema.Type<typeof DeviceCredentialId>
 
 export const AgentFeedbackId = MapleUuidId("@maple/AgentFeedbackId", "Agent Feedback ID")
 export type AgentFeedbackId = Schema.Schema.Type<typeof AgentFeedbackId>
@@ -258,6 +303,33 @@ export const ScrapeTargetType = Schema.Literals(["prometheus", "planetscale", "s
 })
 export type ScrapeTargetType = Schema.Schema.Type<typeof ScrapeTargetType>
 
+export const UptimeMonitorId = MapleUuidId("@maple/UptimeMonitorId", "Uptime Monitor ID")
+export type UptimeMonitorId = Schema.Schema.Type<typeof UptimeMonitorId>
+
+export const UptimeMonitorKind = Schema.Literals(["http", "tcp", "dns", "heartbeat"]).annotate({
+	identifier: "@maple/UptimeMonitorKind",
+	title: "Uptime Monitor Kind",
+})
+export type UptimeMonitorKind = Schema.Schema.Type<typeof UptimeMonitorKind>
+
+/** `pending` until the first result, `paused` while disabled. */
+export const UptimeMonitorStatus = Schema.Literals(["pending", "up", "down", "paused"]).annotate({
+	identifier: "@maple/UptimeMonitorStatus",
+	title: "Uptime Monitor Status",
+})
+export type UptimeMonitorStatus = Schema.Schema.Type<typeof UptimeMonitorStatus>
+
+/** Probe cadence for http/tcp/dns monitors: 30s to 1h. */
+export const UptimeIntervalSeconds = Schema.Number.check(
+	Schema.isInt(),
+	Schema.isGreaterThanOrEqualTo(30),
+	Schema.isLessThanOrEqualTo(3600),
+).pipe(
+	Schema.brand("@maple/UptimeIntervalSeconds"),
+	Schema.annotate({ identifier: "@maple/UptimeIntervalSeconds", title: "Uptime Interval Seconds" }),
+)
+export type UptimeIntervalSeconds = Schema.Schema.Type<typeof UptimeIntervalSeconds>
+
 export const IngestAttributeMappingId = MapleUuidId(
 	"@maple/IngestAttributeMappingId",
 	"Ingest Attribute Mapping ID",
@@ -275,6 +347,9 @@ export const IngestMappingOperation = Schema.Literals(["move", "copy"]).annotate
 	title: "Ingest Mapping Operation",
 })
 export type IngestMappingOperation = Schema.Schema.Type<typeof IngestMappingOperation>
+
+export const IngestRuleId = MapleUuidId("@maple/IngestRuleId", "Ingest Rule ID")
+export type IngestRuleId = Schema.Schema.Type<typeof IngestRuleId>
 
 export const SourceId = MapleUuidId("@maple/SourceId", "Source ID")
 export type SourceId = Schema.Schema.Type<typeof SourceId>
@@ -306,6 +381,7 @@ export const PULL_SOURCE_PLATFORMS = [
 	"railway",
 	"planetscale",
 	"github",
+	"aws",
 	"supabase",
 ] as const
 

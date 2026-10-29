@@ -28,6 +28,7 @@ import {
 } from "./derive"
 import type { HealthSnapshot, Incident, Model } from "./model"
 import { alertFiringHero } from "./view-hero"
+import { OVERVIEW_RAIL_CLASS } from "./view-usage"
 import { statRail, statRailItem, statRailLoading } from "../kit/stat-rail"
 
 // The service health overview: the alerts banner and
@@ -115,8 +116,13 @@ export const healthOverview = <M>(h: HtmlBuilder<M>, { model, slice, nowMs }: He
 			]
 	const data = healthData(model)
 	return AsyncData.matchData(data, {
-		onEmpty: () => section(h, "mb-4 space-y-3", false, [...banner, statRailLoading(h)]),
-		onFailure: () => section(h, "mb-4 space-y-3", false, banner),
+		onEmpty: () =>
+			section(h, "mb-4 space-y-3", false, [
+				...banner,
+				statRailLoading(h, 4, undefined, OVERVIEW_RAIL_CLASS),
+			]),
+		// An empty section keeps no margin, or the page strip's gap above the usage rail doubles.
+		onFailure: () => section(h, banner.length > 0 ? "mb-4 space-y-3" : "space-y-3", false, banner),
 		onData: ([snapshot, anomalies, alerts]) => {
 			const counts = countByHealth(
 				enrichServices(
@@ -130,7 +136,7 @@ export const healthOverview = <M>(h: HtmlBuilder<M>, { model, slice, nowMs }: He
 				counts[health] > 0 ? active : "neutral"
 			return section(h, "mb-4 space-y-3", AsyncData.isRefreshing(data), [
 				...banner,
-				statRail(h, {}, [
+				statRail(h, { className: OVERVIEW_RAIL_CLASS }, [
 					statRailItem(h, {
 						eyebrow: "Services",
 						value: String(snapshot.length),
@@ -172,7 +178,7 @@ const listHeader = <M>(h: HtmlBuilder<M>, slice: SliceSearch): Html =>
 				[
 					eyebrow(h, { variant: "label", as: "h2" }, ["Services"]),
 					h.p(
-						[h.Class("mt-0.5 text-2xs text-muted-foreground/70")],
+						[h.Class("mt-0.5 font-prose text-2xs text-muted-foreground/70")],
 						["Status reflects active alerts and baseline anomalies."],
 					),
 				],

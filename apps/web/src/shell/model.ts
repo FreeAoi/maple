@@ -15,6 +15,14 @@ import { PinnedDashboardRow } from "./dashboards-shape"
 import * as Palette from "./palette/model"
 import { Platform } from "./palette/shortcuts"
 import { Menu, Theme } from "./message"
+import { NavSurface } from "./nav"
+import {
+	type InfraSurfaces,
+	PENDING_INTEGRATIONS,
+	type PresenceProbe,
+	probeOf,
+	resolveInfraSurfaces,
+} from "../data/infra-surfaces"
 
 /** A loader that failed reads as its fallback; the reason is not shown anywhere. */
 export const LoadFailure = Schema.Literal("Failed")
@@ -27,25 +35,22 @@ export const NamespacesData = AsyncData.Schema(Schema.Array(Schema.String), Load
 export const OpenMenu = Schema.Struct({ menu: Menu, maybePosition: Schema.Option(PopupPosition) })
 export type OpenMenu = typeof OpenMenu.Type
 
-/** Connected integrations; one that has not answered (or failed) counts as not connected. */
+/** Connected integrations: `null` until its status answers; a failed status counts as not connected. */
+const IntegrationFlag = Schema.NullOr(Schema.Boolean)
 export const Integrations = Schema.Struct({
-	cloudflare: Schema.Boolean,
-	railway: Schema.Boolean,
-	planetscale: Schema.Boolean,
-	gcp: Schema.Boolean,
-	supabase: Schema.Boolean,
+	cloudflare: IntegrationFlag,
+	railway: IntegrationFlag,
+	planetscale: IntegrationFlag,
+	gcp: IntegrationFlag,
+	supabase: IntegrationFlag,
+	aws: IntegrationFlag,
 })
-export const NO_INTEGRATIONS: typeof Integrations.Type = {
-	cloudflare: false,
-	railway: false,
-	planetscale: false,
-	gcp: false,
-	supabase: false,
-}
 
 export const Model = Schema.Struct({
 	/** Desktop rail expanded (`SidebarProvider` `open`). */
 	isSidebarOpen: Schema.Boolean,
+	/** The last toggle came from ⌘B: keyboard toggles snap instead of animating the width. */
+	isSidebarToggleInstant: Schema.Boolean,
 	/** The mobile nav sheet (`openMobile`). */
 	isMobileNavOpen: Schema.Boolean,
 	/** Below `md` the sidebar is a sheet (`useIsMobile`). */
@@ -69,6 +74,8 @@ export const Model = Schema.Struct({
 	tenant: TenantData.schema,
 	infraPresence: InfraPresenceData.schema,
 	integrations: Integrations,
+	/** `maple.infra-surfaces.<orgId>`: each org's last settled surfaces, so the sidebar lays out once. */
+	rememberedSurfaces: Schema.Record(Schema.String, Schema.Array(NavSurface)),
 	dashboards: DashboardsData.schema,
 	namespaces: NamespacesData.schema,
 	/** The self-hosted namespace menu's search query; each opening starts blank. */
@@ -125,12 +132,14 @@ export type ShellFlags = Readonly<{
 	theme: Theme
 	pinnedNamespaces: Readonly<Record<string, string>>
 	dashboardFavorites: ReadonlyArray<string>
+	rememberedSurfaces?: Readonly<Record<string, ReadonlyArray<NavSurface>>>
 	isQuotaApproachingDismissed?: boolean
 	platform?: Platform
 }>
 
 export const init = (flags: ShellFlags): Model => ({
 	isSidebarOpen: true,
+	isSidebarToggleInstant: false,
 	isMobileNavOpen: false,
 	isMobile: flags.isMobile,
 	hasRequestedSidebarData: false,
@@ -145,7 +154,8 @@ export const init = (flags: ShellFlags): Model => ({
 	dashboardFavorites: flags.dashboardFavorites,
 	tenant: TenantData.Idle(),
 	infraPresence: InfraPresenceData.Idle(),
-	integrations: NO_INTEGRATIONS,
+	integrations: PENDING_INTEGRATIONS,
+	rememberedSurfaces: flags.rememberedSurfaces ?? {},
 	dashboards: DashboardsData.Idle(),
 	namespaces: NamespacesData.Idle(),
 	namespaceQuery: "",
@@ -160,3 +170,16 @@ export const init = (flags: ShellFlags): Model => ({
 	shortcutsDialog: null,
 	platform: flags.platform ?? "mac",
 })
+
+/** The sidebar's last-hour probe as `resolveInfraSurfaces` reads it; a re-read keeps the last answer. */
+export const shellProbe = (model: Model): PresenceProbe => probeOf(model.infraPresence)
+
+/** `useInfraSurfaces()`: the live answer once complete, else the org's remembered set. */
+export const shellSurfaces = (model: Model): InfraSurfaces =>
+	resolveInfraSurfaces(
+		shellProbe(model),
+		model.integrations,
+		Option.getOrUndefined(
+			Option.flatMapNullishOr(model.maybeOrgId, (orgId) => model.rememberedSurfaces[orgId]),
+		),
+	)

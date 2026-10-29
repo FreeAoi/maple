@@ -1,10 +1,11 @@
 import { AlertRuleId, AnomalyIncidentId, DashboardId, ErrorIssueId } from "@maple/domain/http"
+import { SecurityAuditRunId, SecurityAuditTargetId } from "@maple/domain/security-audit"
 import { pipe, Schema } from "effect"
 import { Route } from "foldkit"
 import { query, schemaSegment, slash } from "foldkit/route"
 import { AppRoute } from "./app-route"
 import * as Search from "./search"
-import { path, segment } from "./segment"
+import { boundedSegment, path, restSegments, segment } from "./segment"
 import { tanstackSearch } from "./tanstack-search"
 
 const search = <A, I>(schema: Schema.Codec<A, I>) => query(tanstackSearch(schema))
@@ -40,7 +41,11 @@ const routers = {
 	ServiceMap: pipe(path("service-map"), search(Search.ServiceMapSearch), Route.mapTo(AppRoute.ServiceMap)),
 	Settings: pipe(path("settings"), search(Search.SettingsSearch), Route.mapTo(AppRoute.Settings)),
 	Sources: pipe(path("sources"), Route.mapTo(AppRoute.Sources)),
-	SourcesNew: pipe(path("sources", "new"), search(Search.SourcesNewSearch), Route.mapTo(AppRoute.SourcesNew)),
+	SourcesNew: pipe(
+		path("sources", "new"),
+		search(Search.SourcesNewSearch),
+		Route.mapTo(AppRoute.SourcesNew),
+	),
 	Source: pipe(
 		path("sources"),
 		slash(segment("sourceId")),
@@ -71,6 +76,27 @@ const routers = {
 		search(Search.AlertsCreateSearch),
 		Route.mapTo(AppRoute.AlertsCreate),
 	),
+	AlertsUptimeNew: pipe(
+		path("alerts", "uptime", "new"),
+		search(Search.AlertsUptimeNewSearch),
+		Route.mapTo(AppRoute.AlertsUptimeNew),
+	),
+	AlertsUptimeMonitor: pipe(
+		path("alerts", "uptime"),
+		slash(segment("monitorId")),
+		search(Search.AlertsUptimeMonitorSearch),
+		Route.mapTo(AppRoute.AlertsUptimeMonitor),
+	),
+	IngestRuleNew: pipe(
+		path("settings", "ingestion", "rules", "new"),
+		search(Search.IngestRuleNewSearch),
+		Route.mapTo(AppRoute.IngestRuleNew),
+	),
+	IngestRule: pipe(
+		path("settings", "ingestion", "rules"),
+		slash(segment("ruleId")),
+		Route.mapTo(AppRoute.IngestRule),
+	),
 	Anomaly: pipe(
 		path("anomalies"),
 		slash(schemaSegment("incidentId", AnomalyIncidentId)),
@@ -92,6 +118,28 @@ const routers = {
 		Route.mapTo(AppRoute.CodeReviewPullRequests),
 	),
 	CodeReviewSettings: pipe(path("code-review", "settings"), Route.mapTo(AppRoute.CodeReviewSettings)),
+	Security: pipe(path("security"), Route.mapTo(AppRoute.Security)),
+	SecurityFindings: pipe(
+		path("security", "findings"),
+		search(Search.SecurityFindingsSearch),
+		Route.mapTo(AppRoute.SecurityFindings),
+	),
+	SecurityRuns: pipe(
+		path("security", "runs"),
+		search(Search.SecurityRunsSearch),
+		Route.mapTo(AppRoute.SecurityRuns),
+	),
+	SecurityRun: pipe(
+		path("security", "runs"),
+		slash(schemaSegment("runId", SecurityAuditRunId)),
+		Route.mapTo(AppRoute.SecurityRun),
+	),
+	SecurityFinding: pipe(
+		path("security", "findings"),
+		slash(schemaSegment("targetId", SecurityAuditTargetId)),
+		slash(boundedSegment("fingerprint", 1024)),
+		Route.mapTo(AppRoute.SecurityFinding),
+	),
 	Dashboard: pipe(
 		path("dashboards"),
 		slash(schemaSegment("dashboardId", DashboardId)),
@@ -250,6 +298,7 @@ const routers = {
 		search(Search.InfraContainersSearch),
 		Route.mapTo(AppRoute.InfraContainers),
 	),
+	InfraAws: pipe(path("infra", "aws"), search(Search.InfraAwsSearch), Route.mapTo(AppRoute.InfraAws)),
 	InfraGcp: pipe(path("infra", "gcp"), search(Search.InfraGcpSearch), Route.mapTo(AppRoute.InfraGcp)),
 	InfraHosts: pipe(
 		path("infra", "hosts"),
@@ -289,6 +338,13 @@ const routers = {
 		slash(segment("scriptName")),
 		search(Search.InfraCloudflareWorkerSearch),
 		Route.mapTo(AppRoute.InfraCloudflareWorker),
+	),
+	InfraAwsResource: pipe(
+		path("infra", "aws"),
+		slash(segment("kind")),
+		slash(restSegments("name")),
+		search(Search.InfraAwsResourceSearch),
+		Route.mapTo(AppRoute.InfraAwsResource),
 	),
 	InfraGcpResource: pipe(
 		path("infra", "gcp"),
@@ -342,17 +398,25 @@ const routers = {
 		search(Search.InfraKubernetesWorkloadSearch),
 		Route.mapTo(AppRoute.InfraKubernetesWorkload),
 	),
+	// Index paths with no page of their own; `routeRedirect` sends them to the closest live page.
+	AlertIncidentsIndex: pipe(path("alerts", "incidents"), Route.mapTo(AppRoute.AlertIncidentsIndex)),
+	RecommendationsIndex: pipe(path("recommendations"), Route.mapTo(AppRoute.RecommendationsIndex)),
 } as const
 
 // Literal routes come before the param routes that would also match them (`/infra/hosts`).
 export const urlToAppRoute = Route.parseUrlWithFallback(
 	Route.oneOf(
 		routers.AlertsCreate,
+		routers.AlertsUptimeNew,
+		routers.AlertsUptimeMonitor,
+		routers.IngestRuleNew,
+		routers.IngestRule,
 		routers.DashboardsTemplates,
 		routers.SourcesNew,
 		routers.InfraDiscover,
 		routers.InfraCloudflare,
 		routers.InfraContainers,
+		routers.InfraAws,
 		routers.InfraGcp,
 		routers.InfraHosts,
 		routers.InfraKubernetes,

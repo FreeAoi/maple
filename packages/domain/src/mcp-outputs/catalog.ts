@@ -5,6 +5,13 @@
 import { SendMapleFeedbackOutput } from "./feedback"
 import { InspectInfraOutput, ListInfraOutput } from "./infra"
 import { ListSourcesOutput } from "./sources"
+import { DeleteUptimeMonitorOutput, ListUptimeMonitorsOutput, UptimeMonitorMutationOutput } from "./uptime"
+import {
+	DeleteIngestRuleOutput,
+	IngestRuleMutationOutput,
+	ListIngestRulesOutput,
+	PreviewIngestRuleOutput,
+} from "./ingest-rules"
 import {
 	DeleteScrapeTargetOutput,
 	ListIntegrationsOutput,
@@ -51,6 +58,7 @@ import {
 	SetIssueSeverityOutput,
 	TransitionErrorIssueOutput,
 	TransitionErrorIssuesOutput,
+	GetErrorNotificationPolicyOutput,
 	UpdateErrorNotificationPolicyOutput,
 } from "./issues"
 import {
@@ -116,11 +124,15 @@ export const McpToolOutputs = {
 	compare_commits: CompareCommitsOutput,
 	compare_periods: ComparePeriodsOutput,
 	create_alert_rule: CreateAlertRuleOutput,
+	create_ingest_rule: IngestRuleMutationOutput,
 	create_scrape_target: ScrapeTargetMutationOutput,
 	create_dashboard: CreateDashboardOutput,
+	create_uptime_monitor: UptimeMonitorMutationOutput,
 	db_query_volume: DbQueryVolumeOutput,
+	delete_ingest_rule: DeleteIngestRuleOutput,
 	delete_scrape_target: DeleteScrapeTargetOutput,
 	delete_alert_rule: DeleteAlertRuleOutput,
+	delete_uptime_monitor: DeleteUptimeMonitorOutput,
 	describe_dashboard_schema: DescribeDashboardSchemaOutput,
 	describe_warehouse_tables: DescribeWarehouseTablesOutput,
 	diagnose_service: DiagnoseServiceOutput,
@@ -148,6 +160,7 @@ export const McpToolOutputs = {
 	link_pull_request: LinkPullRequestOutput,
 	list_agent_sessions: ListAgentSessionsOutput,
 	list_alert_checks: ListAlertChecksOutput,
+	list_ingest_rules: ListIngestRulesOutput,
 	preview_alert_rule: PreviewAlertRuleOutput,
 	list_alert_destinations: ListAlertDestinationsOutput,
 	list_alert_incidents: ListAlertIncidentsOutput,
@@ -159,6 +172,7 @@ export const McpToolOutputs = {
 	list_infra: ListInfraOutput,
 	list_integrations: ListIntegrationsOutput,
 	list_sources: ListSourcesOutput,
+	list_uptime_monitors: ListUptimeMonitorsOutput,
 	list_metrics: ListMetricsOutput,
 	list_product_events: ListProductEventsOutput,
 	list_services: ListServicesOutput,
@@ -167,6 +181,7 @@ export const McpToolOutputs = {
 	pr_changed_files: PrChangedFilesOutput,
 	pr_context: PrContextOutput,
 	pr_file_diff: PrFileDiffOutput,
+	preview_ingest_rule: PreviewIngestRuleOutput,
 	propose_fix: ProposeFixOutput,
 	query_data: QueryDataOutput,
 	query_funnel: QueryFunnelOutput,
@@ -196,7 +211,10 @@ export const McpToolOutputs = {
 	update_alert_rule: UpdateAlertRuleOutput,
 	update_dashboard: UpdateDashboardOutput,
 	update_dashboard_widget: UpdateDashboardWidgetOutput,
+	update_ingest_rule: IngestRuleMutationOutput,
 	update_scrape_target: ScrapeTargetMutationOutput,
+	update_uptime_monitor: UptimeMonitorMutationOutput,
+	get_error_notification_policy: GetErrorNotificationPolicyOutput,
 	update_error_notification_policy: UpdateErrorNotificationPolicyOutput,
 } as const
 

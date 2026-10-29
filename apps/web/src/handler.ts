@@ -1,8 +1,8 @@
 import { Effect } from "effect"
 import { apiProxyPath } from "./api-proxy"
 import { forwardToApi } from "./api-proxy-forward"
-import { ogIdFromPath, shareTokenFromPath } from "./og/share-links"
-import { chartRequestFromPath, renderChartImage } from "./og/chart-image"
+import { OG_IMAGE_PREFIX, ogIdFromPath, shareTokenFromPath } from "./og/share-links"
+import { CHART_KINDS, chartRequestFromPath, renderChartImage } from "./og/chart-image"
 import { fetchShareOgMeta, renderShareOgImage, shareOgMetaRewriter } from "./og/share-preview"
 import { apiTarget, type ApiTarget, type WebWorkerEnv } from "./worker-env"
 
@@ -30,6 +30,9 @@ const SHARE_PATH_PREFIX = "/share/"
 const isShareDocument = (pathname: string): boolean =>
 	pathname === "/share" || pathname.startsWith(SHARE_PATH_PREFIX)
 
+/** Every document: no plugins, no `<base>` retargeting relative URLs. Keep in step with nginx.conf. */
+const BASE_CSP = "object-src 'none'; base-uri 'self'"
+
 /** HTML only. A script or stylesheet is not framed, and `frame-ancestors` on one means nothing. */
 const isHtmlResponse = (response: Response): boolean =>
 	(response.headers.get("content-type") ?? "").includes("text/html")
@@ -43,10 +46,13 @@ const applyDocumentSecurityHeaders = (response: Response, pathname: string): Res
 	// would silently become a 200 with no headers at all.
 	const headers = new Headers(response.headers)
 
+	headers.set("X-Content-Type-Options", "nosniff")
 	if (isShareDocument(pathname)) {
 		headers.set("Referrer-Policy", "no-referrer")
+		headers.set("Content-Security-Policy", BASE_CSP)
 	} else {
-		headers.set("Content-Security-Policy", "frame-ancestors 'none'")
+		headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
+		headers.set("Content-Security-Policy", `${BASE_CSP}; frame-ancestors 'none'`)
 		headers.set("X-Frame-Options", "DENY")
 	}
 
@@ -77,6 +83,11 @@ const applyShareOgMeta = async (
 	// All three keep the generic card, and none of them is worth a broken page.
 	return meta === undefined ? response : shareOgMetaRewriter(meta, url.origin).transform(response)
 }
+
+const IMAGE_PREFIXES = [OG_IMAGE_PREFIX, ...CHART_KINDS.map((kind) => kind.pathPrefix)]
+
+const isImagePath = (pathname: string): boolean =>
+	pathname.endsWith(".png") && IMAGE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 
 /** One request against the built SPA: OG images, the share preview, security headers, the shell fallback. */
 export const handleRequest = async (
@@ -112,6 +123,9 @@ export const handleRequest = async (
 			? new Response(null, { status: 404 })
 			: renderChartImage(api, chart, env.ASSETS)
 	}
+
+	// An image path whose id did not parse (a lone `%`, a nested segment) is still an image path.
+	if (isImagePath(url.pathname)) return new Response(null, { status: 404 })
 
 	const assetResponse = await env.ASSETS.fetch(request)
 	if (assetResponse.status !== 404) {

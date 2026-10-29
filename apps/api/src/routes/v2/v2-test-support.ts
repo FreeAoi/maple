@@ -12,6 +12,8 @@ import { ErrorActorsService } from "@maple/backend/services/errors/ErrorActorsSe
 import { ErrorIssueReadModelsService } from "@maple/backend/services/errors/ErrorIssueReadModelsService"
 import { ErrorIssueWorkflowService } from "@maple/backend/services/errors/ErrorIssueWorkflowService"
 import { IngestAttributeMappingService } from "@maple/backend/services/org/IngestAttributeMappingService"
+import { IngestRuleService } from "@maple/backend/services/org/IngestRuleService"
+import { OrganizationFeatureFlagsService } from "@maple/backend/services/org/OrganizationFeatureFlagsService"
 import { InvestigationService } from "@maple/backend/services/errors/InvestigationService"
 import { OrganizationService } from "@maple/backend/services/org/OrganizationService"
 import { LiveActivitiesService } from "@maple/backend/services/push/LiveActivitiesService"
@@ -20,6 +22,7 @@ import { McpConnectionsService } from "@maple/backend/services/auth/McpConnectio
 import { AgentFeedbackService } from "@maple/backend/services/feedback/AgentFeedbackService"
 import { OrgIngestKeysService } from "@maple/backend/services/org/OrgIngestKeysService"
 import { SourcesService } from "@maple/backend/services/org/SourcesService"
+import { SourceRemovalService } from "@maple/backend/services/integrations/SourceRemovalService"
 import { SourceUsageService } from "@maple/backend/services/org/SourceUsageService"
 import { RecommendationIssueService } from "@maple/backend/services/errors/RecommendationIssueService"
 import { PlanetScaleConnectionService } from "@maple/backend/services/integrations/PlanetScaleConnectionService"
@@ -43,12 +46,16 @@ import { HttpV2AlertIncidentsLive } from "./alert-incidents.http"
 import { HttpV2AlertRulesLive } from "./alert-rules.http"
 import { HttpV2ApiKeysLive } from "./api-keys.http"
 import { HttpV2AttributeMappingsLive } from "./attribute-mappings.http"
+import { HttpV2IngestRulesLive } from "./ingest-rules.http"
 import { HttpV2DashboardsLive } from "./dashboards.http"
 import { HttpV2IngestKeysLive } from "./ingest-keys.http"
 import { HttpV2SourcesLive } from "./sources.http"
 import { HttpV2ChatIntegrationsLive } from "./integrations-chat.http"
+import { HttpV2AwsIntegrationsLive } from "./integrations-aws.http"
 import { HttpV2GcpIntegrationsLive } from "./integrations-gcp.http"
 import { HttpV2PlanetScaleIntegrationsLive } from "./integrations.http"
+import { AwsConnectionService } from "@maple/backend/services/integrations/AwsConnectionService"
+import { AwsIngestService } from "@maple/backend/services/integrations/AwsIngestService"
 import { GcpConnectorService } from "@maple/backend/services/integrations/GcpConnectorService"
 import { HttpV2ErrorIssuesLive } from "./error-issues.http"
 import { HttpV2AnomaliesLive } from "./anomalies.http"
@@ -64,6 +71,8 @@ import { HttpV2AuditLogLive } from "./audit-log.http"
 import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
 import { OrgMembersService } from "@maple/backend/services/org/OrgMembersService"
 import { HttpV2ScrapeTargetsLive } from "./scrape-targets.http"
+import { HttpV2UptimeMonitorsLive } from "./uptime-monitors.http"
+import { UptimeMonitorsService } from "@maple/backend/services/uptime/UptimeMonitorsService"
 import { HttpV2SessionReplaysLive } from "./session-replays.http"
 import { HttpV2InstrumentationAuditLive } from "./setup-audit.http"
 import { HttpV2TelemetrySignalsLive } from "./telemetry-signals.http"
@@ -79,6 +88,8 @@ import {
 } from "./telemetry.http"
 import { HttpV2WidgetSummaryLive } from "./widget-summary.http"
 import { HttpV2WidgetCredentialsLive } from "./widget-credentials.http"
+import { HttpV2DeviceCredentialsLive, HttpV2DeviceTokensLive } from "./device-credentials.http"
+import { DeviceCredentialsService } from "@maple/backend/services/auth/DeviceCredentialsService"
 
 /**
  * Test-only support for the v2 HTTP harnesses. `HttpApiBuilder.layer(MapleApiV2)`
@@ -104,6 +115,19 @@ export const OnboardingChecklistServiceStubLayer = Layer.succeed(OnboardingCheck
 })
 
 const die = () => Effect.die(new Error("This service is not available in this test harness"))
+
+/** Inert UptimeMonitorsService; the uptime route test passes the real one instead. */
+export const UptimeMonitorsServiceStubLayer = Layer.succeed(UptimeMonitorsService, {
+	list: die,
+	get: die,
+	create: die,
+	update: die,
+	delete: die,
+	listProbeTargets: die,
+	recordChecks: die,
+	recordPing: die,
+	testHttp: die,
+})
 
 /** Inert ChatWorkspaceService — see the chat group's entry in the bundle below. */
 const ChatWorkspaceServiceStubLayer = Layer.succeed(
@@ -135,6 +159,7 @@ const ChatWorkspaceServiceStubLayer = Layer.succeed(
 const v2GroupLayersExceptOnboardingChecklist = (
 	chatWorkspace: Layer.Layer<ChatWorkspaceService>,
 	auditLog: Layer.Layer<AuditLogService> = AuditLogService.layerMemory,
+	uptimeMonitors: Layer.Layer<UptimeMonitorsService> = UptimeMonitorsServiceStubLayer,
 ) =>
 	Layer.mergeAll(
 		HttpV2ApiKeysLive,
@@ -157,6 +182,7 @@ const v2GroupLayersExceptOnboardingChecklist = (
 		// names, and every harness would otherwise reach for Clerk.
 		HttpV2AuditLogLive.pipe(Layer.provide(Layer.merge(auditLog, OrgMembersServiceStubLayer))),
 		HttpV2ScrapeTargetsLive,
+		HttpV2UptimeMonitorsLive.pipe(Layer.provide(uptimeMonitors)),
 		HttpV2InstrumentationRecommendationsLive,
 		HttpV2InstrumentationAuditLive,
 		HttpV2TelemetrySignalsLive,
@@ -169,9 +195,25 @@ const v2GroupLayersExceptOnboardingChecklist = (
 			Layer.provide(Layer.mergeAll(MobileDevicesService.layer, LiveActivitiesService.layer)),
 		),
 		HttpV2AgentFeedbackLive.pipe(Layer.provide(AgentFeedbackService.layer)),
+		HttpV2IngestRulesLive.pipe(
+			Layer.provide(
+				Layer.effect(IngestRuleService, IngestRuleService.make).pipe(
+					Layer.provide(OrganizationFeatureFlagsService.allEnabled),
+				),
+			),
+		),
 		HttpV2McpConnectionsLive.pipe(Layer.provide(McpConnectionsService.layer)),
 		// Same, plus the Env every harness provides as well.
 		HttpV2GcpIntegrationsLive.pipe(Layer.provide(GcpConnectorService.layer)),
+		HttpV2AwsIntegrationsLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					AwsConnectionService.layer,
+					// Over whichever `WarehouseQueryService` stub the test provides.
+					Layer.effect(AwsIngestService, AwsIngestService.make),
+				),
+			),
+		),
 		// Real reads over whichever `WarehouseQueryService` stub the test provides.
 		HttpV2SessionReplaysLive.pipe(
 			Layer.provide(
@@ -191,6 +233,9 @@ const v2GroupLayersExceptOnboardingChecklist = (
 			HttpV2WidgetSummaryLive,
 		).pipe(Layer.provide(Layer.effect(TelemetryReadService, TelemetryReadService.make))),
 		HttpV2WidgetCredentialsLive,
+		Layer.mergeAll(HttpV2DeviceCredentialsLive, HttpV2DeviceTokensLive).pipe(
+			Layer.provide(DeviceCredentialsService.layer),
+		),
 		// Talks to Slack; only its own service test exercises it.
 		HttpV2SupportChannelLive.pipe(
 			Layer.provide(
@@ -211,8 +256,15 @@ const v2GroupLayersExceptOnboardingChecklist = (
 				Layer.succeed(DashboardWidgetDataService, {
 					variableOptions: () => Effect.succeed({}),
 					resolve: () => Effect.die("share widget data is not exercised by v2 route harnesses"),
-					resolveBatch: () =>
-						Effect.die("share widget data is not exercised by v2 route harnesses"),
+					// Echoes the variables it was handed, so a test can see which ones a
+					// share let through; the values themselves are not evaluated here.
+					resolveBatch: (_orgId, document) =>
+						Effect.succeed({
+							results: [],
+							variables: Object.fromEntries(
+								(document.variables ?? []).map((variable) => [variable.name, ""]),
+							),
+						}),
 				}),
 			),
 			Layer.provide(
@@ -245,9 +297,10 @@ export const V2GroupLayersExceptOnboardingChecklist = v2GroupLayersExceptOnboard
 export const allV2GroupLayersWithChat = (
 	chatWorkspace: Layer.Layer<ChatWorkspaceService>,
 	auditLog: Layer.Layer<AuditLogService> = AuditLogService.layerMemory,
+	uptimeMonitors: Layer.Layer<UptimeMonitorsService> = UptimeMonitorsServiceStubLayer,
 ) =>
 	Layer.mergeAll(
-		v2GroupLayersExceptOnboardingChecklist(chatWorkspace, auditLog),
+		v2GroupLayersExceptOnboardingChecklist(chatWorkspace, auditLog, uptimeMonitors),
 		HttpV2OnboardingChecklistLive.pipe(Layer.provide(OnboardingChecklistServiceStubLayer)),
 	).pipe(
 		// Mutation handlers across the groups record audit entries; the real service
@@ -256,6 +309,10 @@ export const allV2GroupLayersWithChat = (
 	)
 
 export const AllV2GroupLayersLive = allV2GroupLayersWithChat(ChatWorkspaceServiceStubLayer)
+
+/** Every v2 group, with the uptime group served by the given service. */
+export const allV2GroupLayersWithUptime = (uptimeMonitors: Layer.Layer<UptimeMonitorsService>) =>
+	allV2GroupLayersWithChat(ChatWorkspaceServiceStubLayer, AuditLogService.layerMemory, uptimeMonitors)
 
 /** Every v2 group, recording audit entries into the given log so a test can read them. */
 export const allV2GroupLayersWithAudit = (auditLog: Layer.Layer<AuditLogService>) =>
@@ -388,6 +445,7 @@ export const SourcesServiceStubsLayer = Layer.mergeAll(
 		delete: die,
 	}),
 	Layer.succeed(SourceUsageService, { read: die, summary: die }),
+	Layer.succeed(SourceRemovalService, { remove: die }),
 )
 
 /** Inert config-resource services for harnesses that never touch those groups. */

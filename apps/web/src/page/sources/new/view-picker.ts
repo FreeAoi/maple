@@ -10,7 +10,7 @@ import { PLATFORMS, platformTile, PUSH_PLATFORMS, type PlatformMeta } from "../k
 import { Message } from "./message"
 import type { Model } from "./model"
 
-// `PlatformPicker`: step 1.
+// `PlatformPicker`: the Source step.
 
 type H = HtmlBuilder<Message>
 
@@ -59,7 +59,10 @@ const card = (
 				[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
 				[
 					h.span([h.Class("truncate text-sm font-medium")], [meta.label]),
-					h.span([h.Class("text-muted-foreground truncate text-xs")], [meta.description]),
+					h.span(
+						[h.Class("font-prose text-muted-foreground truncate text-xs")],
+						[meta.description],
+					),
 				],
 			),
 			...(badge === null ? [] : [badge]),
@@ -84,10 +87,20 @@ const connectedBadge = (h: H, model: Model, integration: DataIntegration): Html 
 	)
 }
 
-const section = (h: H, title: string, cards: ReadonlyArray<Html>): Html =>
+/** A titled group of cards, with how its sources reach Maple at the title's end. */
+const section = (h: H, title: string, caption: string, cards: ReadonlyArray<Html>): Html =>
 	h.section(
 		[h.Class("flex flex-col gap-3")],
-		[eyebrow(h, {}, [title]), h.div([h.Class("grid gap-2 sm:grid-cols-2 xl:grid-cols-3")], cards)],
+		[
+			h.div(
+				[h.Class("flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1")],
+				[
+					eyebrow(h, { as: "h2" }, [title]),
+					h.span([h.Class("text-xs text-muted-foreground")], [caption]),
+				],
+			),
+			h.div([h.Class("grid gap-2 sm:grid-cols-2 xl:grid-cols-3")], cards),
+		],
 	)
 
 /** Push platforms create a source here; integrations open their connect step. */
@@ -98,6 +111,7 @@ export const platformPicker = (h: H, model: Model): Html =>
 			section(
 				h,
 				"Send with OpenTelemetry",
+				"Your code or agent pushes data to Maple with an ingest key",
 				PUSH_PLATFORMS.map((platform: PushSourcePlatform) =>
 					card(
 						h,
@@ -112,6 +126,7 @@ export const platformPicker = (h: H, model: Model): Html =>
 			section(
 				h,
 				"Connect an integration",
+				"Maple reads from your provider",
 				DATA_INTEGRATIONS.map((integration) =>
 					card(
 						h,

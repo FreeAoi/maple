@@ -18,6 +18,7 @@ import { disclosureChevron } from "./view-kit"
 import { sectionHeading } from "../../kit/section-heading"
 
 // The session checks: the verdict, what needs attention, the rest.
+// Headlines and actions are sentences, so they read in the prose face; codes and values stay mono.
 // TODO(tooltip): the coverage signals' explanations are drawn as their triggers.
 
 type H = HtmlBuilder<Message>
@@ -47,10 +48,7 @@ const openSpan = (model: Model, spanId: string) =>
 
 const verdict = (h: H, model: Model, report: SessionChecksReport): Html => {
 	const failed = report.verdict.status === "failed"
-	const { counts } = report
 	const failingSpanId = report.verdict.spanId
-	const tone: SessionCheckStatus =
-		failed || counts.failed > 0 ? "failed" : counts.warning > 0 ? "warning" : "passed"
 	return h.section(
 		[h.Class("flex flex-wrap items-start justify-between gap-x-6 gap-y-3")],
 		[
@@ -60,8 +58,16 @@ const verdict = (h: H, model: Model, report: SessionChecksReport): Html => {
 					h.p(
 						[h.Class("flex min-w-0 flex-wrap items-baseline gap-x-2 font-semibold text-base")],
 						[
-							statusDot(h, { size: "lg", tone: STATUS_TONE[tone], className: "self-center" }),
-							h.span([h.Class(STATUS_TEXT[tone])], [failed ? "Failed" : "Completed"]),
+							// The outcome only: failing checks carry their own severity under Needs attention.
+							statusDot(h, {
+								size: "lg",
+								tone: failed ? "crit" : "ok",
+								className: "self-center",
+							}),
+							h.span(
+								[h.Class(failed ? TONE_TEXT.crit : "text-foreground")],
+								[failed ? "Failed" : "Completed"],
+							),
 						],
 					),
 				],
@@ -128,7 +134,7 @@ const evidenceRow = (h: H, model: Model, finding: SessionFinding, status: Sessio
 const checkBlock = (h: H, model: Model, check: SessionCheck): Html => {
 	const actionLine = (children: ReadonlyArray<Html | string>) =>
 		h.p(
-			[h.Class("flex items-start gap-1.5 text-muted-foreground text-xs leading-relaxed")],
+			[h.Class("flex items-start gap-1.5 font-prose text-muted-foreground text-xs leading-relaxed")],
 			[
 				icon(h, "ArrowRightIcon", {
 					size: 12,
@@ -146,7 +152,7 @@ const checkBlock = (h: H, model: Model, check: SessionCheck): Html => {
 			h.div(
 				[h.Class("flex min-w-0 flex-col gap-1")],
 				[
-					h.p([h.Class("text-ui leading-relaxed")], withCode(h, check.headline)),
+					h.p([h.Class("font-prose text-ui leading-relaxed")], withCode(h, check.headline)),
 					...(check.id === "tool-errors"
 						? [
 								actionLine([
@@ -193,7 +199,7 @@ const checkFact = (h: H, check: SessionCheck): Html =>
 			checkDot(h, check.status),
 			h.span([h.Class("truncate text-ui")], [check.name]),
 			h.span(
-				[h.Class("min-w-0 text-muted-foreground text-xs leading-relaxed")],
+				[h.Class("min-w-0 font-prose text-muted-foreground text-xs leading-relaxed")],
 				withCode(h, check.headline),
 			),
 		],
@@ -243,8 +249,9 @@ const disclosure = (
 				),
 			],
 		),
+		// Wraps so every collapsed check name stays readable.
 		h.span(
-			[h.Class("min-w-0 truncate text-muted-foreground text-xs")],
+			[h.Class("min-w-0 text-muted-foreground text-xs leading-relaxed")],
 			[
 				!isDisclosable
 					? options.emptySummary
@@ -358,10 +365,15 @@ export const sessionChecks = (h: H, model: Model, report: SessionChecksReport): 
 			h.section(
 				[h.Class("flex flex-col gap-2")],
 				[
-					sectionHeading(h, { variant: "eyebrow", as: "h3", title: "Needs attention", className: "mb-0" }),
+					sectionHeading(h, {
+						variant: "eyebrow",
+						as: "h3",
+						title: "Needs attention",
+						className: "mb-0",
+					}),
 					isClean
 						? h.p(
-								[h.Class("flex items-center gap-2 py-2 text-ui")],
+								[h.Class("flex items-center gap-2 py-2 font-prose text-ui")],
 								[
 									icon(h, "CheckIcon", {
 										size: 14,

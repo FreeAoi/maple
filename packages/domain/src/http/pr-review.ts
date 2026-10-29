@@ -62,9 +62,14 @@ export const PrReviewFailureReason = Schema.Literals([
 	"context_limit",
 	"stuck",
 	"model_error",
+	"provider_unavailable",
+	"service_misconfigured",
+	"org_key_rejected",
+	"org_key_no_credits",
 	"agent_error",
 	"no_report",
 	"ended_early",
+	"answered_in_prose",
 	"interrupted",
 ]).annotate({ identifier: "@maple/PrReviewFailureReason", title: "Pull Request Review Failure Reason" })
 export type PrReviewFailureReason = Schema.Schema.Type<typeof PrReviewFailureReason>
@@ -78,11 +83,28 @@ export const PR_REVIEW_FAILURE_COPY = {
 	context_limit: "The change did not fit in the model's context.",
 	stuck: "Its tool calls kept failing, so it was stopped.",
 	model_error: "The model provider returned an error.",
+	provider_unavailable: "The model provider was unavailable or rate limited.",
+	service_misconfigured:
+		"Maple could not use its model provider because of a problem on Maple's side, not with this pull request.",
+	org_key_rejected:
+		"OpenRouter rejected this organization's OpenRouter key. An admin can replace it in Maple's organization settings.",
+	org_key_no_credits:
+		"This organization's OpenRouter key has run out of credits. An admin can add credits on OpenRouter.",
 	agent_error: "The review run failed with an error.",
 	no_report: "It ended without filing a report.",
 	ended_early: "It stopped before it finished, so its partial findings are not posted here.",
+	answered_in_prose:
+		"The model kept replying in prose instead of filing its report, so its partial findings are not posted here.",
 	interrupted: "Maple was restarted while it ran, more than once. Ask again with @maple review.",
 } as const satisfies Record<PrReviewFailureReason, string>
+
+/** Reasons a retry cannot clear until someone fixes a key or Maple's config, so "try again" would mislead. */
+export const PR_REVIEW_FAILURE_NEEDS_FIX: ReadonlySet<PrReviewFailureReason> = new Set([
+	"agent_unavailable",
+	"service_misconfigured",
+	"org_key_rejected",
+	"org_key_no_credits",
+])
 
 const isFailureReason = Schema.is(PrReviewFailureReason)
 
@@ -225,6 +247,12 @@ export class PrReviewRepositoryConfig extends Schema.Class<PrReviewRepositoryCon
 	/** The lowest severity posted inline; the summary always carries every finding. */
 	minInlineSeverity: Schema.optionalKey(PrReviewSeverity),
 	reviewDrafts: Schema.optionalKey(Schema.Boolean),
+	/**
+	 * Review pull requests on a public repository from people without push access, forks included.
+	 * Off by default: their text reaches an agent that reads org telemetry and posts publicly. One
+	 * automatic review per pull request and three per author a day; a maintainer starts more.
+	 */
+	reviewExternalContributors: Schema.optionalKey(Schema.Boolean),
 	/** Reviews this repository may start per UTC day. */
 	dailyLimit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 500 }))),
 	/**
@@ -281,6 +309,7 @@ export const mergePrReviewConfig = (
 			...pick("categories"),
 			...pick("minInlineSeverity"),
 			...pick("reviewDrafts"),
+			...pick("reviewExternalContributors"),
 			...pick("dailyLimit"),
 			...pick("automaticReviewLimit"),
 			...pick("feedbackScope"),
@@ -924,6 +953,8 @@ export class SubmitPrReviewRequest extends Schema.Class<SubmitPrReviewRequest>("
 	outputTokens: Schema.optionalKey(Schema.Number),
 	/** Filed by the close-out turn after the pass ended without a report; posted as a partial. */
 	partial: Schema.optionalKey(Schema.Boolean),
+	/** Why the pass that preceded a partial stopped; the pull request is told this, not `ended_early`. */
+	partialReason: Schema.optionalKey(PrReviewFailureReason),
 	/** Handles of earlier findings this head fixes. */
 	resolved: Schema.optionalKey(Schema.Array(Schema.String)),
 	/** Where the reviewer says each removed telemetry name is still emitted; verified before use. */

@@ -33,7 +33,7 @@ import {
 	formatErrorRate,
 	formatLatency,
 	formatNumber,
-	formatPercent,
+	formatPercentColumn,
 } from "@maple/ui/lib/format"
 import { TONE_TEXT } from "@maple/ui/lib/tone"
 import { utilizationLevel } from "@maple/ui/lib/utilization"
@@ -66,13 +66,13 @@ import {
 	spark,
 	SUB,
 	volumeCell,
+	volumeHead,
 	workloadHref,
 	workloadRow,
 } from "./view-rows"
 
 // `GcpServicesTable`, `GcpSubscriptionsTable`, `GcpDatabasesTable` and `GcpServiceTable`.
 
-const TABLE_MAX_HEIGHT = "640px"
 const seconds = (value: number) => formatLatency(value * 1000)
 const head = (h: H, label: string, width: string, align?: "right", hidden?: string) =>
 	columnHead(h, { label, width, align, hidden })
@@ -91,7 +91,17 @@ const rowsOrEmpty = (h: H, rows: ReadonlyArray<Html>, emptyMessage: string) =>
 const SERVICE_KIND = { cloudRun: "Cloud Run", cloudFunctions: "Function 1st gen" } as const
 
 const statusMix = (h: H, row: GcpServiceRow): Html => {
-	if (row.requests === 0) return h.div([h.Class(cn("hidden w-[170px] md:block", SUB))], ["no traffic"])
+	// An idle service still bills instance time; say so here, not in the sub-line, so the place fits.
+	if (row.requests === 0)
+		return GCP_SERVICE_RULES.inScope(row, "idle")
+			? h.div(
+					[
+						h.Class(cn("hidden w-[170px] md:block", SUB)),
+						h.Title("No requests, instance time billed"),
+					],
+					["idle, still billed"],
+				)
+			: h.div([h.Class(cn("hidden w-[170px] md:block", SUB))], ["no traffic"])
 	const failedShare = row.failed / row.requests
 	const clientShare = row.clientErrors / row.requests
 	const rated = GCP_SERVICE_RULES.inScope(row, "serving5xx")
@@ -99,11 +109,11 @@ const statusMix = (h: H, row: GcpServiceRow): Html => {
 	const label =
 		row.failed > 0 && (rated || clientShare === 0)
 			? {
-					text: `${formatPercent(failedShare)} ${failedWord}`,
+					text: `${formatPercentColumn(failedShare)} ${failedWord}`,
 					className: rated ? TONE_TEXT.crit : undefined,
 				}
 			: clientShare > 0
-				? { text: `${formatPercent(clientShare)} 4xx`, className: undefined }
+				? { text: `${formatPercentColumn(clientShare)} 4xx`, className: undefined }
 				: { text: row.service === "cloudRun" ? "no errors" : "all ok", className: undefined }
 	const ok = row.requests - row.clientErrors - row.failed
 	return h.div(
@@ -134,13 +144,26 @@ const statusMix = (h: H, row: GcpServiceRow): Html => {
 	)
 }
 
-const serviceMeta = (h: H, row: GcpServiceRow, showProject: boolean): ReadonlyArray<MetaItem> => [
-	SERVICE_KIND[row.service],
-	...placeItems(row, showProject),
-	GCP_SERVICE_RULES.inScope(row, "idle")
-		? h.span([h.Class(TONE_TEXT.warn)], ["no requests · instance time billed"])
-		: undefined,
-]
+/** Below `md` the Status cell is hidden, so the idle billing note rides on the sub-line there. */
+/** The idle note rides inside the last item, separator included, so hiding it at `md` leaves no stray dot. */
+const serviceMeta = (h: H, row: GcpServiceRow, showProject: boolean): ReadonlyArray<MetaItem> => {
+	// Only items metaLine will draw: the note joins the last shown one, never an empty slot.
+	const items = [SERVICE_KIND[row.service], ...placeItems(row, showProject)].filter(
+		(item): item is Html | string => item !== null && item !== undefined && item !== false && item !== "",
+	)
+	if (!GCP_SERVICE_RULES.inScope(row, "idle")) return items
+	// Flex drops a leading space, so the note carries its own separator and gap, like metaLine's.
+	const note = h.span(
+		[h.Class("flex items-center gap-x-2 md:hidden")],
+		[h.span([h.Class("text-foreground/20")], ["·"]), "idle, still billed"],
+	)
+	const last = items[items.length - 1]
+	// A string keeps metaLine's 28ch cap, which it applies only to plain strings.
+	const capped = typeof last === "string" ? h.span([h.Class("max-w-[28ch] truncate")], [last]) : last
+	return last === undefined
+		? [note]
+		: [...items.slice(0, -1), h.span([h.Class("flex min-w-0 items-center gap-x-2")], [capped, note])]
+}
 
 export const servicesTable = (
 	h: H,
@@ -150,11 +173,11 @@ export const servicesTable = (
 ): Html =>
 	dataTable(
 		h,
-		{ ariaLabel: "Services", maxHeight: TABLE_MAX_HEIGHT },
+		{ ariaLabel: "Services" },
 		[
 			dotLane(h),
 			head(h, "Service", NAME),
-			head(h, "Requests", "w-[180px]"),
+			volumeHead(h, "Requests"),
 			head(h, "Status mix", "w-[170px]", undefined, "hidden md:flex"),
 			head(h, "5xx", "w-[64px]", "right"),
 			head(h, "Latency p95", "w-[88px]", "right"),
@@ -220,7 +243,7 @@ export const servicesTable = (
 						),
 						h.div(
 							[h.Class(cn("hidden w-[64px] md:block", NUMBER, BAR_VALUE_TONE[cpuLevel]))],
-							[row.cpuP95 === undefined ? EMPTY_VALUE : formatPercent(row.cpuP95)],
+							[row.cpuP95 === undefined ? EMPTY_VALUE : formatPercentColumn(row.cpuP95)],
 						),
 					],
 				)
@@ -242,11 +265,11 @@ export const subscriptionsTable = (
 ): Html =>
 	dataTable(
 		h,
-		{ ariaLabel: "Pub/Sub subscriptions", maxHeight: TABLE_MAX_HEIGHT },
+		{ ariaLabel: "Pub/Sub subscriptions" },
 		[
 			dotLane(h),
 			head(h, "Subscription", NAME),
-			head(h, "Delivered", "w-[180px]"),
+			volumeHead(h, "Delivered"),
 			head(h, "Backlog", "w-[200px]"),
 			head(h, "Oldest unacked", "w-[104px]", "right"),
 			head(h, "Push failed", "w-[84px]", "right", "hidden md:flex"),
@@ -386,7 +409,7 @@ const quotaCell = (h: H, value: number | undefined, hidden?: string): Html =>
 		[
 			h.span(
 				[h.Class(cn("font-mono text-xs tabular-nums", quotaText(value)))],
-				[value === undefined ? EMPTY_VALUE : formatPercent(value)],
+				[value === undefined ? EMPTY_VALUE : formatPercentColumn(value)],
 			),
 			meter(h, { value: value ?? 0, tone: quotaTone(value ?? 0), className: "w-14" }),
 		],
@@ -540,11 +563,11 @@ export const databasesTable = (
 ): Html =>
 	dataTable(
 		h,
-		{ ariaLabel: "Cloud SQL instances", maxHeight: TABLE_MAX_HEIGHT },
+		{ ariaLabel: "Cloud SQL instances" },
 		[
 			dotLane(h),
 			head(h, "Instance", NAME),
-			head(h, "Queries", "w-[180px]", undefined, "hidden md:flex"),
+			volumeHead(h, "Queries", "hidden md:flex"),
 			head(h, "Query p95", "w-[80px]", "right"),
 			head(h, "CPU", "w-[72px]", "right"),
 			head(h, "Memory", "w-[72px]", "right", "hidden md:flex"),

@@ -3,23 +3,24 @@
 import { appendFileSync } from "node:fs"
 import path from "node:path"
 import * as Alchemy from "alchemy"
-import * as AWS from "alchemy/AWS"
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as AWS from "@alchemy.run/aws"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Command from "alchemy/Command"
-import * as Neon from "alchemy/Neon"
+import * as Neon from "@alchemy.run/neon"
 import * as Output from "alchemy/Output"
-import * as Planetscale from "alchemy/Planetscale"
+import * as Planetscale from "@alchemy.run/planetscale"
 import * as RemovalPolicy from "alchemy/RemovalPolicy"
 import { ConfigError } from "effect/Config"
 import { SourceError } from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
-import { AwsRegionMismatchError, resolveAwsRegion } from "@maple/infra/aws"
+import { AwsRegionMismatchError, createMapleAwsOidcKey, resolveAwsRegion } from "@maple/infra/aws"
 import {
 	ApiWorker,
 	AiWorker,
 	SandboxWorker,
+	createMapleDeviceTokenKey,
 	formatMapleDeployment,
 	formatMapleStage,
 	ManagedMapleDb,
@@ -36,6 +37,7 @@ import {
 	resolvePlanetscaleDatabase,
 	resolveWorkerName,
 } from "@maple/infra/cloudflare"
+import { DB_ACCESS_ROLES } from "@maple/db/roles"
 import * as Acm from "@maple/infra/acm"
 import { createAwsSecurityBaseline } from "@maple/infra/security-baseline"
 import { optionalPlain, plainWithDefault, requiredPlain } from "@maple/infra/env"
@@ -151,13 +153,15 @@ const declarePrdDb = ({ stage, region }: MapleDeployment, profile: MapleProfile)
 			name: "main",
 			migrations: "packages/db/drizzle",
 		}).pipe(RemovalPolicy.retain())
-		// The ingest gateway's role. Changing it is a create-first replace (its id is in the task env).
+		// Runtime logins read and write rows but own nothing; migrations run as the branch owner.
+		// Changing roles is a create-first replace (the ingest role's id is in the task env).
 		const ingestRole = yield* Planetscale.PostgresRole("ingest-gateway", {
 			database,
 			branch: schema,
-			inheritedRoles: ["postgres"],
+			inheritedRoles: [...DB_ACCESS_ROLES.readWrite],
 		})
 		// Id must not be `"electric"` (the ECS service's id): alchemy keys state by id alone.
+		// Stays on `postgres`: PlanetScale grants REPLICATION only alongside it.
 		const electricRole = profile.deploys.electric
 			? yield* Planetscale.PostgresRole("electric-db-role", {
 					database,
@@ -179,7 +183,7 @@ const declarePrdDb = ({ stage, region }: MapleDeployment, profile: MapleProfile)
 				const role = yield* Planetscale.PostgresRole(`db-${consumer}-role`, {
 					database,
 					branch: schema,
-					inheritedRoles: ["postgres"],
+					inheritedRoles: [...DB_ACCESS_ROLES.readWrite],
 				})
 				return yield* Cloudflare.Hyperdrive.Connection(`db-${consumer}`, {
 					name: resolveWorkerName(`db-${consumer}`, stage, region),
@@ -239,6 +243,8 @@ const MapleStackLive = Layer.effect(
 			workerDev,
 			devEnv,
 			db: yield* declareMapleDb(deployment, profile),
+			awsOidc: yield* createMapleAwsOidcKey(),
+			deviceToken: yield* createMapleDeviceTokenKey(),
 		}
 		return context
 	}),

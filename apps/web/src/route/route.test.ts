@@ -30,6 +30,16 @@ describe("routes", () => {
 		expect(hrefOf(route)).toBe("/services/checkout%20api")
 	})
 
+	test("uptime routes parse ahead of a rule id and print back", () => {
+		expect(parse("/alerts/uptime/new?serviceName=%22api%22")).toMatchObject({
+			_tag: "AlertsUptimeNew",
+			search: { serviceName: "api" },
+		})
+		const monitor = parse("/alerts/uptime/upm_abc")
+		expect(monitor).toMatchObject({ _tag: "AlertsUptimeMonitor", monitorId: "upm_abc" })
+		expect(hrefOf(monitor)).toBe("/alerts/uptime/upm_abc")
+	})
+
 	test("a literal sibling wins over a param route", () => {
 		expect(parse("/infra/hosts")._tag).toBe("InfraHosts")
 		expect(parse("/alerts/create")._tag).toBe("AlertsCreate")
@@ -58,6 +68,17 @@ describe("routes", () => {
 		)
 	})
 
+	test("index paths with no page of their own redirect; their detail pages still render", () => {
+		expect(routeRedirect(parse("/alerts/incidents"))).toEqual(
+			Option.some({ url: "/alerts", isReplace: true }),
+		)
+		expect(routeRedirect(parse("/recommendations"))).toEqual(
+			Option.some({ url: "/settings?tab=ingestion", isReplace: true }),
+		)
+		expect(parse("/alerts/incidents/inc_1")._tag).toBe("AlertIncident")
+		expect(parse("/recommendations/rec_1")._tag).toBe("Recommendation")
+	})
+
 	test("a data integration's old page opens its step under Sources; chat connectors stay", () => {
 		expect(routeRedirect(parse("/integrations?integration=cloudflare"))).toEqual(
 			Option.some({ url: "/sources/new?integration=cloudflare", isReplace: true }),
@@ -71,6 +92,24 @@ describe("routes", () => {
 				Option.some({ url: `/sources/new?integration=${integration}`, isReplace: true }),
 			)
 		expect(routeRedirect(parse("/integrations"))).toEqual(Option.none())
+	})
+
+	test("the Security Center's tabs, run and finding pages parse to their own routes", () => {
+		expect(parse("/security")._tag).toBe("Security")
+		expect(parse("/security/findings?rejected=true")).toMatchObject({
+			_tag: "SecurityFindings",
+			search: { rejected: true },
+		})
+		expect(parse("/security/runs")._tag).toBe("SecurityRuns")
+		expect(parse("/security/runs/run_9f3c2a1e7b")).toMatchObject({
+			_tag: "SecurityRun",
+			runId: "run_9f3c2a1e7b",
+		})
+		const finding = parse("/security/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant")
+		expect(finding).toMatchObject({ _tag: "SecurityFinding", fingerprint: "exports/tenant" })
+		expect(hrefOf(finding)).toBe(
+			"/security/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant",
+		)
 	})
 
 	test("an unknown path is NotFound", () => {

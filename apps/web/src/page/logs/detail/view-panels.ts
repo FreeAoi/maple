@@ -8,6 +8,7 @@ import { formatCompactTimeInTimezone } from "@maple/web-data/lib/timezone-format
 import { Effect } from "effect"
 import { AsyncData, Mount } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { ROW_LINE_CHARS } from "../../../lib/display-text"
 import { emptyMessage } from "../../../ui/empty"
 import { errorSectionView } from "../../../ui/error-section"
 import { errorState } from "../../../ui/error-state"
@@ -154,7 +155,7 @@ const contextList = (
 							),
 						),
 					],
-					[row.body.split("\n", 1)[0] ?? ""],
+					[(row.body.split("\n", 1)[0] ?? "").slice(0, ROW_LINE_CHARS)],
 				),
 			]
 			return h.li(
@@ -239,7 +240,7 @@ export const contextPanel = (
 						onFailure: (failure) =>
 							errorState(h, {
 								failure,
-								title: "Failed to load surrounding logs",
+								title: "Couldn't load surrounding logs",
 								variant: "inline",
 							}),
 						onData: (merged) => contextList(h, log, merged, timeZone, listClassName),
@@ -392,7 +393,7 @@ export const traceTimeline = (h: H, model: Model, log: LogRecord): Html | null =
 			AsyncData.matchData(model.traceLogs.data, {
 				onEmpty: () => rowSkeleton(h, 5, ["w-10", "w-16"]),
 				onFailure: (failure) =>
-					errorState(h, { failure, title: "Failed to load trace logs", variant: "inline" }),
+					errorState(h, { failure, title: "Couldn't load trace logs", variant: "inline" }),
 				onData: (logs) => timelineRows(h, model, log, logs),
 			}),
 		],

@@ -274,7 +274,7 @@ Every model call ends with a \`<run-status>\` line giving the time used against 
 When pr_changed_files lists more than 12 files to review, do not read every diff yourself. After step 2, split the files into groups of related files (4 to 10 each, one area of the codebase per group) and call review_files once per group, all in the same message so they run in parallel. Do it right away: four groups run at a time and each takes up to 4 minutes, and a group that could not finish before the review is stopped is refused, which leaves its files to you. Pass the repository's rules that matter in \`focus\`. Each answers its group's findings one per line. File the ones you can stand behind: read the hunk behind any that looks doubtful, drop duplicates, and keep the discipline below. A group that ran out of budget (\`budgetExhausted\`) was reviewed in part; say so in the summary.
 
 ## Reading the change
-- Read the diff of every file you review before you submit. A review that did not read a hunk cannot vouch for it.
+- Read the diff of every file you review yourself before you submit. A review that did not read a hunk cannot vouch for it. Files whose child reviewer answered in full are read: do not read their diffs again, only the hunk behind a child's finding you doubt. A group whose child failed, ran out of time, or answered with \`budgetExhausted\` was not fully read; read those files yourself.
 - Batch: pass several paths to pr_file_diff, and put independent greps and reads in the same message.
 - Read beyond the diff whenever a finding, or the absence of one, depends on it: a caller, the type of a value, what a helper returns. Read enough to be sure; a whole file is fine when it is short or the change reshapes it. Do not tour code no decision depends on.
 - Do not read the same code twice: a hunk you have seen in pr_file_diff is already in front of you.
@@ -356,6 +356,9 @@ Finish with submit_reply exactly once. Prose instead of it is discarded.
 
 /** The close-out for a reply pass that stopped without answering. */
 export const PR_REPLY_CLOSE_OUT_PROMPT = `Your answer was not posted. Do not read more. Call \`submit_reply\` now with the answer you can support from what you already read, or a short note that you could not finish and what is missing. This is your only remaining action; prose is discarded.`
+
+/** A review pass that answered in prose with time left: carry on reading, then file. */
+export const PR_REVIEW_CONTINUE_PROMPT = `Your review pass ended with a message instead of a report, and prose is discarded. The kickoff is repeated below; review the pull request it names. Carry on with your tools: read what you have not read yet, then call \`submit_review\`. Do not answer in prose, and do not write tool calls as text.`
 
 /** The close-out for a review pass that stopped without filing: one call, from what it has. */
 export const PR_REVIEW_CLOSE_OUT_PROMPT = `Your review pass has ended without a submitted review. Do not read more. Call \`submit_review\` now with what you established: the verdict you can support, tests and risk as far as you read, a confidenceReason naming what you did not reach if any reviewed file's diff went unread, a summary of the change itself (the early end is shown for you, so do not repeat it) and keyChanges from what you read, the coverage rows you completed, and only the findings you anchored to a line that you have not already saved with record_finding (saved ones are included for you). If you read nothing, submit verdict not_applicable with a summary saying the review could not be completed. This is your only remaining action; prose is discarded.`

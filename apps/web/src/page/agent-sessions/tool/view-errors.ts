@@ -468,7 +468,7 @@ export const errorsTable = (h: H, inputs: ErrorsTableInputs): Html => {
 								? [
 										errorState(h, {
 											failure: inputs.failure,
-											title: `Failed to load ${inputs.tool} errors`,
+											title: `Couldn't load ${inputs.tool} errors`,
 										}),
 									]
 								: inputs.isLoading
@@ -481,7 +481,7 @@ export const errorsTable = (h: H, inputs: ErrorsTableInputs): Html => {
 												? [showMore(h, hidden, inputs.isExpanded)]
 												: []),
 										],
-							{ isWaiting: inputs.isWaiting, maxHeight: inputs.isExpanded ? 760 : 460 },
+							{ isWaiting: inputs.isWaiting },
 						),
 						...(masks.length > 0 && !inputs.isLoading
 							? [

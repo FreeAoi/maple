@@ -8,6 +8,8 @@ import { BAR_CHART_TOKENS } from "../../../charts/bar-chart"
 import { isChartRuntimeReady } from "../../../charts/chart-runtime"
 import { ResolveThemeColors } from "../../../charts/theme-colors"
 import { button } from "../../../ui/button"
+import { errorState } from "../../../ui/error-state"
+import type { LoadFailure } from "../../../data/load-failure"
 import { eyebrow } from "../../../ui/eyebrow"
 import { skeleton } from "../../../ui/skeleton"
 import { approvalCard } from "../kit/view-cards"
@@ -15,8 +17,6 @@ import { taskCard, taskSheetId } from "../kit/view-task"
 import * as Dialog from "../../../ui/dialog"
 import { composer, failureNotice } from "../kit/view-composer"
 import { MountTurnMinimap } from "../kit/turn-minimap-mount"
-import { MountDiagramFullscreen, MountDiagramMenu, MountMermaid } from "../kit/mermaid"
-import { MountMath } from "../kit/math"
 import { MountJumpToMessage } from "../kit/scroller"
 import { MountRunningClock } from "../kit/view-tool"
 import { findDiagnosisMessageId } from "../kit/transcript-rows"
@@ -70,11 +70,15 @@ const cardsOf = <M>(
 		taskCard(
 			h,
 			{
-				dialog: (toolCallId) => model.taskSheets[toolCallId] ?? Dialog.init(taskSheetId(toolCallId), "sheet"),
-				onDialog: (toolCallId, message) => options.toMessage(Message.GotTaskSheetMessage({ toolCallId, message })),
+				dialog: (toolCallId) =>
+					model.taskSheets[toolCallId] ?? Dialog.init(taskSheetId(toolCallId), "sheet"),
+				onDialog: (toolCallId, message) =>
+					options.toMessage(Message.GotTaskSheetMessage({ toolCallId, message })),
 				richText: draw.richText,
 				tool: draw.tool,
-				clockMount: Mount.mapMessage(MountRunningClock(), () => options.toMessage(Message.CompletedMountClock())),
+				clockMount: Mount.mapMessage(MountRunningClock(), () =>
+					options.toMessage(Message.CompletedMountClock()),
+				),
 			},
 			part,
 		),
@@ -88,11 +92,16 @@ const cardsOf = <M>(
 				: approvalCard(h, {
 						toolName: part.toolName,
 						input: part.input,
+						timeZone: options.timeZone,
 						resolved: model.resolvedApprovals[part.toolCallId],
 						isRawOpen: model.openPanels.includes(`raw:${part.toolCallId}`),
 						isDeciding: model.decidingApprovals.includes(part.toolCallId),
-						onToggleRaw: options.toMessage(Message.ToggledPanel({ id: `raw:${part.toolCallId}` })),
-						onApprove: options.toMessage(Message.ClickedApprove({ toolCallId: part.toolCallId, tool: part.toolName })),
+						onToggleRaw: options.toMessage(
+							Message.ToggledPanel({ id: `raw:${part.toolCallId}` }),
+						),
+						onApprove: options.toMessage(
+							Message.ClickedApprove({ toolCallId: part.toolCallId, tool: part.toolName }),
+						),
 						onDeny: options.toMessage(Message.ClickedDeny({ toolCallId: part.toolCallId })),
 					})
 		}),
@@ -110,32 +119,8 @@ const cardsOf = <M>(
 		{
 			highlights: model.highlights,
 			onCopy: (code) => options.toMessage(Message.ClickedCopyCode({ code })),
-			onDownload: (code, language) => options.toMessage(Message.ClickedDownloadCode({ code, language })),
-			diagramMenu: model.diagramMenu,
-			fullscreenDiagram: model.fullscreenDiagram,
-			onToggleDiagramMenu: (menuId) => options.toMessage(Message.ToggledDiagramMenu({ menuId })),
-			onDiagramFormat: (menuId, code, format) => options.toMessage(Message.ClickedDiagramFormat({ menuId, code, format })),
-			onFullscreen: (code) => options.toMessage(Message.ClickedDiagramFullscreen({ code })),
-			onExitFullscreen: options.toMessage(Message.ClosedDiagramFullscreen()),
-			diagramMenuMount: (menuId) =>
-				Mount.mapMessage(MountDiagramMenu(), (message) =>
-					options.toMessage(
-						message._tag === "PressedOutsideDiagramMenu"
-							? Message.PressedOutsideDiagramMenu({ menuId })
-							: Message.CompletedMountDiagramOverlay(),
-					),
-				),
-			fullscreenMount: Mount.mapMessage(MountDiagramFullscreen(), (message) =>
-				options.toMessage(
-					message._tag === "CompletedMountDiagramOverlay" ? Message.CompletedMountDiagramOverlay() : Message.ClosedDiagramFullscreen(),
-				),
-			),
-			mermaidMount: (code, isFullscreen) =>
-				Mount.mapMessage(MountMermaid({ code, isFullscreen }), (message) =>
-					options.toMessage(Message.CompletedMermaidDiagram({ isDrawn: message._tag === "CompletedMountMermaid" })),
-				),
-			mathMount: (tex, isDisplay) =>
-				Mount.mapMessage(MountMath({ tex, isDisplay }), () => options.toMessage(Message.CompletedMountMath())),
+			onDownload: (code, language) =>
+				options.toMessage(Message.ClickedDownloadCode({ code, language })),
 		},
 	),
 })
@@ -157,27 +142,40 @@ export const emptyNotice = <M>(h: HtmlBuilder<M>, title: string, body: string): 
 	h.div(
 		[h.Class("flex flex-col items-center justify-center gap-2 text-center")],
 		[
-			eyebrow(h, { as: "p", variant: "label", className: "flex items-center gap-1.5 text-muted-foreground/70" }, [
-				h.span([], [title]),
-			]),
+			eyebrow(
+				h,
+				{
+					as: "p",
+					variant: "label",
+					className: "flex items-center gap-1.5 text-muted-foreground/70",
+				},
+				[h.span([], [title])],
+			),
 			h.p([h.Class("max-w-sm text-sm text-muted-foreground")], [body]),
 		],
 	)
 
 /** The history read failed: the thread is unknown, so it offers a retry instead of the empty state. */
-const historyFailure = <M>(h: HtmlBuilder<M>, error: string, options: ConversationViewOptions<M>): Html =>
-	h.div(
-		[h.Class("flex flex-col items-center justify-center gap-3 text-center")],
-		[
-			emptyNotice(h, "Couldn't load this conversation", error),
-			button(h, { size: "sm", variant: "outline", attributes: [h.OnClick(options.toMessage(Message.ClickedRetryHistory()))] }, [
-				"Try again",
-			]),
-		],
-	)
+const HISTORY_FAILURE: LoadFailure = {
+	_tag: "@maple/web/chat/HistoryLoadFailed",
+	type: "api_error",
+	code: "chat_history_unavailable",
+	title: "Couldn't load this conversation",
+	message: "The conversation is saved. Try again to load it.",
+	retryable: false,
+	recovery: "retry",
+}
+
+const historyFailure = <M>(h: HtmlBuilder<M>, options: ConversationViewOptions<M>): Html =>
+	errorState(h, {
+		failure: HISTORY_FAILURE,
+		onRetry: options.toMessage(Message.ClickedRetryHistory()),
+		// The 3xl column less its padding, centred in the empty thread like the other empty states.
+		className: "h-auto w-full max-w-[46rem]",
+	})
 
 const emptyStateOf = <M>(h: HtmlBuilder<M>, model: Model, options: ConversationViewOptions<M>): Html => {
-	if (model.historyError !== null) return historyFailure(h, model.historyError, options)
+	if (model.historyError !== null) return historyFailure(h, options)
 	if (!model.historyReady) return loadingSkeleton(h)
 	switch (model.readOnly) {
 		case "shared":
@@ -196,14 +194,18 @@ const emptyStateOf = <M>(h: HtmlBuilder<M>, model: Model, options: ConversationV
 			return emptyNotice(
 				h,
 				"Nothing recorded yet",
-				"The agents' reasoning log appears here as the pass runs — every tool call and what it returned.",
+				"The agents' reasoning log appears here as the pass runs: every tool call and what it returned.",
 			)
 		case null:
 			return options.emptyState()
 	}
 }
 
-export const transcriptHostOf = <M>(h: HtmlBuilder<M>, model: Model, options: ConversationViewOptions<M>): TranscriptHost<M> => ({
+export const transcriptHostOf = <M>(
+	h: HtmlBuilder<M>,
+	model: Model,
+	options: ConversationViewOptions<M>,
+): TranscriptHost<M> => ({
 	isOpen: (id) => model.openPanels.includes(id),
 	onToggle: (id) => options.toMessage(Message.ToggledPanel({ id })),
 	clockMount: Mount.mapMessage(MountRunningClock(), () => options.toMessage(Message.CompletedMountClock())),
@@ -215,7 +217,9 @@ export const transcriptHostOf = <M>(h: HtmlBuilder<M>, model: Model, options: Co
 	onCopy: (id, message) => options.toMessage(Message.GotCopyMessage({ id, message })),
 	scrollerMount: options.scrollerMount,
 	minimap: model.minimap,
-	minimapMount: Mount.mapMessage(MountTurnMinimap(), (message) => options.toMessage(Message.GotMinimapMessage({ message }))),
+	minimapMount: Mount.mapMessage(MountTurnMinimap(), (message) =>
+		options.toMessage(Message.GotMinimapMessage({ message })),
+	),
 	permalinkFor: options.permalinkFor,
 	fallback: options.fallback,
 	...jumpOf(model, options),
@@ -230,12 +234,18 @@ const jumpOf = <M>(model: Model, options: ConversationViewOptions<M>): Pick<Tran
 		: {
 				jump: {
 					messageId,
-					mount: Mount.mapMessage(MountJumpToMessage({ messageId }), () => options.toMessage(Message.CompletedMountJump())),
+					mount: Mount.mapMessage(MountJumpToMessage({ messageId }), () =>
+						options.toMessage(Message.CompletedMountJump()),
+					),
 				},
 			}
 }
 
-const notices = <M>(h: HtmlBuilder<M>, model: Model, options: ConversationViewOptions<M>): ReadonlyArray<Html> => {
+const notices = <M>(
+	h: HtmlBuilder<M>,
+	model: Model,
+	options: ConversationViewOptions<M>,
+): ReadonlyArray<Html> => {
 	if (model.failedSend !== null) {
 		const text = `Message not sent: ${model.failedSend.error}`
 		return [
@@ -279,7 +289,11 @@ const suggestionPills = <M>(
 		),
 	)
 
-export const conversationView = <M>(h: HtmlBuilder<M>, model: Model, options: ConversationViewOptions<M>): Html => {
+export const conversationView = <M>(
+	h: HtmlBuilder<M>,
+	model: Model,
+	options: ConversationViewOptions<M>,
+): Html => {
 	const loading = isLoading(model)
 	return h.div(
 		[h.Class("flex h-full min-h-0 flex-col")],
@@ -288,16 +302,30 @@ export const conversationView = <M>(h: HtmlBuilder<M>, model: Model, options: Co
 			// probe that inherits the page's tokens; it is its own element so its Mount runs on insert.
 			...(model.chartRuntime === null
 				? []
-				: [h.keyed("span")("chat-theme-probe", [h.Class("contents"), h.OnMount(themeMount(options.toMessage))], [])]),
+				: [
+						h.keyed("span")(
+							"chat-theme-probe",
+							[h.Class("contents"), h.OnMount(themeMount(options.toMessage))],
+							[],
+						),
+					]),
 			...(options.header ?? []),
-			transcript(h, transcriptHostOf(h, model, options), model.messages, () => emptyStateOf(h, model, options)),
+			transcript(h, transcriptHostOf(h, model, options), model.messages, () =>
+				emptyStateOf(h, model, options),
+			),
 			...(model.readOnly !== null
 				? []
 				: [
 						h.div(
-							[h.Class("mx-auto w-full max-w-3xl shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]")],
 							[
-								...(model.historyReady && model.messages.length === 0 && options.suggestions !== undefined
+								h.Class(
+									"mx-auto w-full max-w-3xl shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]",
+								),
+							],
+							[
+								...(model.historyReady &&
+								model.messages.length === 0 &&
+								options.suggestions !== undefined
 									? [suggestionPills(h, options.suggestions)]
 									: []),
 								...notices(h, model, options),

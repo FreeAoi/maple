@@ -24,6 +24,7 @@ import {
 	runPlanetScale,
 } from "@maple/backend/services/integrations/planetscale/api"
 import { makeOAuthConnectionHelpers, OAUTH_STATE_TTL_MS, toUpstreamError } from "./oauth/connection-helpers"
+import type { OAuthFlowInitiator } from "./oauth/oauth-state"
 
 const PLANETSCALE_PROVIDER = "planetscale"
 
@@ -144,6 +145,7 @@ export interface PlanetScaleOAuthServiceApi {
 	readonly completeConnect: (
 		code: string,
 		state: string,
+		initiator: OAuthFlowInitiator,
 	) => Effect.Effect<
 		{
 			readonly orgId: OrgId
@@ -185,12 +187,15 @@ export interface PlanetScaleOAuthServiceApi {
 	readonly connectedByUserId: (orgId: OrgId) => Effect.Effect<string | null, IntegrationsPersistenceError>
 	/**
 	 * Grant lifecycle timestamps (epoch ms), so the UI can name a revoked grant
-	 * directly instead of inferring it from whichever downstream call failed.
+	 * directly instead of inferring it from whichever downstream call failed, and
+	 * the scopes PlanetScale granted (unprefixed, e.g. `write_databases`).
 	 */
-	readonly grantStatus: (
-		orgId: OrgId,
-	) => Effect.Effect<
-		{ readonly revokedAt: number | null; readonly expiresAt: number | null },
+	readonly grantStatus: (orgId: OrgId) => Effect.Effect<
+		{
+			readonly revokedAt: number | null
+			readonly expiresAt: number | null
+			readonly scopes: ReadonlyArray<string>
+		},
 		IntegrationsPersistenceError
 	>
 	/** Drop the stored grant. PlanetScale documents no revoke endpoint. */
@@ -202,7 +207,7 @@ export interface PlanetScaleOAuthServiceApi {
 export class PlanetScaleOAuthService extends Context.Service<
 	PlanetScaleOAuthService,
 	PlanetScaleOAuthServiceApi
->()("@maple/api/services/PlanetScaleOAuthService", {
+>()("@maple/backend/services/PlanetScaleOAuthService", {
 	make: Effect.gen(function* () {
 		const database = yield* Database
 		const env = yield* Env
@@ -361,10 +366,10 @@ export class PlanetScaleOAuthService extends Context.Service<
 		const completeConnect = Effect.fn("PlanetScaleOAuthService.completeConnect")(function* (
 			code: string,
 			state: string,
+			initiator: OAuthFlowInitiator,
 		) {
 			const config = yield* resolveConfig(env)
-			const stateRow = yield* oauth.requireStateRow(state)
-			yield* oauth.deleteAuthState(state)
+			const stateRow = yield* oauth.consumeStateRow(state, initiator)
 
 			const tokenResponse = yield* oauth.exchangeAuthorizationCode(config, code, stateRow.redirectUri)
 
@@ -539,6 +544,7 @@ export class PlanetScaleOAuthService extends Context.Service<
 			return {
 				revokedAt: row?.revokedAt ?? null,
 				expiresAt: row?.expiresAt ?? null,
+				scopes: (row?.scope ?? "").split(" ").filter((scope) => scope !== ""),
 			}
 		})
 

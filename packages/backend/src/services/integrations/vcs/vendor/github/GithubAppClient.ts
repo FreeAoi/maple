@@ -184,12 +184,18 @@ const GithubOAuthTokenResponse = Schema.Struct({
 	error_description: Schema.optionalKey(Schema.String),
 })
 
-// `GET /user/installations` — the installations this user can manage. We use it to
-// confirm they actually own the one they're connecting.
+// `GET /user/installations`: the installations this user can access (not necessarily administer).
 const GithubUserInstallationsResponse = Schema.Struct({
 	total_count: Schema.Number,
 	installations: Schema.Array(Schema.Struct({ id: Schema.Number })),
 })
+
+// `GET /user` and `GET /user/memberships/orgs/{org}`: who the user is and their role in an org.
+const GithubAuthenticatedUser = Schema.Struct({ id: Schema.Number, login: Schema.String })
+const GithubOrgMembership = Schema.Struct({ state: Schema.String, role: Schema.String })
+
+/** Whether a user token's owner administers an installation's account. */
+export type GithubAccountAdminCheck = "admin" | "not-admin" | "unverifiable"
 
 const GithubApiRepoSchema = Schema.Struct({
 	id: Schema.Number,
@@ -507,8 +513,11 @@ const GithubContentFileSchema = Schema.Struct({
 })
 type GithubContentFile = Schema.Schema.Type<typeof GithubContentFileSchema>
 
+const decodeRepositorySize = Schema.decodeUnknownEffect(Schema.Struct({ size: Schema.Number }))
 const decodeOAuthToken = Schema.decodeUnknownEffect(GithubOAuthTokenResponse)
 const decodeUserInstallations = Schema.decodeUnknownEffect(GithubUserInstallationsResponse)
+const decodeAuthenticatedUser = Schema.decodeUnknownEffect(GithubAuthenticatedUser)
+const decodeOrgMembership = Schema.decodeUnknownEffect(GithubOrgMembership)
 const decodeInstallationToken = Schema.decodeUnknownEffect(GithubInstallationTokenResponse)
 const decodeInstallationDetail = Schema.decodeUnknownEffect(GithubInstallationDetailSchema)
 const decodeInstallationRepos = Schema.decodeUnknownEffect(GithubInstallationReposResponse)
@@ -607,7 +616,7 @@ interface ResolvedAppConfig {
 }
 
 export class GithubAppClient extends Context.Service<GithubAppClient>()(
-	"@maple/api/services/vcs/vendor/github/GithubAppClient",
+	"@maple/backend/services/vcs/vendor/github/GithubAppClient",
 	{
 		make: Effect.gen(function* () {
 			const env = yield* Env
@@ -1074,6 +1083,25 @@ export class GithubAppClient extends Context.Service<GithubAppClient>()(
 				)
 			})
 
+			/** The repository's size as GitHub reports it (`size`, in KiB): the packed history, before any clone. */
+			const getRepositorySizeKib = Effect.fn("GithubAppClient.getRepositorySizeKib")(function* (
+				externalInstallationId: string,
+				owner: string,
+				repo: string,
+			) {
+				const config = yield* resolveConfig
+				const token = yield* mintInstallationToken(externalInstallationId)
+				const response = yield* authedGet(config, token, repoBase(config, owner, repo))
+				if (!isOk(response)) return yield* failure(response, "Get repository", "repository")
+				const json = yield* parseJson(response, "Get repository")
+				return yield* decodeRepositorySize(json).pipe(
+					Effect.map((body) => body.size),
+					Effect.mapError(
+						(cause) => new GithubAppError({ message: "Unexpected repository payload", cause }),
+					),
+				)
+			})
+
 			/**
 			 * A clone credential for one repository: the plain remote, plus a token
 			 * minted for that repository alone.
@@ -1141,11 +1169,12 @@ export class GithubAppClient extends Context.Service<GithubAppClient>()(
 				owner: string,
 				repo: string,
 				limit: number,
+				head?: string,
 			) {
 				const config = yield* resolveConfig
 				const token = yield* mintInstallationToken(externalInstallationId)
 				const params = new URLSearchParams({
-					state: "all",
+					...(head === undefined ? { state: "all" } : { state: "open", head }),
 					sort: "updated",
 					direction: "desc",
 					per_page: String(Math.min(limit, PER_PAGE)),
@@ -2166,12 +2195,60 @@ export class GithubAppClient extends Context.Service<GithubAppClient>()(
 				return new Set(items.map((installation) => String(installation.id)))
 			})
 
+			// Org accounts need an active `admin` membership (a 403 means the App lacks Members: read,
+			// so it is "unverifiable"); a user account must be the authenticated user.
+			const checkAccountAdmin = Effect.fn("GithubAppClient.checkAccountAdmin")(function* (
+				userAccessToken: string,
+				account: { readonly type: string; readonly id: number; readonly login: string },
+			) {
+				const config = yield* resolveConfig
+				if (account.type !== "Organization") {
+					const response = yield* authedGet(config, userAccessToken, `${config.apiBaseUrl}/user`)
+					if (!isOk(response)) return yield* failure(response, "Get authenticated user")
+					const json = yield* parseJson(response, "Get authenticated user")
+					const user = yield* decodeAuthenticatedUser(json).pipe(
+						Effect.mapError(
+							(cause) =>
+								new GithubAppError({
+									message: "Unexpected authenticated user payload",
+									cause,
+								}),
+						),
+					)
+					const verdict: GithubAccountAdminCheck = user.id === account.id ? "admin" : "not-admin"
+					return verdict
+				}
+				const response = yield* authedGet(
+					config,
+					userAccessToken,
+					`${config.apiBaseUrl}/user/memberships/orgs/${encodeURIComponent(account.login)}`,
+				)
+				if (response.status === 404) return "not-admin" satisfies GithubAccountAdminCheck
+				if (response.status === 403) return "unverifiable" satisfies GithubAccountAdminCheck
+				if (!isOk(response)) return yield* failure(response, "Get organization membership")
+				const json = yield* parseJson(response, "Get organization membership")
+				const membership = yield* decodeOrgMembership(json).pipe(
+					Effect.mapError(
+						(cause) =>
+							new GithubAppError({
+								message: "Unexpected organization membership payload",
+								cause,
+							}),
+					),
+				)
+				const verdict: GithubAccountAdminCheck =
+					membership.state === "active" && membership.role === "admin" ? "admin" : "not-admin"
+				return verdict
+			})
+
 			return {
 				mintInstallationToken,
+				checkAccountAdmin,
 				listInstallationRepositories,
 				listBranches,
 				listCommits,
 				getCommit,
+				getRepositorySizeKib,
 				listPullRequests,
 				getPullRequest,
 				listPullRequestFiles,

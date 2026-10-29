@@ -8,6 +8,7 @@ import {
 	CustomerPortalResult,
 	DailySpendResponse,
 } from "@maple/domain/http"
+import { V2IngestRuleStats } from "@maple/domain/http/v2"
 import { Schema } from "effect"
 import { AsyncData } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
@@ -20,20 +21,27 @@ import * as Details from "./details/model"
 // The Billing tab: this cycle's spend, usage and caps, the plan, invoices and billing details. The customer
 // is the settings page's (one `billingCustomerAtom`).
 
-export const SpendFeatureId = Schema.Literals(["logs", "traces", "metrics", "browser_sessions", "product_events"])
+export const SpendFeatureId = Schema.Literals([
+	"logs",
+	"traces",
+	"metrics",
+	"browser_sessions",
+	"product_events",
+])
 export type SpendFeatureId = typeof SpendFeatureId.Type
 
 /** The open cap editor's input (`autoFocus`). */
 export const CAP_INPUT_ID = "billing-cap-input"
 
 /** A profile read that failed: a deployment without Stripe reads differently from an outage. */
-export const ProfileFailure = Schema.Struct({ isNotConfigured: Schema.Boolean })
+export const ProfileFailure = Schema.Struct({ isNotConfigured: Schema.Boolean, failure: LoadFailure })
 
 export const PlansData = AsyncData.Schema(Schema.Array(CatalogPlan), LoadFailure)
 export const UsageData = AsyncData.Schema(BillingUsage, LoadFailure)
 export const DailyData = AsyncData.Schema(DailySpendResponse, LoadFailure)
 export const InvoicesData = AsyncData.Schema(Schema.Array(BillingInvoice), LoadFailure)
 export const ProfileData = AsyncData.Schema(BillingProfile, ProfileFailure)
+export const RuleStatsData = AsyncData.Schema(V2IngestRuleStats, LoadFailure)
 
 /** `useCheckoutReturn`: back from Stripe (`?checkout=complete`), waiting on the Autumn sync. */
 export const CheckoutReturn = Schema.Literals(["Idle", "Confirming", "TimedOut"])
@@ -47,6 +55,8 @@ export const Model = Schema.Struct({
 	daily: DailyData.schema,
 	invoices: InvoicesData.schema,
 	profile: ProfileData.schema,
+	/** What ingest rules dropped this cycle; read once the cycle is known. */
+	ruleStats: RuleStatsData.schema,
 	/** The usage row whose cap editor is open, and what is typed in it. */
 	editingCap: Schema.NullOr(SpendFeatureId),
 	capDraft: Schema.String,
@@ -70,8 +80,11 @@ export const Message = defineMessageUnion({
 	CompletedFetchDaily: result(DailySpendResponse),
 	CompletedFetchInvoices: result(Schema.Array(BillingInvoice)),
 	CompletedFetchProfile: { result: Schema.Result(BillingProfile, ProfileFailure) },
+	CompletedFetchRuleStats: result(V2IngestRuleStats),
 	ClickedRetryCustomer: {},
 	ClickedRetryDaily: {},
+	ClickedRetryInvoices: {},
+	ClickedRetryProfile: {},
 	ClickedManageBilling: {},
 	CompletedOpenPortal: result(CustomerPortalResult),
 	CompletedRedirect: {},

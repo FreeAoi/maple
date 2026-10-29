@@ -167,7 +167,7 @@ const listBody = (h: H, model: Model, timeZone: string): Html =>
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,
-				title: "Failed to load session replays",
+				title: "Couldn't load session replays",
 				onRetry: Message.ClickedRetryList(),
 			}),
 		onData: () => {
@@ -236,13 +236,14 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	return dashboardPage(
 		h,
 		{
+			title: "Replays",
 			filters: filtersRail(h, model),
 			actions: h.div([h.Class("flex flex-wrap items-center gap-2")], [headerActions(h, model), timeCluster]),
 			sticky: replaysToolbar(h, {
 				query: model.query,
 				onInput: (value) => Message.ChangedQuery({ value }),
 				onClear: Message.ClickedClearQuery(),
-				errorSessions: facetsOf(model)?.errorCount ?? 0,
+				errorSessions: facetsOf(model)?.errorCount,
 				isErrorsOnly: search.hasErrors === true,
 				onToggleErrorsOnly: Message.ToggledErrorsOnly(),
 				engagedSessions: engagedCount(model),

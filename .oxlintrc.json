@@ -235,7 +235,8 @@
 							"match",
 							"doesNotMatch",
 							"fail",
-							"expectTypeOf"
+							"expectTypeOf",
+							"Lazy.expectAllReused"
 						]
 					}
 				],
@@ -284,7 +285,7 @@
 				"apps/api/src/runtime/service-graph.ts",
 				"packages/backend/src/services/integrations/vcs/VcsProviderRegistry.ts",
 				"apps/api/src/routes/internal/integrations.http.ts",
-				"apps/api/src/routes/integrations-callback.http.ts",
+				"apps/api/src/routes/oauth-complete.ts",
 				"packages/backend/src/services/integrations/vcs/vendor/**",
 				"packages/backend/src/services/integrations/vcs/__tests__/**"
 			],
@@ -387,6 +388,25 @@
 					"location",
 					"localStorage",
 					"indexedDB"
+				]
+			}
+		},
+		// Code views highlight through lib/highlight, whose output falls back to plain text past the
+		// display cap; a span per token of a megabyte log body froze the log sheet.
+		{
+			"files": ["apps/web/src/**/*.ts", "apps/local-ui/src/**/*.ts"],
+			"excludeFiles": ["apps/web/src/lib/highlight.ts"],
+			"rules": {
+				"no-restricted-imports": [
+					"error",
+					{
+						"paths": [
+							{
+								"name": "@pierre/highlights",
+								"message": "Use highlightCode from lib/highlight (or cappedCode from ui/logs/log-message): they bound what a view renders."
+							}
+						]
+					}
 				]
 			}
 		},
@@ -655,10 +675,10 @@
 	// Vendored third-party source is read as a unit and re-pulled wholesale from its upstream,
 	// so house rules that would be rewrites are not applied to it.
 	"ignorePatterns": [
+		"packages/security-audit/skill/**",
 		".agents/**",
 		".codex/**",
 		".context/**",
-		".deepsec/**",
 		".factory/**",
 		".impeccable/**",
 		".superset/**",

@@ -108,7 +108,7 @@ export const tabList = (h: H, model: Model, values: ReadonlyArray<TabValue>): Ht
 					tabsListStyles,
 					tabsListVerticalStyles,
 					tabsListUnderlineStyles,
-					"sticky top-0 z-10 w-full justify-start overflow-x-auto bg-background px-4 *:data-[slot=tabs-tab]:grow-0",
+					"sticky top-0 z-10 w-full justify-start overflow-x-auto overflow-y-hidden bg-background px-4 *:data-[slot=tabs-tab]:grow-0",
 				),
 			),
 			...stateAttributes(h, model.tabs),
@@ -181,7 +181,7 @@ export const spanLogs = (h: H, model: Pick<Model, "logs">, timeZone: string): Ht
 				),
 			),
 		onFailure: (failure) =>
-			errorState(h, { failure, title: "Failed to load logs", variant: "inline", className: "px-4" }),
+			errorState(h, { failure, title: "Couldn't load logs", variant: "inline", className: "px-4" }),
 		onData: (logs) =>
 			logs.length === 0
 				? emptyMessage(h, { className: "flex flex-col items-center gap-2" }, [

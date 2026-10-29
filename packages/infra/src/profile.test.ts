@@ -23,7 +23,7 @@ describe("resolveMapleProfile", () => {
 		expect(profile("dev-alice").deploys.ingest).toBe(false)
 	})
 
-	it("runs a `preview:web` PR on its own database with nothing on AWS", () => {
+	it("runs a `preview:web` PR on its own database without the AWS services", () => {
 		const full = profile("pr-12")
 		const web = resolveMapleProfile(parseMapleDeployment("pr-12"), { webOnlyPreview: true })
 		expect(web.deploys).toEqual({ ...full.deploys, sharedApps: false, ingest: false, electric: false })

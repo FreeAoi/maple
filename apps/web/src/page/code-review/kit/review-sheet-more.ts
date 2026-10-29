@@ -116,16 +116,16 @@ export const postMergeSection = (h: H, postMerge: PrReviewPostMerge, nowMs: numb
 
 const ciSection = (h: H, children: ReadonlyArray<Html>): Html => section(h, "CI runs", children)
 
-/** `PullRequestCiRuns`: the pull request's runs over the last two weeks. */
+/** `PullRequestCiRuns`: the pull request's runs over the last 90 days. */
 export const ciRunsSection = (h: H, sheet: ReviewSheet): Html =>
 	AsyncData.matchData(sheet.ciRuns.data, {
 		onEmpty: () => ciSection(h, [skeleton(h, "h-16 w-full")]),
 		onFailure: () =>
-			ciSection(h, [h.p([h.Class("text-sm text-muted-foreground")], ["CI runs could not be loaded"])]),
+			ciSection(h, [h.p([h.Class("text-sm text-muted-foreground")], ["Couldn't load cI runs"])]),
 		onData: (response) =>
 			response.runs.length === 0
 				? ciSection(h, [
-						h.p([h.Class("text-sm text-muted-foreground")], ["No CI runs in the last two weeks"]),
+						h.p([h.Class("text-sm text-muted-foreground")], ["No CI runs in the last 90 days"]),
 					])
 				: ciSection(h, [
 						h.ul(
@@ -157,7 +157,7 @@ export const ciRunsSection = (h: H, sheet: ReviewSheet): Html =>
 											],
 											[formatDuration(run.durationMs)],
 										),
-										traceLink(h, run, "shrink-0"),
+										...traceLink(h, run, sheet.nowMs, "shrink-0"),
 									],
 								),
 							),

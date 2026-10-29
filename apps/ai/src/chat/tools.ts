@@ -32,6 +32,7 @@ import {
 	PrReviewReplySubmission,
 	PrReviewReport,
 	PrReviewSubmission,
+	type PrReviewFailureReason,
 	type PrReviewVerdict,
 	SubmitDiagnosisRequest,
 	SubmitPrReviewRequest,
@@ -50,6 +51,7 @@ import {
 	MapleToolFailure,
 	summarizeToolFailure,
 	type ToolUiPayload,
+	type UiSource,
 } from "../mcp/tools/llm-tools"
 import { toolHandlersWithContent } from "../platform/genai-spans"
 import type { TenantContext } from "@maple/backend/services/auth/tenant-context"
@@ -124,11 +126,22 @@ export interface RunUsage {
 	cacheRead: number
 	/** The same calls as AI credit charges, in Autumn's exclusive pools; see {@link recordCharge}. */
 	readonly charges: Array<Mutable<AiModelSpend>>
+	/**
+	 * The part of the totals above that the run's child agents (`review_files`) spent, as the engine
+	 * reports each one ending. Their calls are charged with the run's own.
+	 */
+	readonly delegated: { modelCalls: number; input: number; output: number; costMicrousd: number }
 }
 
 type Mutable<A> = { -readonly [K in keyof A]: A[K] }
 
-export const makeRunUsage = (): RunUsage => ({ input: 0, output: 0, cacheRead: 0, charges: [] })
+export const makeRunUsage = (): RunUsage => ({
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	charges: [],
+	delegated: { modelCalls: 0, input: 0, output: 0, costMicrousd: 0 },
+})
 
 /**
  * Below every long-context tier models.dev lists (the smallest is 32k). Autumn picks a model's
@@ -374,6 +387,8 @@ export const savedFindingsRequest = (input: {
 	readonly unreviewed: ReadonlyArray<string>
 	readonly modelName: string
 	readonly usage: RunUsage
+	/** Why the pass stopped, told to the pull request in place of a generic early end. */
+	readonly reason?: PrReviewFailureReason
 }): SubmitPrReviewRequest =>
 	new SubmitPrReviewRequest({
 		report: new PrReviewReport({
@@ -387,6 +402,7 @@ export const savedFindingsRequest = (input: {
 		inputTokens: input.usage.input,
 		outputTokens: input.usage.output,
 		partial: true,
+		...(input.reason === undefined ? undefined : { partialReason: input.reason }),
 	})
 
 /**
@@ -550,6 +566,8 @@ const withSavedFindings = (
  */
 export const buildDiagnosisCompletion = (
 	sessionId: string,
+	/** The turn's message id: a later turn's diagnosis supersedes this one's. */
+	messageId: string,
 	tenant: TenantContext,
 	origin: ChatTurnOrigin,
 	submitDiagnosis: SubmitDiagnosis,
@@ -587,6 +605,7 @@ export const buildDiagnosisCompletion = (
 								inputTokens: usage.input,
 								outputTokens: usage.output,
 								...(partial ? { partial: true } : undefined),
+								turnId: messageId,
 							}),
 						).pipe(
 							Effect.tap(() =>
@@ -633,7 +652,7 @@ export const buildChatToolkit = (
 	surface: McpToolSurface,
 	sessionAttributes?: Readonly<Record<string, string>>,
 	onAnswer?: (tool: string, answer: string) => void,
-	onUi?: (toolCallId: string, ui: ToolUiPayload) => void,
+	onUi?: (toolCallId: string, ui: ToolUiPayload, call: UiSource) => void,
 ) =>
 	buildMapleToolkit(executor, tenant, {
 		surface,

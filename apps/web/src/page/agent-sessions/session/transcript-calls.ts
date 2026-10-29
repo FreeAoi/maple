@@ -94,7 +94,17 @@ const assistantHeader = (
 			h.OnClick(Message.ClickedSpan({ spanId: isSelected ? undefined : assistant.span.spanId })),
 		],
 		[
-			...(!isContinued || assistant.failed ? [h.span([h.Class(SPEAKER)], ["Assistant"])] : []),
+			// A continued call keeps a quieter speaker label, so its clock never sits alone over the text.
+			h.span(
+				[
+					h.Class(
+						!isContinued || assistant.failed
+							? SPEAKER
+							: cn(SPEAKER, "font-medium text-muted-foreground"),
+					),
+				],
+				["Assistant"],
+			),
 			...(assistant.failed ? [failedBadge(h)] : []),
 			h.span([h.Class(CLOCK)], [clockOf(assistant.startMs, state.timeZone)]),
 			...(assistant.span.genAi.errorType === undefined
@@ -160,7 +170,7 @@ export const assistantBlock = (
 								"The reply isn't captured. This emitter recorded the request but not",
 								" ",
 								mono(h, "gen_ai.output.messages"),
-								", so the call's text is gone — it did not fail.",
+								", so the call's text is gone. It did not fail.",
 							],
 							"mt-2.5",
 						),
@@ -208,7 +218,7 @@ export const promptBlock = (
 						" but not",
 						" ",
 						mono(h, "gen_ai.output.messages"),
-						" — the call finished normally, but the text is gone.",
+						". The call finished normally, but the text is gone.",
 					]),
 				],
 			),

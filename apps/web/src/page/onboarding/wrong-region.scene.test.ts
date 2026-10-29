@@ -15,7 +15,7 @@ const organization: ClerkOrganization = {
 	homeRegion: "eu",
 	isServedHere: false,
 	isRegionOpen: false,
-	flags: { aiAutoTriage: false, releases: false },
+	flags: { aiAutoTriage: false, releases: false, securityAudit: false },
 }
 
 const inputs: Inputs = {
@@ -25,6 +25,8 @@ const inputs: Inputs = {
 	memberships: [organization],
 	maybeUser: Option.none(),
 	customer: initCustomer(),
+	timeZone: "UTC",
+	maybePendingTask: Option.none(),
 }
 
 describe("wrong-region screen", () => {

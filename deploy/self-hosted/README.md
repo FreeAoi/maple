@@ -75,7 +75,7 @@ deployment already configures its managed warehouse locally.
 
 ## Boundaries
 
-- Cloud-specific GitHub/PlanetScale queue integrations, repository sandbox execution,
+- Cloud-specific GitHub/PlanetScale queue integrations, security audit workflows, repository sandbox execution,
   chat connector bots and email delivery are not configured by this deployment.
 - AI chat, MCP tools, investigations and browser replay storage do not need those
   integrations. Model API calls require a working provider key and incur provider usage.
