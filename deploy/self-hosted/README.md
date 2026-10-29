@@ -4,7 +4,7 @@ This is an unofficial deployment adaptation of [Maple](https://github.com/MapleT
 The upstream license and copyright notices apply.
 
 This deployment runs the dashboard, API, MCP server, chat agents, alerting scheduler,
-OTLP ingestion and browser replays on one Docker host. It uses PostgreSQL, ClickHouse,
+OTLP ingestion, uptime checks and browser replays on one Docker host. It uses PostgreSQL, ClickHouse,
 SQLite chat transcripts, Electric synchronization and a persistent ingestion WAL. Cloudflare and Tinybird accounts
 are not required. Model inference uses your OpenRouter key.
 
@@ -37,6 +37,28 @@ frontend rebuild. Nginx streams chat responses and hides `/v0/*`. Maple's dashbo
 also uses `/internal/*`; those routes retain the application's authentication.
 The Rust gateway verifies actual PostgreSQL-backed ingest keys before accepting data.
 Replay payloads stay inline in ClickHouse; no R2 bucket is needed.
+
+## Uptime
+
+The `scraper` service runs HTTP, TCP and DNS checks automatically. It reuses the server
+image and `INTERNAL_SERVICE_TOKEN`; no extra secrets, public ports or Cloudflare services
+are needed. Keep one scraper replica to avoid duplicate checks. It also runs any configured
+Prometheus scrape targets.
+
+In **Alerts**, open the arrow beside **New rule**, choose **Uptime check**, configure the
+target and interval, then select **Create monitor**. Results appear in the **Uptime** tab;
+new or changed monitors are picked up within the default 60-second refresh interval.
+Checks run from your Docker host, even where the upstream dashboard says "Ashburn, US".
+The probes retain upstream's protection against private, loopback and reserved addresses.
+
+For cron jobs or private services, choose **Heartbeat** and send a request to the ping URL
+shown after creation (`https://your-host/hb/<token>`). Send to its `/fail` suffix to report
+a failure. Nginx forwards both routes to Maple without logging the heartbeat token.
+The existing alerting scheduler evaluates failures and missed heartbeats.
+
+Use `docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/compose.yaml logs scraper`
+to diagnose missing checks. The scraper's health check fails when its target lists go stale.
+Monitoring shares the Maple host, so a host outage also stops its checks and alert evaluation.
 
 ## Local verification
 

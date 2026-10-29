@@ -85,6 +85,7 @@ services:
       MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: ${MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY:?Set lookup key}
       MAPLE_SHARE_TOKEN_HMAC_KEY: ${MAPLE_SHARE_TOKEN_HMAC_KEY:?Set share key}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set service token}
+      SD_INTERNAL_TOKEN: ${INTERNAL_SERVICE_TOKEN}
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_PROVIDER: clickhouse
       CLICKHOUSE_DATABASE: maple
@@ -127,6 +128,27 @@ services:
     volumes: [ingest-wal:/var/lib/maple-ingest/wal]
     depends_on:
       maple: { condition: service_healthy }
+
+  scraper:
+    build: *build
+    command: [bun, apps/scraper/dist/scraper.js]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    environment:
+      PORT: "3475"
+      MAPLE_API_URL: http://maple:3472
+      MAPLE_INGEST_URL: http://ingest:3474
+      SD_INTERNAL_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set service token}
+    depends_on:
+      maple: { condition: service_healthy }
+      ingest: { condition: service_started }
+    healthcheck:
+      test: [CMD, bun, -e, "process.exit((await fetch('http://localhost:3475/health')).ok ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   web:
     build:
