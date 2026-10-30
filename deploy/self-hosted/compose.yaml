@@ -1,7 +1,8 @@
-x-build: &build
-  context: ../..
-  dockerfile: deploy/self-hosted/Dockerfile
-  target: server
+# Images come prebuilt from .github/workflows/self-hosted-images.yml (GHCR), so a deploy only pulls; compose.build.yaml
+# builds them locally instead.
+x-server: &server
+  image: ${MAPLE_SERVER_IMAGE:-ghcr.io/freeaoi/maple-server:latest}
+  pull_policy: always
 
 services:
   postgres:
@@ -39,7 +40,7 @@ services:
       retries: 30
 
   migrate:
-    build: *build
+    <<: *server
     environment:
       DATABASE_URL: postgres://maple:${POSTGRES_PASSWORD}@postgres:5432/maple
       MAPLE_CH_URL: http://clickhouse:8123
@@ -64,7 +65,7 @@ services:
       migrate: { condition: service_completed_successfully }
 
   maple:
-    build: *build
+    <<: *server
     restart: unless-stopped
     init: true
     stop_grace_period: 60s
@@ -111,7 +112,8 @@ services:
       start_period: 30s
 
   ingest:
-    build: ../../apps/ingest
+    image: ${MAPLE_INGEST_IMAGE:-ghcr.io/freeaoi/maple-ingest:latest}
+    pull_policy: always
     restart: unless-stopped
     stop_grace_period: 60s
     environment:
@@ -130,7 +132,7 @@ services:
       maple: { condition: service_healthy }
 
   scraper:
-    build: *build
+    <<: *server
     command: [bun, apps/scraper/dist/scraper.js]
     restart: unless-stopped
     init: true
@@ -151,10 +153,8 @@ services:
       start_period: 60s
 
   web:
-    build:
-      context: ../..
-      dockerfile: deploy/self-hosted/Dockerfile
-      target: web
+    image: ${MAPLE_WEB_IMAGE:-ghcr.io/freeaoi/maple-web:latest}
+    pull_policy: always
     restart: unless-stopped
     expose: ["80"]
     depends_on:

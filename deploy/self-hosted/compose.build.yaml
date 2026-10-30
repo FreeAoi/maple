@@ -1,0 +1,22 @@
+# Local builds instead of the published images:
+# docker compose -f compose.yaml -f compose.build.yaml up --build
+x-server-build: &server-build
+  build:
+    context: ../..
+    dockerfile: deploy/self-hosted/Dockerfile
+    target: server
+  pull_policy: build
+
+services:
+  migrate: *server-build
+  maple: *server-build
+  scraper: *server-build
+  ingest:
+    build: ../../apps/ingest
+    pull_policy: build
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: web
+    pull_policy: build

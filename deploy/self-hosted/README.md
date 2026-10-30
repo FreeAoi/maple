@@ -23,7 +23,9 @@ single-organization `self_hosted` authentication mode with a shared root passwor
 3. Under Domains, point your hostname to **service `web`, container port `80`** and
    enable HTTPS. The API, MCP and ingestion use this same origin. No database port
    needs publishing. [Dokploy's Compose domain documentation](https://docs.dokploy.com/docs/core/docker-compose/domains).
-4. Deploy. The `migrate` service applies the bundled PostgreSQL and ClickHouse migrations
+4. Deploy. The images come prebuilt from `.github/workflows/self-hosted-images.yml` (GHCR: `maple-server`,
+   `maple-web`, `maple-ingest`), so the host only pulls them; set `MAPLE_SERVER_IMAGE`, `MAPLE_WEB_IMAGE` or
+   `MAPLE_INGEST_IMAGE` to pin a commit's tag. The `migrate` service applies the bundled PostgreSQL and ClickHouse migrations
    before Maple starts. It uses the CLI from this checkout, not an unpublished npm package.
 5. Sign in with `MAPLE_ROOT_PASSWORD`. Create or retrieve your ingest keys from Maple's
    settings and configure your SDK with `https://your-host/ingest`. OTLP/HTTP endpoints
@@ -66,7 +68,7 @@ Copy `.env.example` to `.env`, fill it in and set the public origin to your loca
 Run from the repository root:
 
 ```sh
-docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/compose.yaml up --build -d
+docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/compose.yaml -f deploy/self-hosted/compose.build.yaml up --build -d
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/compose.yaml ps
 ```
 
