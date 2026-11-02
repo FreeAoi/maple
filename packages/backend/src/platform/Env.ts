@@ -29,6 +29,7 @@ export interface EnvConfig {
 	readonly CLICKHOUSE_DATABASE: string
 	readonly MAPLE_DB_URL: string
 	readonly MAPLE_AUTH_MODE: string
+	readonly MAPLE_STATUS_PAGES_DISABLED: boolean
 	readonly MAPLE_ROOT_PASSWORD: Option.Option<Redacted.Redacted<string>>
 	readonly MAPLE_DEFAULT_ORG_ID: string
 	readonly MAPLE_INGEST_KEY_ENCRYPTION_KEY: Redacted.Redacted<string>
@@ -108,11 +109,6 @@ export interface EnvConfig {
 	readonly SD_INTERNAL_TOKEN: Option.Option<Redacted.Redacted<string>>
 	readonly INTERNAL_SERVICE_TOKEN: Option.Option<Redacted.Redacted<string>>
 	readonly EMAIL_FROM: string
-	readonly HAZEL_API_BASE_URL: string
-	readonly HAZEL_OAUTH_DISCOVERY_URL: string
-	readonly HAZEL_OAUTH_CLIENT_ID: Option.Option<string>
-	readonly HAZEL_OAUTH_CLIENT_SECRET: Option.Option<Redacted.Redacted<string>>
-	readonly HAZEL_OAUTH_SCOPES: string
 	readonly LINEAR_OAUTH_CLIENT_ID: Option.Option<string>
 	readonly LINEAR_OAUTH_CLIENT_SECRET: Option.Option<Redacted.Redacted<string>>
 	/**
@@ -230,6 +226,9 @@ const envConfig = Config.all({
 	CLICKHOUSE_DATABASE: stringWithDefault("CLICKHOUSE_DATABASE", "default"),
 	MAPLE_DB_URL: stringWithDefault("MAPLE_DB_URL", ""),
 	MAPLE_AUTH_MODE: stringWithDefault("MAPLE_AUTH_MODE", "self_hosted"),
+	MAPLE_STATUS_PAGES_DISABLED: stringWithDefault("MAPLE_STATUS_PAGES_DISABLED", "0").pipe(
+		Config.map((value) => value === "1"),
+	),
 	MAPLE_ROOT_PASSWORD: optionalRedacted("MAPLE_ROOT_PASSWORD"),
 	MAPLE_DEFAULT_ORG_ID: stringWithDefault("MAPLE_DEFAULT_ORG_ID", "default"),
 	MAPLE_INGEST_KEY_ENCRYPTION_KEY: Config.Redacted("MAPLE_INGEST_KEY_ENCRYPTION_KEY"),
@@ -267,17 +266,6 @@ const envConfig = Config.all({
 	SD_INTERNAL_TOKEN: optionalRedacted("SD_INTERNAL_TOKEN"),
 	INTERNAL_SERVICE_TOKEN: optionalRedacted("INTERNAL_SERVICE_TOKEN"),
 	EMAIL_FROM: stringWithDefault("EMAIL_FROM", "Maple <notifications@noreply.maple.dev>"),
-	HAZEL_API_BASE_URL: stringWithDefault("HAZEL_API_BASE_URL", "https://api.hazel.sh"),
-	HAZEL_OAUTH_DISCOVERY_URL: stringWithDefault(
-		"HAZEL_OAUTH_DISCOVERY_URL",
-		"https://clerk.hazel.sh/.well-known/openid-configuration",
-	),
-	HAZEL_OAUTH_CLIENT_ID: optionalString("HAZEL_OAUTH_CLIENT_ID"),
-	HAZEL_OAUTH_CLIENT_SECRET: optionalRedacted("HAZEL_OAUTH_CLIENT_SECRET"),
-	HAZEL_OAUTH_SCOPES: stringWithDefault(
-		"HAZEL_OAUTH_SCOPES",
-		"openid email profile organizations:read channels:read channel-webhooks:write",
-	),
 	LINEAR_OAUTH_CLIENT_ID: optionalString("LINEAR_OAUTH_CLIENT_ID"),
 	LINEAR_OAUTH_CLIENT_SECRET: optionalRedacted("LINEAR_OAUTH_CLIENT_SECRET"),
 	CHAT_CONNECTOR_CONFIG: chatConnectorConfig,

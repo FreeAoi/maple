@@ -3,7 +3,7 @@ import { encodePublicId, PublicIdPrefixes, V2Recommendation } from "@maple/domai
 import { Result, Schema } from "effect"
 import { click, Command, expect as expectView, given, role, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { type PageContext, PageOutMessage } from "../contract"
 import { DismissRecommendation, FetchRecommendations } from "./command"
 import { Message } from "./message"
@@ -109,7 +109,7 @@ describe("recommendation detail", () => {
 		const failed = pageUpdate(started.model, Message.CompletedApply({ result: Result.fail(toLoadFailure(new Error("no"))) }))
 		expect(failed.model.busy).toBeNull()
 		expect(failed.outMessage).toEqual(
-			PageOutMessage.RequestedToast({ type: "error", title: "Failed to create mapping", description: toLoadFailure(new Error("no")).message }),
+			PageOutMessage.RequestedToast({ type: "error", title: "Couldn't create mapping", description: toLoadFailure(new Error("no")).message }),
 		)
 		scene({ update: pageUpdate, view }, given(failed.model), expectView(role("button", { name: "Apply mapping" })).toBeEnabled())
 	})

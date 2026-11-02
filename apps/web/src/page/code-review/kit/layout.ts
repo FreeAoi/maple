@@ -1,13 +1,14 @@
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import type { IconName } from "../../../ui/icon"
+import type { IconName } from "@maple/views/ui/icon"
 import { dashboardPage } from "../../kit/dashboard-page"
 import { linkTabStrip } from "../../kit/underline-tabs"
 import type { WindowSearch } from "./frame"
+import { hstackClass } from "@maple/views/ui/stack"
 
 // `CodeReviewLayout`, `CodeReviewTabs` and `NothingInWindow`.
 
-export type CodeReviewTab = "analytics" | "pull-requests" | "ci" | "issues" | "settings"
+export type CodeReviewTab = "analytics" | "pull-requests" | "ci" | "team" | "issues" | "settings"
 
 export type CarriedSearch = WindowSearch & Readonly<{ repo?: string; author?: string }>
 
@@ -20,6 +21,7 @@ const TABS: ReadonlyArray<{ tab: CodeReviewTab; path: string; label: string; ico
 		icon: "PullRequestIcon",
 	},
 	{ tab: "ci", path: "/code-review/ci", label: "CI", icon: "PlayRotateClockwiseIcon" },
+	{ tab: "team", path: "/code-review/team", label: "Team", icon: "UsersIcon" },
 	{ tab: "issues", path: "/code-review/issues", label: "Issues", icon: "CircleWarningIcon" },
 	{ tab: "settings", path: "/code-review/settings", label: "Settings", icon: "GearIcon" },
 ]
@@ -27,7 +29,7 @@ const TABS: ReadonlyArray<{ tab: CodeReviewTab; path: string; label: string; ico
 export const tabLabel = (tab: CodeReviewTab): string => TABS.find((entry) => entry.tab === tab)?.label ?? ""
 
 export const breadcrumbsOf = (tab: CodeReviewTab) => [
-	{ label: "Code Review", href: "/code-review" },
+	{ label: "Code review", href: "/code-review" },
 	{ label: tabLabel(tab) },
 ]
 
@@ -47,6 +49,8 @@ const hrefFor = (tab: CodeReviewTab, search: Readonly<Record<string, string | un
 			return hrefOf(AppRoute.CodeReviewPullRequests({ search }))
 		case "ci":
 			return hrefOf(AppRoute.CodeReviewCi({ search }))
+		case "team":
+			return hrefOf(AppRoute.CodeReviewTeam({ search }))
 		case "issues":
 			return hrefOf(AppRoute.CodeReviewIssues({ search }))
 		case "settings":
@@ -97,15 +101,16 @@ export const codeReviewLayout = <M>(options: LayoutOptions<M>, children: Readonl
 	const page = dashboardPage(
 		options.h,
 		{
-			title: "Code Review",
+			title: "Code review",
 			actions: options.toolbar,
 			tabs: tabs(options),
-			scrollClassName: "gap-6 pb-8",
+			gap: "lg",
+			scrollClassName: "pb-8",
 		},
 		options.filters === undefined || options.filters.length === 0
 			? children
 			: [
-					options.h.div([options.h.Class("flex flex-wrap items-center gap-2")], options.filters),
+					options.h.div([options.h.Class(hstackClass({ gap: "2", wrap: true }))], options.filters),
 					...children,
 				],
 	)

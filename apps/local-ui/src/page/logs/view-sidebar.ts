@@ -1,11 +1,12 @@
 import { getServiceColor } from "@maple/ui/lib/colors"
 import { SEVERITY_COLORS } from "@maple/ui/lib/severity"
-import { filterSection } from "@maple/web/ui/filters/filter-section"
-import { filterSidebarBody, filterSidebarFrame, filterSidebarHeader } from "@maple/web/ui/filters/filter-sidebar"
+import { filterSection } from "@maple/views/ui/filters/filter-section"
+import { filterSidebarBody, filterSidebarFrame, filterSidebarHeader } from "@maple/views/ui/filters/filter-sidebar"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { Slot } from "../../data/slot"
+import { type Keyed } from "@maple/views/data/keyed"
+import { LoadFailure } from "@maple/views/data/load-failure"
 import { activeFilterCount, type LogFilters } from "./filters"
 import { Message } from "./message"
 import type { FacetOption, Model } from "./model"
@@ -13,10 +14,10 @@ import { toSections } from "./update"
 
 // The Logs page's filter rail.
 
-const optionsOf = (slot: Slot<ReadonlyArray<FacetOption>>) =>
+const optionsOf = (slot: Keyed<ReadonlyArray<FacetOption>, LoadFailure>) =>
 	Option.getOrElse(AsyncData.getData(slot.data), (): ReadonlyArray<FacetOption> => [])
 
-const isFetching = (slot: Slot<unknown>) => AsyncData.isLoading(slot.data) || AsyncData.isRefreshing(slot.data)
+const isFetching = (slot: Keyed<unknown, LoadFailure>) => AsyncData.isLoading(slot.data) || AsyncData.isRefreshing(slot.data)
 
 const severityColor = (name: string): string | undefined =>
 	Object.hasOwn(SEVERITY_COLORS, name) ? SEVERITY_COLORS[name] : undefined

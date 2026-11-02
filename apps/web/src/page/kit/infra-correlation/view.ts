@@ -1,13 +1,13 @@
 import { getActiveInfraCorrelations, type InfraCorrelation } from "../../../components/infra/infra-correlations"
 import { Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { INFRA_CHART_TOKENS } from "../../../charts/infra-metric-series"
-import { LINKED_CURSOR_STYLE } from "../../../charts/linked-cursor"
-import { ResolveThemeColors } from "../../../charts/theme-colors"
+import { INFRA_CHART_TOKENS } from "@maple/views/charts/infra-metric-series"
+import { LINKED_CURSOR_STYLE } from "@maple/views/charts/linked-cursor"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
 import { AppRoute, hrefOf } from "../../../route"
-import { emptyMessage } from "../../../ui/empty"
-import { icon } from "../../../ui/icon"
-import { truncatedText } from "../../../ui/truncated-text"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { icon } from "@maple/views/ui/icon"
+import { truncatedText } from "@maple/views/ui/truncated-text"
 import { docsLink } from "../signal-empty-state"
 import { type Message, type Model } from "./model"
 import { correlationCharts } from "./view-charts"
@@ -24,7 +24,7 @@ export type ViewInputs = Readonly<{
 }>
 
 const LINK_CLASS =
-	"inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-2xs text-muted-foreground transition-colors hover:text-foreground"
+	"inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-2xs text-muted-foreground hover:text-foreground active:text-foreground"
 
 /** `CorrelationLink`: the matching infra detail route, per kind. */
 const correlationHref = (correlation: InfraCorrelation): string => {
@@ -63,7 +63,7 @@ const section = (h: H, model: Model, correlation: InfraCorrelation, timeZone: st
 							h.span([h.Class("text-xs font-medium text-foreground")], [correlation.title]),
 							h.a(
 								[h.Href(correlationHref(correlation)), h.Class(LINK_CLASS)],
-								["View in Infrastructure", icon(h, "ExternalLinkIcon", { size: 11 })],
+								["View in Infrastructure", icon(h, "ExternalLinkIcon", { size: 12 })],
 							),
 						],
 					),

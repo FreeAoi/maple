@@ -3,15 +3,17 @@ import { REPLAY_BLOCK_CLASS } from "../../../components/common/replay-privacy"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as CopyButton from "../../../ui/copy-button"
-import { maskKey } from "../../../ui/copyable-field"
-import { errorState } from "../../../ui/error-state"
-import { eyebrow } from "../../../ui/eyebrow"
-import { icon } from "../../../ui/icon"
-import { iconButton } from "../../../ui/icon-button"
-import { skeleton } from "../../../ui/skeleton"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import { maskKey } from "@maple/views/ui/copyable-field"
+import { errorState } from "@maple/views/ui/error-state"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { pressable } from "@maple/views/ui/pressable"
+import { skeleton } from "@maple/views/ui/skeleton"
 import { Message } from "./message"
 import type { IngestKeyKind, Model } from "./model"
+import { hstack } from "@maple/views/ui/stack"
 
 // `CredentialRow`.
 
@@ -50,20 +52,18 @@ export const credentialRow = (h: H, options: CredentialRowOptions): Html => {
 		: [
 				value === null
 					? skeleton(h, "h-4 w-40 max-w-full")
-					: h.button(
-							[
-								h.Type("button"),
-								...copyAttributes,
-								...(isDisabled ? [h.Disabled(true)] : []),
-								h.AriaLabel(`Copy ${label}`),
+					: pressable(
+							h,
+							{
+								onClick: options.onCopy(value),
+								isDisabled,
+								label: `Copy ${label}`,
 								// A revealed key is plain text, which the dashboard's own rrweb recording would capture.
-								h.Class(
-									cn(
-										isMasked && REPLAY_BLOCK_CLASS,
-										"group/value text-muted-foreground hover:text-foreground flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 text-left font-mono text-xs tracking-wide transition-colors",
-									),
+								className: cn(
+									isMasked && REPLAY_BLOCK_CLASS,
+									"group/value text-muted-foreground hover:text-foreground active:text-foreground flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 text-left font-mono text-xs tracking-wide",
 								),
-							],
+							},
 							[
 								h.span(
 									[h.Class(isHidden ? "truncate" : "min-w-0 break-all")],
@@ -83,7 +83,7 @@ export const credentialRow = (h: H, options: CredentialRowOptions): Html => {
 	return h.div(
 		[h.Class("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:flex-nowrap")],
 		[
-			h.span([h.Class("w-full shrink-0 text-sm sm:w-[120px]")], [label]),
+			h.span([h.Class("w-full shrink-0 text-sm sm:w-32")], [label]),
 			eyebrow(
 				h,
 				{ variant: "mono", className: cn("hidden w-14 shrink-0 sm:block", options.badgeClass) },
@@ -96,15 +96,14 @@ export const credentialRow = (h: H, options: CredentialRowOptions): Html => {
 					...(options.description
 						? [
 								h.span(
-									[h.Class("font-prose text-muted-foreground/70 text-2xs leading-3.5")],
+									[h.Class("font-prose text-foreground-subtle text-2xs leading-3.5")],
 									[options.description],
 								),
 							]
 						: []),
 				],
 			),
-			h.div(
-				[h.Class("flex shrink-0 items-center gap-1.5")],
+			hstack(h, { gap: "1.5", className: "shrink-0" },
 				// Nothing to copy, reveal or rotate while the key is unknown.
 				isUnknown
 					? []
@@ -203,12 +202,12 @@ export const ingestKeyRows = (h: H, model: Model): ReadonlyArray<Html> => {
 			}),
 		]
 	return [
-		row("public", "Public key", "Client", "text-info", "For browser and client-side telemetry SDKs"),
+		row("public", "Public key", "Client", "text-severity-debug", "For browser and client-side telemetry SDKs"),
 		row(
 			"private",
 			"Private key",
 			"Server",
-			"text-warning",
+			"text-severity-warn",
 			"For server-side ingestion and backend services",
 		),
 	]

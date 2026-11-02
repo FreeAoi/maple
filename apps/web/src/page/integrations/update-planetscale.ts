@@ -1,10 +1,10 @@
 import { Option } from "effect"
 import { AsyncData, Command as FoldkitCommand } from "foldkit"
-import * as Keyed from "../../data/keyed"
-import type { LoadFailure } from "../../data/load-failure"
-import { requestKey } from "../../data/request-key"
-import * as Dialog from "../../ui/dialog"
-import * as Field from "../../ui/field"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Field from "@maple/views/ui/field"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -186,7 +186,7 @@ export const completedSelect = (
 ): Return => {
 	const settled = withCard(model, { isSelecting: false })
 	if (failure !== null)
-		return toast(settled, "error", "Failed to connect PlanetScale organization", failure.message)
+		return toast(settled, "error", "Couldn't connect PlanetScale organization", failure.message)
 	return chain(settled, [
 		(next) => toast(next, "success", `PlanetScale organization ${organization} connected`),
 		(next) => refreshAfterWrite(next, context),

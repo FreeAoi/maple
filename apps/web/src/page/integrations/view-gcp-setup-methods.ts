@@ -1,12 +1,17 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { GcpManualStep, GcpStepField } from "../../components/integrations/gcp-setup-steps"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon } from "../../ui/icon"
+import { pressable } from "@maple/views/ui/pressable"
+import { heading } from "@maple/views/ui/heading"
+import { icon } from "@maple/views/ui/icon"
+import { inlineCode } from "@maple/views/ui/inline-code"
 import type { ConfigureModel } from "./gcp-configure-schema"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { externalLink } from "./view-gcp-configure-parts"
-import { copyOf, GCP_TITLE, SMALL } from "./view-gcp-parts"
+import { copyOf, SMALL } from "./view-gcp-parts"
+import { typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 // `GcpValue` and `GcpManualSteps`.
 
@@ -23,11 +28,12 @@ export const gcpValue = (h: H, model: Model, value: GcpStepField["value"], copy 
 	return h.span(
 		[h.Class("inline-flex max-w-full items-start gap-0.5")],
 		[
-			h.span(
-				[h.Class("min-w-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs/5 break-all text-foreground")],
-				[value],
-			),
-			copyOf(h, model, `value-${value}`, value, { label: "value", iconSize: 12, className: "size-6 shrink-0" }),
+			inlineCode(h, { className: "min-w-0 break-all text-xs/5" }, [value]),
+			copyOf(h, model, `value-${value}`, value, {
+				label: "value",
+				iconSize: 12,
+				className: "size-6 shrink-0",
+			}),
 		],
 	)
 }
@@ -63,7 +69,9 @@ const manualStepBody = (h: H, model: Model, step: GcpManualStep): Html =>
 							h.Href(step.consoleUrl),
 							h.Target("_blank"),
 							h.Rel("noreferrer"),
-							h.Class("inline-flex items-center gap-1 font-medium text-foreground hover:underline"),
+							h.Class(
+								"inline-flex items-center gap-1 font-medium text-foreground hover:underline active:underline",
+							),
 						],
 						["Open in console", icon(h, "ExternalLinkIcon", { size: 12 })],
 					),
@@ -89,7 +97,11 @@ const manualStepBody = (h: H, model: Model, step: GcpManualStep): Html =>
 				? []
 				: [
 						h.ul(
-							[h.Class("flex list-disc flex-col gap-1 pl-4 text-xs/5 text-pretty text-muted-foreground")],
+							[
+								h.Class(
+									"flex list-disc flex-col gap-1 pl-4 text-xs/5 text-pretty text-muted-foreground",
+								),
+							],
 							step.notes.map((note) => h.li([h.Key(note)], [note])),
 						),
 					]),
@@ -101,32 +113,39 @@ export const manualSteps = (
 	h: H,
 	model: Model,
 	configure: ConfigureModel,
-	options: Readonly<{ heading: string; detail: string; steps: ReadonlyArray<GcpManualStep>; docsHref: string }>,
+	options: Readonly<{
+		heading: string
+		detail: string
+		steps: ReadonlyArray<GcpManualStep>
+		docsHref: string
+	}>,
 ): Html => {
 	const firstTitle = options.steps[0]?.title ?? null
 	const open = configure.isManualTouched ? configure.manualOpen : firstTitle
-	return h.section(
-		[h.Class("flex flex-col gap-3")],
+	return vstack(h, { gap: "3", as: "section" },
 		[
-			h.div(
-				[h.Class("flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1")],
+			hstack(h, { align: "baseline", justify: "between", wrap: true, className: "gap-x-4 gap-y-1" },
 				[
-					h.div(
-						[h.Class("flex flex-col gap-0.5")],
-						[h.h3([h.Class(GCP_TITLE)], [options.heading]), h.p([h.Class(SMALL)], [options.detail])],
+					vstack(h, { gap: "0.5" },
+						[
+							heading(h, { level: 3, variant: "subsection" }, [options.heading]),
+							h.p([h.Class(SMALL)], [options.detail]),
+						],
 					),
-					h.span([h.Class("text-xs/5")], [externalLink(h, options.docsHref, "Full guide in the docs")]),
+					h.span(
+						[h.Class("text-xs/5")],
+						[externalLink(h, options.docsHref, "Full guide in the docs")],
+					),
 				],
 			),
 			h.ol(
-				[h.Class("divide-y divide-border/60 rounded-lg border")],
+				[h.Class("divide-y divide-border-subtle rounded-md border")],
 				options.steps.map((step, index) => {
 					const expanded = open === step.title
 					return h.li(
 						[h.Key(step.title)],
 						[
-							h.div(
-								[h.Class("flex items-center gap-3 px-4 py-3")],
+							hstack(h, { gap: "3", className: "px-4 py-3" },
 								[
 									h.span(
 										[
@@ -137,15 +156,14 @@ export const manualSteps = (
 										],
 										[String(index + 1)],
 									),
-									h.button(
-										[
-											h.Type("button"),
-											h.AriaExpanded(expanded),
-											h.OnClick(Message.ClickedGcpManualStep({ title: step.title, firstTitle })),
-											h.Class(
-												"flex min-w-0 flex-1 items-center gap-3 text-left text-sm font-medium outline-none focus-visible:underline",
-											),
-										],
+									pressable(
+										h,
+										{
+											onClick: Message.ClickedGcpManualStep({ title: step.title, firstTitle }),
+											className:
+												"flex min-w-0 flex-1 items-center gap-3 text-left text-sm font-medium outline-none focus-visible:underline focus-visible:ring-0",
+											attributes: [h.AriaExpanded(expanded)],
+										},
 										[
 											h.span([h.Class("min-w-0 flex-1")], [step.title]),
 											...(expanded
@@ -162,7 +180,10 @@ export const manualSteps = (
 													]),
 											icon(h, "ChevronDownIcon", {
 												size: 14,
-												className: cn("shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180"),
+												className: cn(
+													typographyClass({ tone: "muted", className: "shrink-0 transition-transform" }),
+													expanded && "rotate-180",
+												),
 											}),
 										],
 									),

@@ -1,16 +1,20 @@
 import type { AlertQueryTiming, AlertSeverity } from "@maple/domain/http"
 import { alertIntervalsFitting } from "@maple/query-engine/datetime"
-import { comparatorSupportsTiers, isRangeComparator, thresholdUnitLabel } from "@maple/web-data/alerts/form-utils"
+import {
+	comparatorSupportsTiers,
+	isRangeComparator,
+	thresholdUnitLabel,
+} from "@maple/web-data/alerts/form-utils"
 import { cn } from "@maple/ui/lib/utils"
 import { createLazy, type Html, type HtmlBuilder } from "foldkit/html"
-import { button } from "../../../ui/button"
-import { card } from "../../../ui/card"
-import { eyebrow } from "../../../ui/eyebrow"
-import { field, fieldLabel } from "../../../ui/field"
-import { icon } from "../../../ui/icon"
-import * as RadioGroup from "../../../ui/radio-group"
-import { statusDot } from "../../../ui/status-dot"
-import type * as Select from "../../../ui/select"
+import { button } from "@maple/views/ui/button"
+import { card } from "@maple/views/ui/card"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { field, fieldLabel } from "@maple/views/ui/field"
+import { icon } from "@maple/views/ui/icon"
+import * as RadioGroup from "@maple/views/ui/radio-group"
+import { statusDot } from "@maple/views/ui/status-dot"
+import type * as Select from "@maple/views/ui/select"
 import { stableSlice } from "../../kit/stable-slice"
 import { COMPARATOR_WORDS, comparatorWords, recoveryLabel } from "./derive"
 import { draftTimingOf } from "./derive-rows"
@@ -26,6 +30,8 @@ import { Message, type TextField } from "./message"
 import type { Model } from "./model"
 import { fieldStateOf, idsOf, numberField, wasNote } from "./view-fields"
 import { formSelect } from "./view-select"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // `RuleConditionFields`: the rule's condition row.
 
@@ -44,17 +50,22 @@ type ConditionView = Pick<Model, "mountedForm" | "savedForm"> &
 /** `COMPARATOR_ITEMS`, in `comparatorLabels` order. */
 const COMPARATOR_ITEMS = [...COMPARATOR_WORDS].map(([value, label]) => ({ value, label }))
 
-const SEVERITY_OPTIONS: ReadonlyArray<{ value: AlertSeverity; label: string; selected: string; dot: string }> = [
+const SEVERITY_OPTIONS: ReadonlyArray<{
+	value: AlertSeverity
+	label: string
+	selected: string
+	dot: string
+}> = [
 	{
 		value: "warning",
 		label: "Warning",
-		selected: "border-severity-warn/60 bg-severity-warn/10 text-severity-warn",
+		selected: "border-severity-warn/60 bg-severity-warn-a2 text-severity-warn",
 		dot: "bg-severity-warn",
 	},
 	{
 		value: "critical",
 		label: "Critical",
-		selected: "border-severity-error/60 bg-severity-error/10 text-severity-error",
+		selected: "border-severity-error-a4 bg-severity-error-a2 text-severity-error",
 		dot: "bg-severity-error",
 	},
 ]
@@ -78,7 +89,7 @@ const severityPicker = (h: H, value: AlertSeverity): Html => {
 		h.div(
 			[
 				h.AriaLabelledBy("rule-severity-label"),
-				h.Class("grid grid-cols-2 gap-1 rounded-md bg-muted/30 p-0.5"),
+				h.Class("grid grid-cols-2 gap-1 rounded-md bg-surface-sunken p-0.5"),
 				h.DataAttribute("filled", ""),
 				h.Role("radiogroup"),
 			],
@@ -91,11 +102,16 @@ const severityPicker = (h: H, value: AlertSeverity): Html => {
 					cn(
 						"inline-flex h-8 cursor-pointer select-none items-center justify-center gap-1.5 rounded-sm border border-transparent px-2.5 text-xs font-medium",
 						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-						isSelected ? option.selected : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+						isSelected
+							? option.selected
+							: "text-muted-foreground hover:bg-surface-sunken active:bg-surface-sunken hover:text-foreground active:text-foreground",
 					),
 					{
 						children: [
-							statusDot(h, { tone: "custom", className: isSelected ? option.dot : "bg-muted-foreground/40" }),
+							statusDot(h, {
+								tone: "custom",
+								className: isSelected ? option.dot : "bg-foreground-faint",
+							}),
 							option.label,
 						],
 					},
@@ -114,7 +130,10 @@ const tierLabel = (h: H, severity: AlertSeverity): Html => {
 		h.span(
 			[
 				h.Class(
-					cn("inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium", option?.selected),
+					cn(
+						"inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+						option?.selected,
+					),
 				),
 			],
 			[statusDot(h, { tone: "custom", className: option?.dot ?? "" }), option?.label ?? ""],
@@ -180,22 +199,19 @@ const criticalRow = (
 	h.div(
 		[h.Class("grid items-start gap-4 border-t pt-3 md:grid-cols-3")],
 		[
-			h.div(
-				[h.Class("flex items-center justify-between gap-2")],
-				[
-					tierLabel(h, "critical"),
-					button(
-						h,
-						{
-							variant: "ghost",
-							size: "sm",
-							className: "mt-6 h-7 px-2 text-xs text-muted-foreground",
-							attributes: [h.OnClick(Message.ClickedRemoveCriticalTier())],
-						},
-						["Remove"],
-					),
-				],
-			),
+			hstack(h, { gap: "2", justify: "between" }, [
+				tierLabel(h, "critical"),
+				button(
+					h,
+					{
+						variant: "ghost",
+						size: "sm",
+						className: "mt-6 px-2 text-xs text-muted-foreground",
+						attributes: [h.OnClick(Message.ClickedRemoveCriticalTier())],
+					},
+					["Remove"],
+				),
+			]),
 			numberField(h, {
 				id: "rule-critical-threshold",
 				label: "Threshold",
@@ -226,7 +242,12 @@ const windowDescription = (form: RuleForm): string => {
 }
 
 /** "Check every": the interval, and for raw SQL the query time each one allows. */
-const intervalPicker = (h: H, model: ConditionView, form: RuleForm, timing: AlertQueryTiming | null): Html => {
+const intervalPicker = (
+	h: H,
+	model: ConditionView,
+	form: RuleForm,
+	timing: AlertQueryTiming | null,
+): Html => {
 	const isRaw = form.signalType === "raw_query"
 	const options = intervalOptions(form, isRaw ? timing : null)
 	const selected = intervalRadioValue(form.evaluationIntervalMinutes)
@@ -241,12 +262,16 @@ const intervalPicker = (h: H, model: ConditionView, form: RuleForm, timing: Aler
 	}
 	const current = options.find((option) => option.value === selected)
 	return field(h, { className: "items-stretch gap-1.5", state: filledState }, [
-		h.span([h.Id("rule-interval-label"), h.Class("text-sm font-medium")], ["Check every"]),
+		typography(h, { size: "sm", weight: "medium", attributes: [h.Id("rule-interval-label")] }, [
+			"Check every",
+		]),
 		...slowdownNotice(h, model, form),
 		h.div(
 			[
 				h.AriaLabelledBy("rule-interval-label"),
-				h.Class("grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-1 rounded-md bg-muted/30 p-0.5"),
+				h.Class(
+					"grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-1 rounded-md bg-surface-sunken p-0.5",
+				),
 				h.DataAttribute("filled", ""),
 				h.Role("radiogroup"),
 			],
@@ -262,10 +287,10 @@ const intervalPicker = (h: H, model: ConditionView, form: RuleForm, timing: Aler
 						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 						isSelected
 							? isBlocked
-								? "border-severity-warn/60 bg-severity-warn/10 text-severity-warn"
-								: "border-primary/50 bg-primary/10 text-foreground"
-							: "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-						!isSelected && isBlocked && "text-muted-foreground/60",
+								? "border-severity-warn/60 bg-severity-warn-a2 text-severity-warn"
+								: "border-primary-a4 bg-primary-a2 text-foreground"
+							: "text-muted-foreground hover:bg-surface-sunken active:bg-surface-sunken hover:text-foreground active:text-foreground",
+						!isSelected && isBlocked && "text-foreground-subtle",
 					),
 					{
 						children: [
@@ -281,7 +306,7 @@ const intervalPicker = (h: H, model: ConditionView, form: RuleForm, timing: Aler
 							...(isRaw
 								? [
 										h.span(
-											[h.Class("text-[11px] font-normal tabular-nums opacity-80")],
+											[h.Class("text-2xs font-normal tabular-nums opacity-80")],
 											[`${option.limitSeconds} s limit`],
 										),
 									]
@@ -291,12 +316,15 @@ const intervalPicker = (h: H, model: ConditionView, form: RuleForm, timing: Aler
 				)
 			}),
 		),
-		h.p([h.Class("text-xs text-muted-foreground")], [intervalNote(form, current, timing)]),
+		typography(h, { size: "xs", tone: "muted", as: "p" }, [intervalNote(form, current, timing)]),
 	])
 }
 
 const slowdownOf = (model: Model): Pick<ConditionView, "slowedMinutes"> => {
-	const row = model.editingRuleId === null ? undefined : model.rules?.find((rule) => rule.id === model.editingRuleId)
+	const row =
+		model.editingRuleId === null
+			? undefined
+			: model.rules?.find((rule) => rule.id === model.editingRuleId)
 	return { slowedMinutes: row?.slowed_interval_minutes ?? null }
 }
 
@@ -306,7 +334,11 @@ const slowdownNotice = (h: H, model: ConditionView, form: RuleForm): ReadonlyArr
 		? []
 		: [
 				h.div(
-					[h.Class("flex flex-wrap items-center justify-between gap-2 rounded-md border border-severity-warn/40 bg-severity-warn/10 px-3 py-2 text-xs")],
+					[
+						h.Class(
+							"flex flex-wrap items-center justify-between gap-2 rounded-md border border-severity-warn-a4 bg-severity-warn-a2 px-3 py-2 text-xs",
+						),
+					],
 					[
 						h.span(
 							[],
@@ -319,7 +351,11 @@ const slowdownNotice = (h: H, model: ConditionView, form: RuleForm): ReadonlyArr
 							{
 								variant: "outline",
 								size: "xs",
-								attributes: [h.OnClick(Message.ClickedUseInterval({ minutes: String(model.slowedMinutes) }))],
+								attributes: [
+									h.OnClick(
+										Message.ClickedUseInterval({ minutes: String(model.slowedMinutes) }),
+									),
+								],
 							},
 							[`Keep ${model.slowedMinutes} min`],
 						),
@@ -494,7 +530,7 @@ const thresholdsSection = (h: H, model: ConditionView, form: RuleForm, saved: Ru
 							{
 								variant: "ghost",
 								size: "sm",
-								className: "-ml-2 h-7 px-2 text-xs text-muted-foreground",
+								className: "-ml-2 px-2 text-xs text-muted-foreground",
 								attributes: [h.OnClick(Message.ClickedAddCriticalTier())],
 							},
 							[icon(h, "PlusIcon", { size: 12 }), "Add critical tier"],
@@ -505,16 +541,13 @@ const thresholdsSection = (h: H, model: ConditionView, form: RuleForm, saved: Ru
 	)
 }
 
-
 const slot = createLazy()
-const viewOf = stableSlice(
-	(model: Model): ConditionView => ({
-		mountedForm: model.mountedForm,
-		savedForm: model.savedForm,
-		comparatorSelect: model.selects[COMPARATOR_SELECT_ID],
-		...slowdownOf(model),
-	}),
-)
+const viewOf = stableSlice((model: Model): ConditionView => ({
+	mountedForm: model.mountedForm,
+	savedForm: model.savedForm,
+	comparatorSelect: model.selects[COMPARATOR_SELECT_ID],
+	...slowdownOf(model),
+}))
 
 /** The condition card under the chart; `form` is the evaluated draft (`evaluatedFormOf`). */
 export const conditionFields = (h: H, model: Model, form: RuleForm): Html =>

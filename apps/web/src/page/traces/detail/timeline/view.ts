@@ -2,7 +2,7 @@ import { SIDEBAR_WIDTH_NARROW_MIN } from "@maple/ui/components/traces/trace-time
 import { Option } from "effect"
 import { Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { emptyMessage } from "../../../../ui/empty"
+import { emptyMessage } from "@maple/views/ui/empty"
 import { MountAltToggle, MeasureTimelineBody } from "./command"
 import { type Bar, computeSearchMatches, computeTimeAxisTicks, ROW_PITCH, virtualRange } from "./layout"
 import { Message } from "./message"
@@ -120,7 +120,7 @@ const body = (
 										[
 											h.Attribute(
 												"class",
-												"pointer-events-none absolute inset-y-0 w-px bg-border/40",
+												"pointer-events-none absolute inset-y-0 w-px bg-border-subtle",
 											),
 											h.Style({ left: tickLeft(offset, model) }),
 										],
@@ -137,7 +137,7 @@ const body = (
 				[
 					h.AriaOrientation("vertical"),
 					h.Class(
-						"absolute top-0 bottom-0 z-30 w-1 -ml-0.5 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 pointer-coarse:hidden",
+						"absolute top-0 bottom-0 z-30 w-1 -ml-0.5 cursor-col-resize bg-transparent hover:bg-primary-a3 active:bg-primary-a3 pointer-coarse:hidden",
 					),
 					h.Role("separator"),
 					h.Style({ left: `${sidebarWidth}px` }),
@@ -191,7 +191,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
 			toolbar(h, model, bars.length, toolbarIds(inputs.idPrefix)),
 			alignedStrip(
 				h,
-				"shrink-0 border-b border-r border-border bg-muted/10",
+				"shrink-0 border-b border-r border-border bg-surface-faint",
 				"flex shrink-0",
 				"flex-1 min-w-0",
 				minimap(h, model),

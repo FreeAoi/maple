@@ -2,14 +2,14 @@ import { EMPTY_VALUE, countLabel, formatDuration } from "@maple/ui/lib/format"
 import { shortId } from "@maple/ui/lib/ids"
 import { hostFromUrl } from "@maple/ui/lib/replay"
 import { cn } from "@maple/ui/lib/utils"
-import { icon } from "@maple/web/ui/icon"
-import { keyValue, keyValueList } from "@maple/web/ui/key-value"
-import { spinner } from "@maple/web/ui/spinner"
-import { truncatedText } from "@maple/web/ui/truncated-text"
-import { serviceDot } from "@maple/web/ui/values"
+import { icon } from "@maple/views/ui/icon"
+import { keyValue, keyValueList } from "@maple/views/ui/key-value"
+import { spinner } from "@maple/views/ui/spinner"
+import { truncatedText } from "@maple/views/ui/truncated-text"
+import { serviceDot } from "@maple/views/ui/values"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
-import { isPending } from "../../data/slot"
+import { isAwaitingFirstData } from "@maple/views/data/keyed"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { hrefFor } from "../../route"
 import type { Model, SessionDetail, SessionTrace } from "./model"
@@ -80,7 +80,7 @@ export const tracesCard = <M>(h: HtmlBuilder<M>, model: Model, traceIds: Readonl
 	card(h, `Correlated traces · ${traceIds.length}`, [
 		traceIds.length === 0
 			? h.p([h.Class("text-sm text-muted-foreground")], ["No backend traces correlated."])
-			: isPending(model.traces)
+			: isAwaitingFirstData(model.traces)
 				? spinner(h, "size-4")
 				: h.ul(
 						[h.Class("space-y-1.5")],

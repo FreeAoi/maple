@@ -23,7 +23,7 @@ const contextAt = (search: string): PageContext => ({
 const context = contextAt("")
 const inputs: PageViewInputs = {
 	context,
-	presenceOf: () => Option.none(),
+	presenceOf: () => ({ status: "unknown", lastSeenMs: null }),
 	presenceNowMs: NOW,
 	clockMs: 0,
 	hasNewDataSince: () => false,
@@ -95,7 +95,7 @@ describe("local sessions list", () => {
 		const full = pageUpdate(model, Message.SucceededFetchSessions({ key: model.sessions.key ?? "", data, fetchedAtMs: NOW })).model
 		const filtered = contextAt("browser=Chrome")
 		const pending = locationChanged(full, filtered).model
-		expect(pending.sessions.isPlaceholder).toBe(true)
+		expect(pending.sessions.retained).toBe(true)
 		expect(names(update(pending, Message.ClickedLoadMore(), filtered).commands)).toEqual([])
 	})
 

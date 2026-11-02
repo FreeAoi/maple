@@ -1,11 +1,13 @@
 import { SpanId, TraceId } from "@maple/domain"
-import type { TraceData } from "@maple/web/page/traces/detail/trace-data"
+import type { TraceData } from "@maple/views/traces/trace-data"
 import { Option, Schema } from "effect"
 import { expect as expectView, given, Mount, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
 import { type PageContext, PageOutMessage } from "../contract"
 import type { PageViewInputs } from "../kit/inputs"
-import { FetchSpanDetail, FetchSpanLogs, FetchTrace, TrackPointer } from "./command"
+import * as SpanPanel from "@maple/views/traces/span-panel"
+import { FetchSpanDetail, FetchSpanLogs } from "@maple/views/traces/span-panel/command"
+import { FetchTrace, ReadSpanLog, TrackPointer } from "./command"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { init, locationChanged, update } from "./update"
@@ -25,7 +27,7 @@ const contextAt = (search: string): PageContext => ({
 const context = contextAt("")
 const inputs: PageViewInputs = {
 	context,
-	presenceOf: () => Option.none(),
+	presenceOf: () => ({ status: "unknown", lastSeenMs: null }),
 	presenceNowMs: NOW,
 	clockMs: 0,
 	hasNewDataSince: () => false,
@@ -100,7 +102,6 @@ describe("local trace detail", () => {
 		const ctx = contextAt(`spanId=${SPAN_ID}`)
 		const open = answered(init(ctx, TRACE_ID).model, Option.some(trace), ctx).model
 		const spanLog = {
-			key: "k1",
 			timestamp: "2026-10-01 11:59:00.004000000",
 			severityText: "ERROR",
 			severityNumber: 17,
@@ -112,11 +113,38 @@ describe("local trace detail", () => {
 			logAttributes: {},
 			resourceAttributes: {},
 		}
-		const logsKey = open.panel?.logs.key ?? ""
-		const withLogs = update(open, Message.SucceededFetchSpanLogs({ key: logsKey, logs: [spanLog], fetchedAtMs: NOW }), ctx).model
-		const clicked = update(withLogs, Message.ClickedSpanLog({ log: spanLog }), ctx).model
-		const sheet = Option.getOrNull(clicked.panel?.maybeLogSheet ?? Option.none())
-		expect([sheet?.dialog.isOpen, sheet?.log.body]).toEqual([true, "card declined"])
+		const clicked = update(open, Message.GotSpanPanelMessage({ message: SpanPanel.Message.ClickedLog({ key: "k1" }) }), ctx)
+		expect((clicked.commands ?? []).map(({ name }) => name)).toEqual([ReadSpanLog.name])
+		const found = update(clicked.model, Message.FoundSpanLog({ log: spanLog }), ctx).model
+		const sheet = Option.getOrNull(found.maybeLogSheet)
+		expect([sheet?.dialog.isOpen, sheet?.log?.body]).toEqual([true, "card declined"])
+	})
+
+	test("the log sheet closes when its trace link moves the hash to the log's span", () => {
+		const ctx = contextAt(`spanId=${SPAN_ID}`)
+		const open = answered(init(ctx, TRACE_ID).model, Option.some(trace), ctx).model
+		const spanLog = {
+			timestamp: "2026-10-01 11:59:00.004000000",
+			severityText: "INFO",
+			severityNumber: 9,
+			serviceName: "storefront",
+			body: "charged",
+			traceId: TRACE_ID,
+			spanId: "2222222222222222",
+			recordIdentity: "2",
+			logAttributes: {},
+			resourceAttributes: {},
+		}
+		const found = update(open, Message.FoundSpanLog({ log: spanLog }), ctx).model
+		const followed = locationChanged(found, contextAt("spanId=2222222222222222"))
+		expect(Option.map(followed.model.maybeLogSheet, (sheet) => sheet.dialog.isOpen)).toEqual(Option.some(false))
+	})
+
+	test("a clicked log that can no longer be read refreshes the span's reads", () => {
+		const ctx = contextAt(`spanId=${SPAN_ID}`)
+		const open = answered(init(ctx, TRACE_ID).model, Option.some(trace), ctx).model
+		const failed = update(open, Message.FailedReadSpanLog(), ctx)
+		expect((failed.commands ?? []).map(({ name }) => name)).toEqual(expect.arrayContaining([FetchSpanLogs.name, FetchSpanDetail.name]))
 	})
 
 	test("a Refresh that finds the spans of a not-yet-landed trace mounts the tab and the hash's panel", () => {

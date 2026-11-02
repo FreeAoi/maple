@@ -6,6 +6,7 @@
  *
  * Clocks are read inside steps or the store only: the body replays.
  */
+import { BillingCustomerResolver } from "@maple/backend/services/billing/BillingCustomerResolver"
 import { aiCreditsUsd } from "@maple/domain/billing"
 import { OrgId } from "@maple/domain/http"
 import type { SandboxError } from "@maple/backend/sandbox/contract"
@@ -333,7 +334,8 @@ export const auditWithAgents = <E, R>(
 						],
 					}
 				}
-				return { violations: repoLimitViolations(size.value, yield* securityAuditLimits) }
+				const limits = yield* securityAuditLimits
+				return { violations: repoLimitViolations(size.value, limits) }
 			}),
 			STEP_RETRY,
 		)
@@ -426,10 +428,26 @@ export const auditWithAgents = <E, R>(
 		const credits = yield* SecurityAuditCredits
 		const httpClient = yield* HttpClient.HttpClient
 		const ownKey = options.ownKey === true
+		const billingCustomers = yield* BillingCustomerResolver
 		const bill = (agentId: string, kind: "sandbox" | "model", usd: number) =>
 			ownKey
 				? Effect.void
-				: trackSecurityAuditCharge({ orgId, runId: payload.runId, agentId, kind, usd }).pipe(
+				: billingCustomers.customerFor(orgId).pipe(
+						Effect.flatMap((customerId) =>
+							trackSecurityAuditCharge({
+								customerId,
+								runId: payload.runId,
+								agentId,
+								kind,
+								usd,
+							}),
+						),
+						// Fire-and-forget like the track itself; the reservation ledger stays the record.
+						Effect.catchTag("@maple/http/errors/BillingAccountPersistenceError", (error) =>
+							Effect.logWarning("Security audit charge not tracked").pipe(
+								Effect.annotateLogs({ orgId, agentId, kind, usd, error: error.message }),
+							),
+						),
 						Effect.provideService(HttpClient.HttpClient, httpClient),
 					)
 		/**
@@ -455,7 +473,8 @@ export const auditWithAgents = <E, R>(
 					onNone: () => limits.defaultMonthlySpendLimitUsd,
 					onSome: (row) => row.monthlySpendLimitUsd,
 				})
-				const { since } = securityAuditSpendWindow(yield* Clock.currentTimeMillis)
+				const now = yield* Clock.currentTimeMillis
+				const { since } = securityAuditSpendWindow(now)
 				const reservation = yield* store.reserveOrgInvocation(payload.runId, agentId, {
 					since,
 					limitUsd,
@@ -475,6 +494,7 @@ export const auditWithAgents = <E, R>(
 				Effect.andThen(store.recordAgentCost(payload.runId, agentId, costUsd)),
 			)
 
+		const workflowStep = yield* Effect.context<Cloudflare.WorkflowStep>()
 		const result = yield* runAudit({
 			runId: payload.runId,
 			repo: payload.repository,
@@ -495,21 +515,10 @@ export const auditWithAgents = <E, R>(
 			changedSincePrior,
 		}).pipe(
 			// The run composes the engine with its host here.
-			// oxlint-disable-next-line effecttsgo/strict-effect-provide
-			Effect.provide(
-				Layer.mergeAll(
-					Layer.succeed(
-						AuditAgents,
-						durableAgents(
-							agents,
-							yield* Effect.context<Cloudflare.WorkflowStep>(),
-							admit,
-							charge,
-						),
-					),
-					Layer.succeed(AuditStore, retried(store)),
-				),
-			),
+			Effect.provide([
+				Layer.succeed(AuditAgents, durableAgents(agents, workflowStep, admit, charge)),
+				Layer.succeed(AuditStore, retried(store)),
+			]),
 		)
 		// One durable, retried step: a replay neither double-counts usage nor re-settles the run.
 		const settle = Effect.gen(function* () {

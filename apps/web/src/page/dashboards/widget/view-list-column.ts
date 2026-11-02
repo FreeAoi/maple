@@ -1,9 +1,10 @@
 import { WIDGET_UNITS } from "@maple/domain/http"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon } from "../../../ui/icon"
-import { iconButton } from "../../../ui/icon-button"
-import { input } from "../../../ui/input"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { input } from "@maple/views/ui/input"
+import { pressable } from "@maple/views/ui/pressable"
 import type { ListColumn } from "./editor-state"
 import { GRIP_ATTRIBUTE, ROW_ATTRIBUTE } from "./list-column-drag"
 import { Message } from "./message"
@@ -30,19 +31,19 @@ const suggestionList = (h: H, column: ListColumn, index: number, fields: Readonl
 	h.div(
 		[
 			h.Class(
-				"absolute top-full left-0 z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border bg-popover shadow-md",
+				"absolute top-full left-0 z-50 mt-1 w-full max-h-48 overflow-auto rounded-md border bg-popover shadow-popup",
 			),
 		],
 		fields
 			.filter((field) => !column.field || field.toLowerCase().includes(column.field.toLowerCase()))
 			.slice(0, 20)
 			.map((field) =>
-				h.button(
-					[
-						h.Type("button"),
-						h.Class("w-full px-2 py-1 text-left text-xs hover:bg-accent truncate"),
-						h.OnMouseDown(product(ProductEdit.PickedListField({ index, field }))),
-					],
+				pressable(
+					h,
+					{
+						className: "w-full px-2 py-1 text-left text-xs hover:bg-accent active:bg-accent truncate",
+						attributes: [h.OnMouseDown(product(ProductEdit.PickedListField({ index, field })))],
+					},
 					[field],
 				),
 			),
@@ -60,22 +61,23 @@ export const listColumnRow = (
 	h.div(
 		[h.Class("relative flex items-center gap-2 rounded-md bg-background py-1"), h.DataAttribute(ROW_ATTRIBUTE, "")],
 		[
-			h.button(
-				[
-					h.Type("button"),
-					h.DataAttribute(GRIP_ATTRIBUTE, ""),
-					h.AriaLabel(`Reorder ${column.header || column.field || `column ${index + 1}`}`),
-					h.Class(
-						"shrink-0 cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing",
-					),
-					h.OnKeyDownPreventDefault((key) =>
-						key === "ArrowUp"
-							? Option.some(product(ProductEdit.MovedListColumn({ index, delta: -1 })))
-							: key === "ArrowDown"
-								? Option.some(product(ProductEdit.MovedListColumn({ index, delta: 1 })))
-								: Option.none(),
-					),
-				],
+			pressable(
+				h,
+				{
+					label: `Reorder ${column.header || column.field || `column ${index + 1}`}`,
+					className:
+						"shrink-0 cursor-grab touch-none text-foreground-faint hover:text-muted-foreground active:text-muted-foreground active:cursor-grabbing",
+					attributes: [
+						h.DataAttribute(GRIP_ATTRIBUTE, ""),
+						h.OnKeyDownPreventDefault((key) =>
+							key === "ArrowUp"
+								? Option.some(product(ProductEdit.MovedListColumn({ index, delta: -1 })))
+								: key === "ArrowDown"
+									? Option.some(product(ProductEdit.MovedListColumn({ index, delta: 1 })))
+									: Option.none(),
+						),
+					],
+				},
 				[icon(h, "GripDotsIcon", { size: 14 })],
 			),
 			h.div(
@@ -123,7 +125,7 @@ export const listColumnRow = (
 				{
 					size: "icon",
 					label: "Remove column",
-					className: "text-muted-foreground hover:text-destructive",
+					className: "text-muted-foreground hover:text-destructive active:text-destructive",
 					attributes: [h.OnClick(product(ProductEdit.RemovedListColumn({ index })))],
 				},
 				[icon(h, "XmarkIcon")],

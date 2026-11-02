@@ -2,7 +2,7 @@ import { Option } from "effect"
 import { fromString } from "foldkit/url"
 import { describe, expect, test } from "vitest"
 import { DATA_INTEGRATIONS } from "./data-integrations"
-import { AppRoute, hrefOf, routeRedirect, urlToAppRoute } from "./index"
+import { AppRoute, flaggedRouteRedirect, hrefOf, routeRedirect, urlToAppRoute } from "./index"
 
 const parse = (path: string) => urlToAppRoute(Option.getOrThrow(fromString(`http://maple.test${path}`)))
 
@@ -38,6 +38,47 @@ describe("routes", () => {
 		const monitor = parse("/alerts/uptime/upm_abc")
 		expect(monitor).toMatchObject({ _tag: "AlertsUptimeMonitor", monitorId: "upm_abc" })
 		expect(hrefOf(monitor)).toBe("/alerts/uptime/upm_abc")
+	})
+
+	test("status page routes parse, the builder ahead of a page id, and print back", () => {
+		expect(parse("/status-pages")._tag).toBe("StatusPages")
+		expect(parse("/status-pages/new")._tag).toBe("StatusPageNew")
+		const route = parse("/status-pages/stp_abc?view=%22settings%22")
+		expect(route).toMatchObject({ _tag: "StatusPage", pageId: "stp_abc", search: { view: "settings" } })
+		expect(hrefOf(route)).toBe("/status-pages/stp_abc?view=settings")
+	})
+
+	test("the old status page links under Alerts redirect to their own section", () => {
+		expect(routeRedirect(parse("/alerts?tab=%22status-pages%22"))).toEqual(
+			Option.some({ url: "/status-pages", isReplace: true }),
+		)
+		expect(routeRedirect(parse("/alerts?tab=%22uptime%22"))).toEqual(Option.none())
+		expect(routeRedirect(parse("/alerts/status-pages/stp_abc"))).toEqual(
+			Option.some({ url: "/status-pages/stp_abc", isReplace: true }),
+		)
+		expect(routeRedirect(parse("/alerts/status-pages/stp_abc?tab=%22json%22"))).toEqual(
+			Option.some({ url: "/status-pages/stp_abc?view=json", isReplace: true }),
+		)
+		expect(routeRedirect(parse("/alerts/status-pages/stp_abc?tab=%22incidents%22"))).toEqual(
+			Option.some({ url: "/status-pages/stp_abc", isReplace: true }),
+		)
+	})
+
+	test("the old Hazel integration link opens the Hazel chat connector", () => {
+		expect(routeRedirect(parse("/integrations?integration=hazel"))).toEqual(
+			Option.some({ url: "/integrations?integration=chat-hazel", isReplace: true }),
+		)
+		expect(routeRedirect(parse("/integrations?integration=chat-hazel"))).toEqual(Option.none())
+	})
+
+	test("an org outside the statusPages rollout is sent home from every status page route", () => {
+		for (const path of ["/status-pages", "/status-pages/new", "/status-pages/stp_abc"]) {
+			expect(flaggedRouteRedirect(parse(path), { statusPages: false })).toEqual(
+				Option.some({ url: "/", isReplace: true }),
+			)
+			expect(flaggedRouteRedirect(parse(path), { statusPages: true })).toEqual(Option.none())
+		}
+		expect(flaggedRouteRedirect(parse("/services"), { statusPages: false })).toEqual(Option.none())
 	})
 
 	test("a literal sibling wins over a param route", () => {
@@ -94,22 +135,51 @@ describe("routes", () => {
 		expect(routeRedirect(parse("/integrations"))).toEqual(Option.none())
 	})
 
-	test("the Security Center's tabs, run and finding pages parse to their own routes", () => {
-		expect(parse("/security")._tag).toBe("Security")
-		expect(parse("/security/findings?rejected=true")).toMatchObject({
-			_tag: "SecurityFindings",
+	test("the Security Center's sources, run and finding pages parse to their own routes", () => {
+		expect(parse("/security/code")._tag).toBe("SecurityCode")
+		expect(parse("/security/code/findings?rejected=true")).toMatchObject({
+			_tag: "SecurityCodeFindings",
 			search: { rejected: true },
 		})
-		expect(parse("/security/runs")._tag).toBe("SecurityRuns")
-		expect(parse("/security/runs/run_9f3c2a1e7b")).toMatchObject({
+		expect(parse("/security/code/runs")._tag).toBe("SecurityCodeRuns")
+		expect(parse("/security/exposure")._tag).toBe("SecurityExposure")
+		expect(parse("/security/runtimes")._tag).toBe("SecurityRuntimes")
+		expect(parse("/security/dependencies")._tag).toBe("SecurityDependencies")
+		expect(parse("/security/dependencies?repo=repo_1")).toMatchObject({
+			_tag: "SecurityDependencies",
+			search: { repo: "repo_1" },
+		})
+		expect(parse("/security/code/runs/run_9f3c2a1e7b")).toMatchObject({
 			_tag: "SecurityRun",
 			runId: "run_9f3c2a1e7b",
 		})
-		const finding = parse("/security/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant")
+		const finding = parse("/security/code/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant")
 		expect(finding).toMatchObject({ _tag: "SecurityFinding", fingerprint: "exports/tenant" })
 		expect(hrefOf(finding)).toBe(
-			"/security/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant",
+			"/security/code/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant",
 		)
+	})
+
+	test("the code audit's old links open the same page under /security/code", () => {
+		const redirectOf = (path: string) => Option.map(routeRedirect(parse(path)), ({ url }) => url)
+		expect(redirectOf("/security")).toEqual(Option.some("/security/code"))
+		expect(redirectOf("/security/findings")).toEqual(Option.some("/security/code/findings"))
+		expect(redirectOf("/security/findings?status=%22all%22&q=%22tenant%22")).toEqual(
+			Option.some(hrefOf(AppRoute.SecurityCodeFindings({ search: { status: "all", q: "tenant" } }))),
+		)
+		expect(redirectOf("/security/runs?target=%22tgt_1%22")).toEqual(
+			Option.some(hrefOf(AppRoute.SecurityCodeRuns({ search: { target: "tgt_1" } }))),
+		)
+		expect(redirectOf("/security/runs/run_9f3c2a1e7b")).toEqual(
+			Option.some("/security/code/runs/run_9f3c2a1e7b"),
+		)
+		expect(
+			redirectOf("/security/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant"),
+		).toEqual(
+			Option.some("/security/code/findings/5ec0a0d1-0000-4000-8000-000000000001/exports%2Ftenant"),
+		)
+		expect(routeRedirect(parse("/security/code"))).toEqual(Option.none())
+		expect(routeRedirect(parse("/security/exposure"))).toEqual(Option.none())
 	})
 
 	test("an unknown path is NotFound", () => {

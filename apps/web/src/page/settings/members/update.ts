@@ -1,17 +1,17 @@
 import { toOrgRole } from "../../../components/settings/org-membership"
 import { Array, Effect, Option, Result, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import type {
 	ClerkInvitationResource,
 	ClerkMembershipResource,
 	ClerkOrganizationResource,
 } from "../../../platform/clerk"
 import { ClerkActionError, clerkTry, currentClerkOrganization } from "../../../platform/clerk"
-import * as Dialog from "../../../ui/dialog"
-import * as Field from "../../../ui/field"
-import * as Menu from "../../../ui/menu"
-import * as Select from "../../../ui/select"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Field from "@maple/views/ui/field"
+import * as Menu from "@maple/views/ui/menu"
+import * as Select from "@maple/views/ui/select"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { revisitData } from "../kit/revisit"
 import { memberDisplayName, otherAdminName } from "../kit/members"
@@ -85,14 +85,16 @@ const FetchMembers = Command.define("FetchClerkMemberships", {
 	execute: ({ page, generation }) =>
 		currentClerkOrganization.pipe(
 			Effect.flatMap((organization) => membershipsPage(organization, page)),
-			Effect.map((result) => {
-				const userId = window.Clerk?.user?.id ?? null
-				return {
-					rows: result.data.map((member) => memberRow(member, userId)),
-					total: result.total_count,
-				}
+			Effect.mapBoth({
+				onSuccess: (result) => {
+					const userId = window.Clerk?.user?.id ?? null
+					return {
+						rows: result.data.map((member) => memberRow(member, userId)),
+						total: result.total_count,
+					}
+				},
+				onFailure: toLoadFailure,
 			}),
-			Effect.mapError(toLoadFailure),
 			Effect.result,
 			Effect.map((result) => Message.CompletedFetchMembers({ page, generation, result })),
 		),
@@ -104,8 +106,10 @@ const FetchInvitations = Command.define("FetchClerkInvitations", {
 	execute: ({ page, generation }) =>
 		currentClerkOrganization.pipe(
 			Effect.flatMap((organization) => invitationsPage(organization, page)),
-			Effect.map((result) => ({ rows: result.data.map(invitationRow), total: result.total_count })),
-			Effect.mapError(toLoadFailure),
+			Effect.mapBoth({
+				onSuccess: (result) => ({ rows: result.data.map(invitationRow), total: result.total_count }),
+				onFailure: toLoadFailure,
+			}),
 			Effect.result,
 			Effect.map((result) => Message.CompletedFetchInvitations({ page, generation, result })),
 		),
@@ -162,7 +166,7 @@ const InviteMember = Command.define("InviteClerkMember", {
 	execute: ({ email, role }) =>
 		currentClerkOrganization.pipe(
 			Effect.flatMap((organization) =>
-				clerkTry("Failed to send invitation", () =>
+				clerkTry("Couldn't send invitation", () =>
 					organization.inviteMember({ emailAddress: email, role }),
 				),
 			),
@@ -175,7 +179,7 @@ const ChangeRole = Command.define("ChangeClerkMemberRole", {
 	messages: [Message.CompletedRoleChange],
 	execute: ({ memberId, name, next }) =>
 		withMembership(memberId, (member) =>
-			clerkTry("Failed to change role", () => member.update({ role: next })),
+			clerkTry("Couldn't change role", () => member.update({ role: next })),
 		).pipe(settleClerk((result) => Message.CompletedRoleChange({ name, next, result }))),
 })
 
@@ -183,9 +187,9 @@ const RemoveMember = Command.define("RemoveClerkMember", {
 	args: { memberId: Schema.String, name: Schema.String },
 	messages: [Message.CompletedRemove],
 	execute: ({ memberId, name }) =>
-		withMembership(memberId, (member) =>
-			clerkTry("Failed to remove member", () => member.destroy()),
-		).pipe(settleClerk((result) => Message.CompletedRemove({ name, result }))),
+		withMembership(memberId, (member) => clerkTry("Couldn't remove member", () => member.destroy())).pipe(
+			settleClerk((result) => Message.CompletedRemove({ name, result })),
+		),
 })
 
 const RevokeInvitation = Command.define("RevokeClerkInvitation", {
@@ -193,7 +197,7 @@ const RevokeInvitation = Command.define("RevokeClerkInvitation", {
 	messages: [Message.CompletedRevoke],
 	execute: ({ id, email }) =>
 		withInvitation(id, (invitation) =>
-			clerkTry("Failed to revoke invitation", () => invitation.revoke()),
+			clerkTry("Couldn't revoke invitation", () => invitation.revoke()),
 		).pipe(settleClerk((result) => Message.CompletedRevoke({ email, result }))),
 })
 
@@ -204,7 +208,7 @@ const ResendInvitation = Command.define("ResendClerkInvitation", {
 	execute: ({ id, email, role }) =>
 		Effect.gen(function* () {
 			const revoked = yield* withInvitation(id, (invitation) =>
-				clerkTry("Failed to resend invitation", () => invitation.revoke()),
+				clerkTry("Couldn't resend invitation", () => invitation.revoke()),
 			).pipe(Effect.result)
 			if (Result.isFailure(revoked))
 				return Message.CompletedResend({

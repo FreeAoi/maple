@@ -13,6 +13,7 @@ import type { APIRoute } from "astro"
 import { competitors } from "../lib/competitors"
 import { features } from "../lib/features"
 import { useCases } from "../lib/use-cases"
+import { allGuides } from "../lib/guides"
 import { absolute, plainText } from "../lib/page-markdown"
 import { API_ORIGIN, API_PATHS, GITHUB_URL, SITE_PATHS } from "../lib/agent-resources"
 
@@ -79,13 +80,6 @@ export const GET: APIRoute = ({ site }) => {
 		...features.map((feature) => `- [${feature.navLabel()}](${url(`/features/${feature.slug}.md`)})`),
 		"",
 
-		"## Integrations",
-		"",
-		`Every language, agent framework, cloud, database and alert destination Maple works with, each linked to its setup guide.`,
-		"",
-		...both("Integrations", "/integrations"),
-		"",
-
 		"## Use cases",
 		"",
 		`Worked debugging stories, step by step. ${CONVENTION("use-case")}`,
@@ -109,14 +103,7 @@ export const GET: APIRoute = ({ site }) => {
 		"Evergreen explanations of application performance monitoring, observability, OpenTelemetry, and the tools used to operate production software.",
 		"",
 		`- [Guides index](${url("/guides")})`,
-		`- [What is APM, and why is it important?](${url("/guides/what-is-apm")})`,
-		`- [What is Apdex, and how do you use the score?](${url("/guides/what-is-apdex")})`,
-		`- [Uptime monitoring with traces and HTTP checks](${url("/guides/uptime-monitoring")})`,
-		`- [Prometheus metrics, explained](${url("/guides/prometheus-metrics")})`,
-		`- [What is observability?](${url("/observability")})`,
-		`- [What is OpenTelemetry?](${url("/opentelemetry")})`,
-		`- [Best open-source observability tools](${url("/best-open-source-observability-tools")})`,
-		`- [Dynatrace pricing, explained](${url("/guides/dynatrace-pricing")})`,
+		...allGuides.map((guide) => `- [${guide.title}](${url(guide.href)})`),
 		"",
 
 		"## Maple API",

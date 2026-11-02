@@ -1,12 +1,12 @@
 import { warehouseDateTimeToIso } from "@maple/query-engine"
 import { zonedDateParts } from "@maple/query-engine/datetime"
-import { countLabel, EMPTY_VALUE } from "@maple/ui/lib/format"
+import { countLabel } from "@maple/ui/lib/format"
 import { formatRelativeShortFrom } from "@maple/ui/lib/time-format"
 import { cn } from "@maple/ui/lib/utils"
 import { type ErrorSignal, densifySpark, surgeRatio } from "../../../lib/models/error-signal"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon } from "../../../ui/icon"
-import { miniBars } from "../../../ui/mini-bars"
+import { icon } from "@maple/views/ui/icon"
+import { miniBars } from "@maple/views/ui/mini-bars"
 import { SEVERITY_TEXT } from "../kit/severity"
 import { investigationChip } from "../kit/state-chip"
 import { Message } from "./message"
@@ -38,21 +38,6 @@ export const formatLastSeen = (iso: string, timeZone: string, nowMs: number): st
 		day: "numeric",
 		year: sameYear ? undefined : "numeric",
 	})
-}
-
-/** `formatTimestampInTimezone(input, { timeZone, withYear })` (lib/timezone-format.ts). */
-export const formatTimestamp = (iso: string, timeZone: string, withYear: boolean): string => {
-	const ms = epochOf(iso)
-	if (Number.isNaN(ms)) return EMPTY_VALUE
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		year: withYear ? "numeric" : undefined,
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	}).format(ms)
 }
 
 /** `SignalSpark`: the trend in one static svg, coloured by severity (or surge). */
@@ -111,7 +96,7 @@ export const signalActivity = (h: H, signal: ErrorSignal): Html | null => {
 								),
 								h.Title(`${countLabel(signal.commentCount, "comment")} on the timeline`),
 							],
-							[icon(h, "ChatBubbleIcon", { size: 11 }), String(signal.commentCount)],
+							[icon(h, "ChatBubbleIcon", { size: 12 }), String(signal.commentCount)],
 						),
 					]
 				: []),
@@ -123,7 +108,7 @@ export const signalActivity = (h: H, signal: ErrorSignal): Html | null => {
 									cn(
 										"flex items-center gap-1 text-2xs tabular-nums",
 										signal.mergedPullRequestCount > 0
-											? "text-foreground/70"
+											? "text-foreground-soft"
 											: "text-muted-foreground",
 									),
 								),
@@ -133,7 +118,7 @@ export const signalActivity = (h: H, signal: ErrorSignal): Html | null => {
 										: countLabel(prCount, "open pull request"),
 								),
 							],
-							[icon(h, "PullRequestIcon", { size: 11 }), String(prCount)],
+							[icon(h, "PullRequestIcon", { size: 12 }), String(prCount)],
 						),
 					]
 				: []),

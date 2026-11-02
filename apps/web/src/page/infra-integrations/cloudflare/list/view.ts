@@ -20,17 +20,18 @@ import { TONE_FILL } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { ResolveThemeColors } from "../../../../charts/theme-colors"
-import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../../ui/empty"
-import { errorState } from "../../../../ui/error-state"
-import { icon } from "../../../../ui/icon"
-import { switchControl } from "../../../../ui/switch"
+import { label } from "@maple/views/ui/label"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
+import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { icon } from "@maple/views/ui/icon"
+import { switchControl } from "@maple/views/ui/switch"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import { docsLink } from "../../../kit/signal-empty-state"
 import { FLEET_BAND_BOXED, fleetBand, fleetBandLoading } from "../../../infra/kit/fleet-band"
 import { heroFieldChip } from "../../../infra/kit/hero-chip"
-import { linkTabStrip } from "../../../infra/kit/view-tabs"
+import { viewTabStrip } from "../../../infra/kit/view-tabs"
 import { pageHero, pageHeroParts, searchToolbar, headerActions } from "../../../infra/kit/page-parts"
 import { pageTime } from "../../kit/page-time"
 import type { Status, ZoneRow } from "../data"
@@ -190,7 +191,7 @@ const zonesView = (
 		searchToolbar(h, {
 			id: "cloudflare-search",
 			value: query,
-			placeholder: "Filter zones",
+			placeholder: "Filter zones…",
 			onInput: (value) => Message.ChangedSearch({ value }),
 			onClear: Message.ClickedClearSearch(),
 			trailing:
@@ -208,7 +209,7 @@ const zonesView = (
 				: undefined,
 			sort: model.zoneSort,
 			emptyMessage:
-				filtered.length === zones.length ? undefined : "No zones match. Clear the search or scope.",
+				filtered.length === zones.length ? undefined : "No zones match these filters",
 			spark,
 		}),
 	])
@@ -233,7 +234,7 @@ const workersView = (h: H, model: Model, rows: ReadonlyArray<WorkerListRow>, sco
 		searchToolbar(h, {
 			id: "cloudflare-search",
 			value: query,
-			placeholder: "Filter Workers",
+			placeholder: "Filter Workers…",
 			onInput: (value) => Message.ChangedSearch({ value }),
 			onClear: Message.ClickedClearSearch(),
 			trailing:
@@ -243,8 +244,9 @@ const workersView = (h: H, model: Model, rows: ReadonlyArray<WorkerListRow>, sco
 			children:
 				previews > 0
 					? [
-							h.label(
-								[h.Class("flex items-center gap-2 text-xs text-muted-foreground")],
+							label(
+								h,
+								{ className: "flex text-xs font-normal text-muted-foreground sm:text-xs" },
 								[
 									...switchControl(h, {
 										id: "cloudflare-previews",
@@ -263,7 +265,7 @@ const workersView = (h: H, model: Model, rows: ReadonlyArray<WorkerListRow>, sco
 			accounts: scope.showAccountColumn ? scope.accountNames : undefined,
 			emptyMessage:
 				filtered.length === 0 && rows.length > 0
-					? "No Workers match. Clear the search or scope."
+					? "No Workers match these filters"
 					: undefined,
 		}),
 	])
@@ -294,7 +296,7 @@ const header = (
 const viewTabs = (h: H, model: Model, scope: ListScope, inPlace: boolean): Html | undefined => {
 	const views = CLOUDFLARE_VIEWS.filter((v) => v === scope.view || scope.counts[v] !== 0)
 	if (views.length < 2) return undefined
-	return linkTabStrip(
+	return viewTabStrip(
 		h,
 		"Cloudflare views",
 		views.map((v) => ({
@@ -495,6 +497,6 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	const row = titleRow(h, model, status?.accountName ?? null, hasData ? listScopeOf(model, data) : null)
 	return h.div(
 		[h.Class("contents"), h.OnMount(ResolveThemeColors({ tokens: THEME_TOKENS }))],
-		[dashboardPage(h, { scrollClassName: "gap-6", ...row }, [statusView(h, model, spark)])],
+		[dashboardPage(h, { gap: "lg", ...row }, [statusView(h, model, spark)])],
 	)
 })

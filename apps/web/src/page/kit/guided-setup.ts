@@ -6,18 +6,18 @@ import {
 } from "../../components/ingest/onboard-skill"
 import { type FrameworkId, sdkSnippets } from "../../components/quick-start/sdk-snippets"
 import { type DocsPage, docsUrl } from "../../lib/docs"
-import { type Lang, resolveLang } from "../../lib/highlight"
+import type { Lang } from "@maple/views/lib/highlight"
 import { ingestUrl } from "../../lib/services/common/ingest-url"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../ui/button"
-import * as CopyButton from "../../ui/copy-button"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon, type IconName } from "../../ui/icon"
-import { inlineCode } from "../../ui/inline-code"
-import { panel } from "../../ui/panel"
-import type * as Tabs from "../../ui/tabs"
-import * as TabsView from "../../ui/tabs-view"
+import { button } from "@maple/views/ui/button"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import { inlineCode } from "@maple/views/ui/inline-code"
+import { panel } from "@maple/views/ui/panel"
+import type * as Tabs from "@maple/views/ui/tabs"
+import * as TabsView from "@maple/views/ui/tabs-view"
 import { codeBlock } from "../settings/kit/code-block"
 
 // `FrameworkIconStrip`, `FrameworkPicker` and `ConnectInstructions`, with `PackageManagerCodeBlock`.
@@ -90,10 +90,10 @@ export const frameworkPicker = <M>(
 							isActive
 								? compact
 									? "border-primary text-primary"
-									: "border-primary bg-primary/10 text-primary"
+									: "border-primary bg-primary-a2 text-primary"
 								: compact
-									? "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
-									: "border-border hover:border-foreground/30",
+									? "border-border text-muted-foreground hover:text-foreground active:text-foreground hover:border-border-strong active:border-border-strong"
+									: "border-border hover:border-border-strong active:border-border-strong",
 						),
 					),
 				],
@@ -108,7 +108,7 @@ export const frameworkPicker = <M>(
 export type InstructionsDocs = Readonly<{ label: string; page: DocsPage }>
 
 const AGENT_MARKS = [
-	{ name: "ClaudeIcon", className: "text-[#D97757]" },
+	{ name: "ClaudeIcon", className: "text-brand-claude" },
 	{ name: "OpenAiIcon", className: "text-foreground" },
 	{ name: "CursorIcon", className: "text-foreground" },
 ] as const satisfies ReadonlyArray<Readonly<{ name: IconName; className: string }>>
@@ -167,7 +167,7 @@ export const agentPromptButton = <M>(
 										),
 									),
 								],
-								[icon(h, mark.name, { size: 13, className: mark.className })],
+								[icon(h, mark.name, { size: 14, className: mark.className })],
 							),
 						),
 					),
@@ -226,7 +226,7 @@ const block = <M>(
 	language: string,
 	className?: string,
 	isPlain = false,
-	lang: Lang = resolveLang(language),
+	lang: Lang = language,
 ): Html =>
 	codeBlock(h, {
 		code,
@@ -335,7 +335,7 @@ export const connectInstructions = <M>(h: HtmlBuilder<M>, parts: InstructionsPar
 						h.a(
 							[
 								h.Class(
-									"mt-3 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
+									"mt-3 flex items-center justify-between gap-3 rounded-md border border-border p-3 text-xs text-muted-foreground hover:border-border-strong active:border-border-strong hover:text-foreground active:text-foreground",
 								),
 								h.Href(docsUrl(docs.page)),
 								h.Target("_blank"),

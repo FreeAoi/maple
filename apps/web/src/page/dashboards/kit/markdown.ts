@@ -1,6 +1,6 @@
 import { validateUrlScheme } from "@maple/ui/lib/sanitizers"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { inlineCode } from "../../../ui/inline-code"
+import { inlineCode } from "@maple/views/ui/inline-code"
 
 // The markdown widget's renderer: headings, bullet
 // and numbered lists, paragraphs; inline links, bold, italic and code.
@@ -53,7 +53,7 @@ const inlineToken = <M>(h: HtmlBuilder<M>, segment: string): ReadonlyArray<Html 
 							h.Target("_blank"),
 							h.Rel("noreferrer"),
 							h.Class(
-								"text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary",
+								"text-primary underline decoration-primary-a3 underline-offset-2 hover:decoration-primary active:decoration-primary",
 							),
 						],
 						[label],

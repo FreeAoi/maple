@@ -1,7 +1,9 @@
 import type { ErrorIssueEventDocument } from "@maple/domain/http"
 import { countLabel, formatRatePerHour } from "@maple/ui/lib/format"
 import { AGENT_ACCENT, TONE_FILL } from "@maple/ui/lib/tone"
-import { DateTime, Option } from "effect"
+import { DateTime, Option, Schema } from "effect"
+
+const encodeJsonOption = Schema.encodeOption(Schema.fromJsonString(Schema.Unknown))
 
 // The issue timeline's vocabulary: labels, dots, payload text.
 
@@ -43,13 +45,13 @@ export const DOT_CLASS = {
 	agent_note: AGENT_ACCENT.fill,
 	fix_proposed: TONE_FILL.ok,
 	regression: TONE_FILL.crit,
-	snooze: "bg-muted-foreground/70",
-	unsnooze: "bg-muted-foreground/70",
+	snooze: "bg-foreground-subtle",
+	unsnooze: "bg-foreground-subtle",
 	ai_triage: AGENT_ACCENT.fill,
 	anomaly_linked: TONE_FILL.warn,
 	severity_change: TONE_FILL.warn,
 	pr_linked: "bg-muted-foreground",
-	pr_unlinked: "bg-muted-foreground/60",
+	pr_unlinked: "bg-foreground-subtle",
 	pr_merged: TONE_FILL.ok,
 	verification_started: IN_FLIGHT_FILL,
 	verification_verdict: IN_FLIGHT_FILL,
@@ -91,7 +93,7 @@ export const payloadString = (value: unknown): string | null => {
 	if (value === null || value === undefined) return null
 	if (typeof value === "string") return value
 	if (typeof value === "number" || typeof value === "boolean") return String(value)
-	return JSON.stringify(value) ?? null
+	return Option.getOrNull(encodeJsonOption(value))
 }
 
 /** "6 hours", "3 days": a duration a person would say out loud. */

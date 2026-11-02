@@ -1,4 +1,4 @@
-import * as ServiceMap from "@maple/web/service-map/map/service-map"
+import * as ServiceMap from "@maple/views/service-map/map/service-map"
 import { Option } from "effect"
 import { expect as expectView, given, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
@@ -22,7 +22,7 @@ const context: PageContext = {
 }
 const inputs: PageViewInputs = {
 	context,
-	presenceOf: () => Option.some({ signal: "traces", status: "absent", lastSeenMs: null }),
+	presenceOf: () => ({ status: "absent", lastSeenMs: null }),
 	presenceNowMs: NOW,
 	clockMs: 0,
 	hasNewDataSince: () => false,

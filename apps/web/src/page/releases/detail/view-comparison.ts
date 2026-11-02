@@ -12,14 +12,14 @@ import {
 	formatPercent,
 } from "@maple/ui/lib/format"
 import { cn } from "@maple/ui/lib/utils"
-import { eyebrowVariants } from "@maple/ui/styles/ui/eyebrow"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { emptyMessage } from "../../../ui/empty"
-import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "../../../ui/table"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
 import { relativeTime } from "../../kit/relative-time"
 import { releaseHealthFigure, releaseHref } from "../kit"
 import { commitTrigger, type Overlays, releaseHealthPill } from "../overlays-view"
 import { sectionCard } from "./view-sections"
+import { typography, typographyClass } from "@maple/views/ui/typography"
 
 // The release comparison and the versions rail.
 
@@ -117,7 +117,6 @@ const comparisonTable = <M>(h: HtmlBuilder<M>, impact: ReleaseServiceImpact, bas
 					tableHead(h, [mono(h, baselineSha)], "text-right"),
 					tableHead(h, ["Change"], "pr-4 text-right"),
 				],
-				eyebrowVariants(),
 			),
 		]),
 		tableBody(
@@ -127,7 +126,7 @@ const comparisonTable = <M>(h: HtmlBuilder<M>, impact: ReleaseServiceImpact, bas
 					h,
 					[
 						tableCell(h, [row.label], "pl-4 text-muted-foreground"),
-						tableCell(h, [row.format(row.value)], "text-right font-mono tabular-nums"),
+						tableCell(h, [row.format(row.value)], typographyClass({ mono: true, numeric: true, className: "text-right" })),
 						tableCell(
 							h,
 							[row.baseline === undefined ? EMPTY_VALUE : row.format(row.baseline)],
@@ -139,7 +138,7 @@ const comparisonTable = <M>(h: HtmlBuilder<M>, impact: ReleaseServiceImpact, bas
 							cn("pr-4 text-right font-mono tabular-nums", changeTone(row)),
 						),
 					],
-					"border-border/60",
+					"border-border-subtle",
 					[h.Key(row.label)],
 				),
 			),
@@ -158,8 +157,8 @@ export const releaseComparison = <M>(h: HtmlBuilder<M>, impact: ReleaseServiceIm
 		baseline.spanCount >= MIN_COMPARE_SPANS
 	const action =
 		baseline === undefined
-			? h.span([h.Class("text-2xs text-muted-foreground/70")], ["no previous version"])
-			: commitTrigger(h, overlays, "release-replaced", baseline.commitSha, "font-mono text-2xs text-muted-foreground", [
+			? typography(h, { size: "2xs", tone: "subtle" }, ["no previous version"])
+			: commitTrigger(h, overlays, "release-replaced", baseline.commitSha, typographyClass({ size: "2xs", tone: "muted", mono: true }), [
 					"replaced ",
 					shortReleaseLabel(baseline.commitSha),
 				])
@@ -170,7 +169,7 @@ export const releaseComparison = <M>(h: HtmlBuilder<M>, impact: ReleaseServiceIm
 		...(baseline !== undefined && !isComparable
 			? [
 					h.div(
-						[h.Class("border-t px-4 py-2 text-2xs text-muted-foreground/70")],
+						[h.Class("border-t px-4 py-2 text-2xs text-foreground-subtle")],
 						[`Changes are withheld below ${MIN_COMPARE_SPANS} requests on either side.`],
 					),
 				]
@@ -199,8 +198,7 @@ export const releaseVersionsRail = <M>(h: HtmlBuilder<M>, input: RailInput<M>): 
 		h,
 		{
 			title: "Versions in window",
-			action: h.span(
-				[h.Class("text-2xs text-muted-foreground/70")],
+			action: typography(h, { size: "2xs", tone: "subtle" },
 				[countLabel(sorted.length, "version")],
 			),
 		},
@@ -227,13 +225,13 @@ const versionLink = <M>(h: HtmlBuilder<M>, input: RailInput<M>, version: Release
 			),
 			h.Class(
 				cn(
-					"flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-xs transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-					version.commitSha === input.currentSha && "bg-muted/60",
+					"flex items-center gap-2.5 rounded-sm px-2 py-1.5 text-xs hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+					version.commitSha === input.currentSha && "bg-surface-strong",
 				),
 			),
 		],
 		[
-			commitTrigger(h, input.overlays, "release-rail", version.commitSha, "font-mono text-foreground", [
+			commitTrigger(h, input.overlays, "release-rail", version.commitSha, typographyClass({ tone: "foreground", mono: true }), [
 				shortReleaseLabel(version.commitSha),
 			]),
 			...(version.health === "healthy"
@@ -257,7 +255,7 @@ const versionLink = <M>(h: HtmlBuilder<M>, input: RailInput<M>, version: Release
 				timeZone: input.timeZone,
 				variant: "orDate",
 				tooltip: "title",
-				className: "w-16 shrink-0 text-right font-mono tabular-nums text-muted-foreground/70",
+				className: "w-16 shrink-0 text-right font-mono tabular-nums text-foreground-subtle",
 			}),
 		],
 	)

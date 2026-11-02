@@ -12,6 +12,7 @@ import {
 } from "./alerts"
 import { AnomalyDetectorSettings, AnomalyDetectorStates, AnomalyIncidents } from "./anomalies"
 import { ApiKeys } from "./api-keys"
+import { OrgBillingLinks } from "./billing-links"
 import { CancellationReviews } from "./cancellation-reviews"
 import { ChatIdentities } from "./chat-identities"
 import { ChatWorkspaces } from "./chat-workspaces"
@@ -75,9 +76,18 @@ import {
 	SecurityAuditTargets,
 	SecurityAuditUnits,
 } from "./security-audit"
+import { DependencyFindings, DependencyScanMatches, DependencyScans } from "./dependency-scan"
 import { SupabaseConnections, SupabaseProjectInsights, SupabaseProjects } from "./supabase"
 import { OrgSupportChannels } from "./support-channels"
-import { UptimeMonitorStates, UptimeMonitors } from "./uptime"
+import {
+	StatusPageComponents,
+	StatusPageIncidentComponents,
+	StatusPageCleanups,
+	StatusPageIncidentUpdates,
+	StatusPageIncidents,
+	StatusPages,
+} from "./status-pages"
+import { UptimeMonitorDaily, UptimeMonitorStates, UptimeMonitors } from "./uptime"
 import {
 	VcsInstallations,
 	VcsRepositories,
@@ -97,7 +107,9 @@ export * from "./ai-triage"
 export * from "./alerts"
 export * from "./anomalies"
 export * from "./api-keys"
+export * from "./billing-links"
 export * from "./cancellation-reviews"
+export * from "./dependency-scan"
 export * from "./chat-identities"
 export * from "./chat-workspaces"
 export * from "./cli-device-authorizations"
@@ -134,6 +146,7 @@ export * from "./railway"
 export * from "./scrape-targets"
 export * from "./security-audit"
 export * from "./sources"
+export * from "./status-pages"
 export * from "./supabase"
 export * from "./support-channels"
 export * from "./uptime"
@@ -202,6 +215,7 @@ export const allTables: ReadonlyArray<PgSchemaTable<string, ColumnDefs, string>>
 	OrgIngestKeys,
 	OrgIngestSamplingPolicies,
 	OrgOpenRouterKeys,
+	OrgBillingLinks,
 	Sources,
 	OrgRecommendationIssues,
 	PlanetscaleConnections,
@@ -221,12 +235,22 @@ export const allTables: ReadonlyArray<PgSchemaTable<string, ColumnDefs, string>>
 	SecurityAuditEvents,
 	SecurityAuditOrgReservations,
 	SecurityAuditOrgSettings,
+	DependencyScans,
+	DependencyScanMatches,
+	DependencyFindings,
 	SupabaseConnections,
 	SupabaseProjects,
 	SupabaseProjectInsights,
 	OrgSupportChannels,
 	UptimeMonitors,
 	UptimeMonitorStates,
+	UptimeMonitorDaily,
+	StatusPages,
+	StatusPageComponents,
+	StatusPageIncidents,
+	StatusPageIncidentUpdates,
+	StatusPageIncidentComponents,
+	StatusPageCleanups,
 	VcsInstallations,
 	VcsRepositories,
 	VcsCommits,

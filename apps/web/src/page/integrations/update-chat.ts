@@ -1,8 +1,8 @@
 import type { ChatWorkspaceId } from "@maple/domain/primitives"
 import { Option } from "effect"
 import { AsyncData, Command as FoldkitCommand } from "foldkit"
-import type { LoadFailure } from "../../data/load-failure"
-import * as Dialog from "../../ui/dialog"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import * as Dialog from "@maple/views/ui/dialog"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import { chatConnectorOf, chatManifestOf, integrationOfSearch } from "./catalog"
 import {
@@ -12,6 +12,7 @@ import {
 	LinkChatIdentity,
 	UnlinkChatIdentity,
 } from "./chat"
+import { disconnectSpec } from "./disconnect"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { chain, requestStatus } from "./update-status"
@@ -77,7 +78,7 @@ export const completedInstall = (model: Model, context: PageContext, failure: Lo
 	failure === null
 		? requestStatus(model, context, "chat", "Supersede")
 		: outcome(withCard(model, { busy: null }), context, failure, {
-				error: `Failed to start the ${platformOf(model)} install`,
+				error: `Couldn't start the ${platformOf(model)} install`,
 			})
 
 export const clickedIdentity = (model: Model): Return => {
@@ -104,11 +105,11 @@ export const completedIdentity = (
 		? failure === null
 			? requestStatus(model, context, "chat", "Supersede")
 			: outcome(withCard(model, { identityBusy: false }), context, failure, {
-					error: "Failed to start the account link",
+					error: "Couldn't start the account link",
 				})
 		: outcome(withCard(model, { identityBusy: false }), context, failure, {
 				success: "Account unlinked",
-				error: "Failed to unlink the account",
+				error: "Couldn't unlink the account",
 			})
 
 const withDialog = (model: Model, step: ReturnType<typeof Dialog.update>): Return => ({
@@ -140,9 +141,6 @@ export const completedDisconnect = (
 	return chain(closed.model, [
 		() => closed,
 		(next) =>
-			outcome(next, context, failure, {
-				success: "Workspace disconnected",
-				error: "Failed to disconnect the workspace",
-			}),
+			outcome(next, context, failure, disconnectSpec("chat")),
 	])
 }

@@ -1,4 +1,5 @@
 import { OrgId } from "@maple/domain"
+import { ServiceName } from "@maple/domain/http"
 import { Option, Result, Schema } from "effect"
 import {
 	click,
@@ -13,9 +14,9 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { ResolveThemeColors, ThemeMessage } from "../../charts/theme-colors"
-import { toLoadFailure } from "../../data/load-failure"
-import * as ServiceMap from "../../service-map/map/service-map"
+import { ResolveThemeColors, ThemeMessage } from "@maple/views/charts/theme-colors"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import * as ServiceMap from "@maple/views/service-map/map/service-map"
 import { PageOutMessage, type PageContext } from "../contract"
 import { CompleteReloadSpin, FetchBundle, FetchFacets, ResolveWindow } from "./command"
 import { Message } from "./message"
@@ -90,9 +91,10 @@ const BUNDLE: Bundle = {
 	overview: [overview("checkout"), overview("payments")],
 	platforms: [],
 	workloads: [],
+	runtimes: [],
 }
 
-const EMPTY_BUNDLE: Bundle = { edges: [], dbEdges: [], dbEdgesTimedOut: false, overview: [], platforms: [], workloads: [] }
+const EMPTY_BUNDLE: Bundle = { edges: [], dbEdges: [], dbEdgesTimedOut: false, overview: [], platforms: [], workloads: [], runtimes: [] }
 
 /** Entered, windowed and with the stored prefs read. */
 const windowed = (search: Model["search"] = {}): Model => {
@@ -343,5 +345,29 @@ describe("service map page: environment default across a refetch", () => {
 		)
 		expect(selectedEnvironment(failed.model)).toBe(ALL_ENVIRONMENTS)
 		expect(names(failed.commands)).not.toContain("FetchServiceMapBundle")
+	})
+})
+
+describe("service map page: where a service runs", () => {
+	test("a service on Cloud Run carries the platform onto its map node", () => {
+		const model = withBundle(windowed(), {
+			...BUNDLE,
+			runtimes: [
+				{
+					serviceName: Schema.decodeSync(ServiceName)("payments"),
+					kind: "cloudRun",
+					account: "acme-prod",
+					region: "europe-west1",
+					cluster: "",
+					railwayServiceId: "",
+					railwayEnvironmentId: "",
+					railwayEnvironmentName: "",
+				},
+			],
+		})
+		const runsOn = (id: string) =>
+			mapOf(model).source.rawNodes.find((node) => node.id === id)?.data.runsOn
+		expect(runsOn("payments")).toBe("Cloud Run")
+		expect(runsOn("checkout")).toBeUndefined()
 	})
 })

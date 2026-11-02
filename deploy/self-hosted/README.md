@@ -97,6 +97,8 @@ deployment already configures its managed warehouse locally.
 
 ## Boundaries
 
+- Public status pages are disabled in this deployment: their publisher and public server need
+  persistent storage and routing that this Compose stack does not provide.
 - Cloud-specific GitHub/PlanetScale queue integrations, security audit workflows, repository sandbox execution,
   chat connector bots and email delivery are not configured by this deployment.
 - AI chat, MCP tools, investigations and browser replay storage do not need those

@@ -13,14 +13,17 @@ import {
 import { cn } from "@maple/ui/lib/utils"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { choiceCard, choiceCheckClass } from "@maple/views/ui/choice-card"
 import { AppRoute, hrefOf } from "../../route"
-import { button } from "../../ui/button"
-import { icon } from "../../ui/icon"
-import { searchInput } from "../../ui/search-input"
+import { button } from "@maple/views/ui/button"
+import { heading } from "@maple/views/ui/heading"
+import { icon } from "@maple/views/ui/icon"
+import { searchInput } from "@maple/views/ui/search-input"
+import { textLink } from "@maple/views/ui/text-link"
 import { type PixelGlyphName, pixelGlyph } from "./option-card"
-import * as CopyButton from "../../ui/copy-button"
+import * as CopyButton from "@maple/views/ui/copy-button"
 import * as GuidedSetup from "../kit/guided-setup"
-import { presenceOf, type TelemetrySignalKind } from "../kit/signal-presence"
+import { presenceOf, type TelemetrySignalKind } from "@maple/views/data/signal-presence"
 import { ConnectMessage } from "./quick-start-connect"
 import type { LiveFindings } from "./quick-start-live"
 import { regionStep } from "./quick-start-region-view"
@@ -30,6 +33,11 @@ import * as QuickStartTeamView from "./quick-start-team-view"
 import { STEP_BODY_CLASS, STEP_FOOTER_CLASS } from "./step-layout"
 import { Message, type Model, MountDitherField } from "./quick-start"
 import { type QuickStartState, resolveQuickStartStep, type StepId } from "./quick-start-state"
+import { eyebrow, eyebrowVariants } from "@maple/views/ui/eyebrow"
+import { statusDot } from "@maple/views/ui/status-dot"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack, hstackClass, vstack } from "@maple/views/ui/stack"
+import { layer } from "@maple/views/ui/layer"
 
 // `/quick-start`: each step's form on the left and, where it has one, a preview of what it sets up on
 // the right, over the dithered backdrop that spreads a little further every step.
@@ -38,7 +46,7 @@ type H = HtmlBuilder<Message>
 
 /** `OnboardingLayout`'s right cluster: the progress trail, then the account actions. */
 export const accountClusterOf = <M>(h: HtmlBuilder<M>, children: ReadonlyArray<Html>): Html =>
-	h.div([h.Class("flex items-center gap-3")], children)
+	hstack(h, { gap: "3" }, children)
 
 /**
  * `MotionStep key={step}` at rest (reduced motion: no slide). A new step is a new element, as
@@ -71,7 +79,7 @@ const trail = (h: H, items: ReadonlyArray<TrailItem>): Html =>
 		[h.AriaLabel("Onboarding progress"), h.Class("hidden items-center gap-2 text-xs md:flex")],
 		[
 			h.ol(
-				[h.Class("flex items-center gap-2")],
+				[h.Class(hstackClass({ gap: "2" }))],
 				items.map((item, index) =>
 					h.li(
 						[
@@ -95,10 +103,12 @@ const trail = (h: H, items: ReadonlyArray<TrailItem>): Html =>
 										],
 										[item.label],
 									)
-								: h.span(
-										[h.Class("flex items-center gap-1.5 text-muted-foreground")],
+								: hstack(h, { gap: "1.5", as: "span", className: typographyClass({ tone: "muted" }) },
 										[
-											icon(h, "CheckIcon", { size: 12, className: "text-success" }),
+											icon(h, "CheckIcon", {
+												size: 12,
+												className: "text-severity-info",
+											}),
 											item.answer,
 										],
 									),
@@ -144,13 +154,7 @@ const shell = (h: H, options: ShellOptions, children: ReadonlyArray<Html>): Html
 		[
 			...(options.aside === null
 				? [
-						h.div(
-							[
-								h.AriaHidden(true),
-								h.Class("pointer-events-none absolute inset-0 overflow-hidden"),
-							],
-							[canvas],
-						),
+						layer(h, { clip: true, attributes: [h.AriaHidden(true)] }, [canvas]),
 					]
 				: []),
 			h.div(
@@ -170,8 +174,7 @@ const shell = (h: H, options: ShellOptions, children: ReadonlyArray<Html>): Html
 							),
 						],
 						[
-							h.div(
-								[h.Class("flex items-center gap-2")],
+							hstack(h, { gap: "2" },
 								[
 									h.span(
 										[h.AriaHidden(true), h.Class("text-primary")],
@@ -202,13 +205,7 @@ const shell = (h: H, options: ShellOptions, children: ReadonlyArray<Html>): Html
 								),
 							],
 							[
-								h.div(
-									[
-										h.AriaHidden(true),
-										h.Class("pointer-events-none absolute inset-0 overflow-hidden"),
-									],
-									[canvas],
-								),
+								layer(h, { clip: true, attributes: [h.AriaHidden(true)] }, [canvas]),
 								h.div(
 									[
 										h.Class(
@@ -221,7 +218,7 @@ const shell = (h: H, options: ShellOptions, children: ReadonlyArray<Html>): Html
 												h.Key(options.step),
 												h.Class(
 													cn(
-														"relative m-auto w-full max-w-[540px] rounded-2xl border border-border bg-sidebar p-5",
+														"relative m-auto w-full max-w-[540px] rounded-md border border-border bg-sidebar p-5",
 														"onboarding-enter-preview",
 													),
 												),
@@ -241,66 +238,37 @@ const shell = (h: H, options: ShellOptions, children: ReadonlyArray<Html>): Html
 
 /** A compact pick: one line of label and description, so the whole stack fits on a laptop screen. */
 const stackCard = (h: H, item: StackItem, isChecked: boolean, onChange: Message): Html =>
-	h.label(
-		[h.Class("group relative cursor-pointer")],
+	choiceCard(
+		h,
+		{ type: "checkbox", isChecked, label: item.label, onChange, className: "items-center gap-3 p-3" },
 		[
-			h.input([
-				h.Type("checkbox"),
-				h.Class("peer sr-only"),
-				h.Checked(isChecked),
-				h.AriaLabel(item.label),
-				h.OnChange(() => onChange),
-			]),
-			h.div(
+			h.span(
+				[h.AriaHidden(true), h.Class("flex size-7 shrink-0 items-center justify-center")],
+				[icon(h, item.icon, { size: 18 })],
+			),
+			vstack(h, { shrink: true, grow: true, as: "span" },
 				[
-					h.Class(
-						cn(
-							"flex items-center gap-3 rounded-md border px-3 py-2.5 transition-colors duration-150 motion-reduce:transition-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background",
-							isChecked
-								? "border-primary bg-primary/5"
-								: "border-border group-hover:border-foreground/30",
-						),
-					),
+					typography(h, { size: "sm", weight: "medium", truncate: true }, [item.label]),
+					typography(h, { size: "xs", tone: "muted", truncate: true }, [item.description]),
 				],
+			),
+			h.span(
 				[
-					h.span(
-						[h.AriaHidden(true), h.Class("flex size-7 shrink-0 items-center justify-center")],
-						[icon(h, item.icon, { size: 18 })],
-					),
-					h.span(
-						[h.Class("flex min-w-0 flex-1 flex-col")],
-						[
-							h.span([h.Class("truncate text-sm font-medium")], [item.label]),
-							h.span([h.Class("truncate text-xs text-muted-foreground")], [item.description]),
-						],
-					),
-					h.span(
-						[
-							h.AriaHidden(true),
-							h.Class(
-								cn(
-									"flex size-4 shrink-0 items-center justify-center rounded-sm border",
-									isChecked
-										? "border-primary bg-primary text-primary-foreground"
-										: "border-input",
-								),
-							),
-						],
-						isChecked ? [icon(h, "CheckIcon", { size: 12 })] : [],
-					),
+					h.AriaHidden(true),
+					h.Class(choiceCheckClass(isChecked)),
 				],
+				isChecked ? [icon(h, "CheckIcon", { size: 12 })] : [],
 			),
 		],
 	)
 
-const STACK_LEGEND_CLASS = "text-2xs uppercase tracking-widest text-muted-foreground"
 const STACK_GRID_CLASS = "grid gap-2 sm:grid-cols-2 xl:grid-cols-3"
 
 const stackGroup = (h: H, legend: string, cards: ReadonlyArray<Html>): Html =>
 	h.fieldset(
 		[h.Class("flex min-w-0 flex-col gap-3")],
 		[
-			h.legend([h.Class(cn("mb-3", STACK_LEGEND_CLASS))], [legend]),
+			h.legend([h.Class(cn("mb-3", eyebrowVariants({ variant: "label" })))], [legend]),
 			h.div([h.Class(STACK_GRID_CLASS)], cards),
 		],
 	)
@@ -326,14 +294,13 @@ const languageGroup = (h: H, state: QuickStartState, query: string): Html => {
 		[h.Class("flex min-w-0 flex-col gap-3")],
 		[
 			h.legend([h.Class("sr-only")], ["Your code"]),
-			h.div(
-				[h.Class("flex items-center justify-between gap-4")],
+			hstack(h, { gap: "4", justify: "between" },
 				[
-					h.span([h.AriaHidden(true), h.Class(STACK_LEGEND_CLASS)], ["Your code"]),
+					eyebrow(h, { variant: "label", attributes: [h.AriaHidden(true)] }, ["Your code"]),
 					searchInput(h, {
 						id: "stack-language-search",
 						value: query,
-						placeholder: "Search languages",
+						placeholder: "Search languages…",
 						ariaLabel: "Search languages",
 						onInput: (value) => Message.ChangedLanguageQuery({ query: value }),
 						onClear: Message.ChangedLanguageQuery({ query: "" }),
@@ -346,8 +313,7 @@ const languageGroup = (h: H, state: QuickStartState, query: string): Html => {
 						// Same height as the grid, so the section below stays put while typing.
 						[h.Class("flex h-[14rem] flex-col gap-3")],
 						[
-							h.p(
-								[h.Class("text-sm text-muted-foreground")],
+							typography(h, { size: "sm", tone: "muted", as: "p" },
 								[
 									`Nothing called "${query.trim()}" yet. Any OpenTelemetry SDK works with Maple:`,
 								],
@@ -390,7 +356,7 @@ const stepFooter = (h: H, children: ReadonlyArray<Html>, back: StepId | null = n
 		? h.div([h.Class(STEP_FOOTER_CLASS)], children)
 		: h.div(
 				[h.Class(cn(STEP_FOOTER_CLASS, "justify-between"))],
-				[backButton(h, back), h.div([h.Class("flex items-center gap-4")], children)],
+				[backButton(h, back), hstack(h, { gap: "4" }, children)],
 			)
 
 const stackStep = (h: H, state: QuickStartState, query: string, hasPlan: boolean): Html => {
@@ -399,15 +365,11 @@ const stackStep = (h: H, state: QuickStartState, query: string, hasPlan: boolean
 	return h.div(
 		[h.Class(STEP_BODY_CLASS)],
 		[
-			h.div(
-				[h.Class("flex flex-col gap-2.5")],
+			vstack(h, { gap: "2.5" },
 				[
-					h.h1(
-						[h.Class("font-display text-3xl font-semibold tracking-tight")],
-						["What are you running?"],
-					),
+					heading(h, { level: 1, variant: "display" }, ["What are you running?"]),
 					h.p(
-						[h.Class("text-[15px] leading-relaxed text-muted-foreground")],
+						[h.Class("text-title leading-relaxed text-muted-foreground")],
 						["Pick everything that applies. We set up just those, and you can add more later."],
 					),
 				],
@@ -431,7 +393,7 @@ const stackStep = (h: H, state: QuickStartState, query: string, hasPlan: boolean
 					...(picked === 0
 						? [
 								h.span(
-									[h.Class("text-sm text-muted-foreground")],
+									[h.Class("hidden text-sm text-muted-foreground sm:inline")],
 									["Not sure yet? You can skip this."],
 								),
 							]
@@ -466,33 +428,33 @@ const INTENT_GLYPH = {
 /** What the picks fill in Maple, each surface with the picks behind it. */
 const stackPreview = (h: H, orgName: string, state: QuickStartState): Html => {
 	const surfaces = filledSurfaces(state.stack)
-	return h.div(
-		[h.Class("flex flex-col gap-4")],
+	return vstack(h, { gap: "4" },
 		[
-			h.div(
-				[h.Class("flex flex-col gap-1")],
+			vstack(h, { gap: "1" },
 				[
-					h.span(
-						[h.Class("text-2xs uppercase tracking-widest text-muted-foreground")],
-						[`What ${orgName} gets`],
-					),
+					eyebrow(h, { variant: "label" }, [`What ${orgName} gets`]),
 					h.span(
 						[h.Class("font-display text-xl font-semibold")],
-						[
-							surfaces.length === 0
-								? "Pick what you run to see it here"
-								: `${surfaces.length} places light up`,
-						],
+						[surfaces.length === 0 ? "Nothing picked yet" : `${surfaces.length} places light up`],
 					),
 				],
 			),
 			...(surfaces.length === 0
-				? []
+				? [
+						h.p(
+							[
+								h.Class(
+									"rounded-md border border-dashed border-border px-4 py-8 text-center text-xs leading-relaxed text-muted-foreground",
+								),
+							],
+							["Pick a language or platform to see the pages it fills."],
+						),
+					]
 				: [
 						h.ul(
 							[
 								h.Class(
-									"flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-background",
+									"flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border bg-background",
 								),
 							],
 							surfaces.map((surface) =>
@@ -500,33 +462,25 @@ const stackPreview = (h: H, orgName: string, state: QuickStartState): Html => {
 									[h.Class("flex items-center gap-3.5 px-4 py-3")],
 									[
 										pixelGlyph(h, INTENT_GLYPH[surface.intent], true),
-										h.div(
-											[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
+										vstack(h, { gap: "0.5", shrink: true, grow: true },
 											[
-												h.span(
-													[h.Class("text-sm font-medium")],
+												typography(h, { size: "sm", weight: "medium" },
 													[ONBOARDING_INTENTS[surface.intent].label],
 												),
-												h.span(
-													[h.Class("text-xs text-muted-foreground")],
+												typography(h, { size: "xs", tone: "muted" },
 													[ONBOARDING_INTENTS[surface.intent].title],
 												),
 											],
 										),
 										surface.sources.length === 0
-											? h.span(
-													[h.Class("shrink-0 text-2xs text-muted-foreground")],
+											? typography(h, { size: "2xs", tone: "muted", className: "shrink-0" },
 													["On everything"],
 												)
-											: h.span(
-													[
-														h.Class("flex shrink-0 items-center gap-1"),
-														h.Title(
+											: hstack(h, { gap: "1", as: "span", className: "shrink-0", attributes: [h.Title(
 															surface.sources
 																.map((source) => source.label)
 																.join(", "),
-														),
-													],
+														)] },
 													surface.sources.map((source) =>
 														h.span(
 															[
@@ -572,19 +526,17 @@ const providerRow = (h: H, model: Model, platform: StackPlatform): Html => {
 				],
 				[icon(h, item.icon, { size: 18 })],
 			),
-			h.div(
-				[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
+			vstack(h, { gap: "0.5", shrink: true, grow: true },
 				[
-					h.span([h.Class("text-sm font-medium")], [item.label]),
-					h.span([h.Class("text-xs text-muted-foreground")], [item.description]),
+					typography(h, { size: "sm", weight: "medium" }, [item.label]),
+					typography(h, { size: "xs", tone: "muted" }, [item.description]),
 				],
 			),
 			isConnected
-				? h.div(
-						[h.Class("flex items-center gap-3")],
+				? hstack(h, { gap: "3" },
 						[
 							h.span(
-								[h.Class("flex items-center gap-1.5 text-sm text-success")],
+								[h.Class("flex items-center gap-1.5 text-sm text-severity-info")],
 								[icon(h, "CircleCheckIcon", { size: 14 }), "Connected"],
 							),
 							// A push source made after its sheet was dismissed: its one-time token is still there.
@@ -628,17 +580,13 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 	return h.div(
 		[h.Class(STEP_BODY_CLASS)],
 		[
-			h.div(
-				[h.Class("flex flex-col gap-2.5")],
+			vstack(h, { gap: "2.5" },
 				[
-					h.h1(
-						[h.Class("font-display text-3xl font-semibold tracking-tight")],
-						["Connect your stack"],
-					),
+					heading(h, { level: 1, variant: "display" }, ["Connect your stack"]),
 					h.p(
-						[h.Class("text-[15px] leading-relaxed text-muted-foreground")],
+						[h.Class("text-title leading-relaxed text-muted-foreground")],
 						[
-							"Connect each provider without leaving setup. Your code sends its traces, logs and metrics with OpenTelemetry: one prompt to your coding agent, or a few lines by hand.",
+							"Your code sends traces, logs and metrics with OpenTelemetry. Hand one prompt to your coding agent, or add a few lines by hand.",
 						],
 					),
 				],
@@ -646,17 +594,13 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 			...(platforms.length === 0
 				? []
 				: [
-						h.section(
-							[h.Class("flex flex-col gap-3")],
+						vstack(h, { gap: "3", as: "section" },
 							[
-								h.h2(
-									[h.Class("text-2xs uppercase tracking-widest text-muted-foreground")],
-									["Providers"],
-								),
+								eyebrow(h, { variant: "label", as: "h2" }, ["Providers"]),
 								h.ul(
 									[
 										h.Class(
-											"flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border bg-card",
+											"flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border bg-card",
 										),
 									],
 									platforms.map((platform) => providerRow(h, model, platform)),
@@ -664,23 +608,16 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 							],
 						),
 					]),
-			h.section(
-				[h.Class("flex flex-col gap-3")],
+			vstack(h, { gap: "3", as: "section" },
 				[
-					h.div(
-						[h.Class("flex items-center justify-between gap-3")],
+					hstack(h, { gap: "3", justify: "between" },
 						[
-							h.h2(
-								[
-									h.Class(
-										"flex items-center gap-2 text-2xs uppercase tracking-widest text-muted-foreground",
-									),
-								],
-								["Your code, with OpenTelemetry"],
-							),
+							eyebrow(h, { variant: "label", as: "h2", className: hstackClass({ gap: "2" }) }, [
+								"Your code, with OpenTelemetry",
+							]),
 							// The languages picked, or every SDK there are snippets for when none was.
 							h.span(
-								[h.AriaHidden(true), h.Class("flex items-center gap-1.5")],
+								[h.AriaHidden(true), h.Class("flex items-center gap-1.5 max-sm:hidden")],
 								(state.stack.languages.length === 0
 									? ([
 											"FrameworkNodejsIcon",
@@ -698,7 +635,7 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 												"flex size-6 items-center justify-center rounded-sm border border-border bg-card",
 											),
 										],
-										[icon(h, name, { size: 13 })],
+										[icon(h, name, { size: 14 })],
 									),
 								),
 							),
@@ -729,8 +666,7 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 					}),
 					...(connect.keys._tag === "Failed"
 						? [
-								h.p(
-									[h.Class("text-xs text-muted-foreground")],
+								typography(h, { size: "xs", tone: "muted", as: "p" },
 									[
 										"Couldn't read your ingest key. An admin can copy it from Settings, Ingestion.",
 									],
@@ -743,7 +679,7 @@ export const connectStep = (h: H, model: Model, state: QuickStartState): Html =>
 				h,
 				[
 					h.span(
-						[h.Class("text-sm text-muted-foreground")],
+						[h.Class("hidden text-sm text-muted-foreground sm:inline")],
 						["We keep listening while you move on."],
 					),
 					button(
@@ -773,19 +709,14 @@ const connectPreview = (h: H, orgName: string, model: Model, state: QuickStartSt
 	}))
 	const arriving = rows.filter((row) => row.presence.status === "present").length
 	const providers = state.stack.platforms
-	return h.div(
-		[h.Class("flex flex-col gap-4"), h.AriaLive("polite")],
+	return vstack(h, { gap: "4", attributes: [h.AriaLive("polite")] },
 		[
 			h.div(
 				[h.Class("flex items-end justify-between gap-3")],
 				[
-					h.div(
-						[h.Class("flex flex-col gap-1")],
+					vstack(h, { gap: "1" },
 						[
-							h.span(
-								[h.Class("text-2xs uppercase tracking-widest text-muted-foreground")],
-								[`Arriving in ${orgName}`],
-							),
+							eyebrow(h, { variant: "label" }, [`Arriving in ${orgName}`]),
 							h.span(
 								[h.Class("font-display text-xl font-semibold")],
 								[
@@ -802,23 +733,19 @@ const connectPreview = (h: H, orgName: string, model: Model, state: QuickStartSt
 								"flex items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 text-2xs text-muted-foreground",
 							),
 						],
-						[
-							h.span([h.AriaHidden(true), h.Class("size-1.5 rounded-full bg-success")], []),
-							"Listening",
-						],
+						[statusDot(h, { tone: "ok" }), "Listening"],
 					),
 				],
 			),
 			h.ul(
 				[
 					h.Class(
-						"flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-background",
+						"flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border bg-background",
 					),
 				],
 				[
 					...rows.map((row) =>
-						h.li(
-							[h.Class("flex items-center gap-3 px-4 py-3")],
+						hstack(h, { gap: "3", as: "li", className: "px-4 py-3" },
 							[
 								h.span([h.Class("flex-1 text-sm")], [row.label]),
 								h.span(
@@ -827,7 +754,7 @@ const connectPreview = (h: H, orgName: string, model: Model, state: QuickStartSt
 											cn(
 												"text-xs",
 												row.presence.status === "present"
-													? "text-success"
+													? "text-severity-info"
 													: "text-muted-foreground",
 											),
 										),
@@ -844,8 +771,7 @@ const connectPreview = (h: H, orgName: string, model: Model, state: QuickStartSt
 						),
 					),
 					...providers.map((platform) =>
-						h.li(
-							[h.Class("flex items-center gap-3 px-4 py-3")],
+						hstack(h, { gap: "3", as: "li", className: "px-4 py-3" },
 							[
 								h.span(
 									[h.AriaHidden(true), h.Class("flex")],
@@ -858,7 +784,7 @@ const connectPreview = (h: H, orgName: string, model: Model, state: QuickStartSt
 											cn(
 												"text-xs",
 												model.connect.connected[platform] === true
-													? "text-success"
+													? "text-severity-info"
 													: "text-muted-foreground",
 											),
 										),
@@ -894,7 +820,7 @@ const percent = (rate: number): string => `${(rate * 100).toFixed(rate < 0.01 ? 
 const startCards = (findings: LiveFindings | null): ReadonlyArray<StartCard> => [
 	{
 		glyph: "nodes-3",
-		title: "Service Map",
+		title: "Service map",
 		finding:
 			findings === null || findings.serviceCount === 0
 				? "Draws itself from your first traces: which services call which."
@@ -957,12 +883,20 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 						[h.Class("flex flex-col items-center gap-3 text-center")],
 						[
 							h.p(
-								[h.Class(cn("text-sm", isLive ? "text-success" : "text-muted-foreground"))],
+								[
+									h.Class(
+										cn(
+											"text-sm",
+											isLive ? "text-severity-info" : "text-muted-foreground",
+										),
+									),
+								],
 								[isLive ? "Data is flowing" : "All set up"],
 							),
-							h.h1(
-								[h.Class("font-display text-4xl font-semibold tracking-tight")],
-								[isLive ? `${orgName} is live.` : `${orgName} is ready for its first data.`],
+							heading(
+								h,
+								{ level: 1, variant: "display" },
+								[isLive ? `${orgName} is live` : `${orgName} is ready for its first data`],
 							),
 							h.ul(
 								[
@@ -974,7 +908,7 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 										chip(h, [
 											icon(h, "CircleCheckIcon", {
 												size: 12,
-												className: "text-success",
+												className: "text-severity-info",
 											}),
 											row.label,
 										]),
@@ -996,49 +930,61 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 							),
 						],
 					),
-					h.section(
-						[h.Class("flex flex-col gap-3")],
+					vstack(h, { gap: "3", as: "section" },
 						[
-							h.h2(
-								[h.Class("text-2xs uppercase tracking-widest text-muted-foreground")],
-								["Start with your own data"],
-							),
+							eyebrow(h, { variant: "label", as: "h2" }, ["Start with your own data"]),
 							h.ul(
 								[
 									h.Class(
-										"grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3",
+										"grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3",
 									),
 								],
+								// The whole card is the link; its glyph and arrow answer the hover.
 								startCards(findings).map((card) =>
 									h.li(
-										[h.Class("flex flex-col gap-3.5 bg-background p-5")],
+										[h.Class("flex bg-background")],
 										[
-											pixelGlyph(h, card.glyph, true),
-											h.div(
-												[h.Class("flex flex-col gap-1")],
-												[
-													h.span(
-														[h.Class("text-[15px] font-medium")],
-														[card.title],
-													),
-													h.span(
-														[
-															h.Class(
-																"text-[13px] leading-relaxed text-muted-foreground",
-															),
-														],
-														[card.finding],
-													),
-												],
-											),
 											h.a(
 												[
 													h.Href(card.href),
 													h.Class(
-														"mt-auto flex items-center gap-1.5 text-[13px] text-primary hover:underline",
+														"group flex flex-1 flex-col gap-3.5 p-5 outline-none hover:bg-surface-faint focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-surface-faint",
 													),
 												],
-												[card.action, icon(h, "ArrowRightIcon", { size: 12 })],
+												[
+													pixelGlyph(h, card.glyph, false),
+													vstack(h, { gap: "1", as: "span" },
+														[
+															h.span(
+																[h.Class("text-title font-medium")],
+																[card.title],
+															),
+															h.span(
+																[
+																	h.Class(
+																		"text-ui leading-relaxed text-muted-foreground",
+																	),
+																],
+																[card.finding],
+															),
+														],
+													),
+													h.span(
+														[
+															h.Class(
+																"mt-auto flex items-center gap-1.5 text-ui text-muted-foreground group-hover:text-foreground",
+															),
+														],
+														[
+															card.action,
+															icon(h, "ArrowRightIcon", {
+																size: 12,
+																className:
+																	"transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none",
+															}),
+														],
+													),
+												],
 											),
 										],
 									),
@@ -1049,27 +995,18 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 					...(notConnected.length === 0 && arriving.length === signals.length
 						? []
 						: [
-								h.section(
-									[h.Class("flex flex-col gap-3")],
+								vstack(h, { gap: "3", as: "section" },
 									[
-										h.h2(
-											[
-												h.Class(
-													"text-2xs uppercase tracking-widest text-muted-foreground",
-												),
-											],
-											["Still waiting on"],
-										),
+										eyebrow(h, { variant: "label", as: "h2" }, ["Still waiting on"]),
 										h.ul(
 											[
 												h.Class(
-													"flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border",
+													"flex flex-col divide-y divide-border overflow-hidden rounded-md border border-border",
 												),
 											],
 											[
 												...notConnected.map((platform) =>
-													h.li(
-														[h.Class("flex items-center gap-3 px-4 py-3")],
+													hstack(h, { gap: "3", as: "li", className: "px-4 py-3" },
 														[
 															h.span(
 																[h.AriaHidden(true), h.Class("flex")],
@@ -1085,19 +1022,22 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 																	`Connect ${STACK_PLATFORMS[platform].label}`,
 																],
 															),
-															h.button(
-																[
-																	h.Type("button"),
-																	h.AriaLabel(
-																		`Set up ${STACK_PLATFORMS[platform].label}`,
-																	),
-																	h.OnClick(
-																		Message.ClickedSetUp({ platform }),
-																	),
-																	h.Class(
-																		"text-xs text-primary hover:underline",
-																	),
-																],
+															button(
+																h,
+																{
+																	variant: "outline",
+																	size: "xs",
+																	attributes: [
+																		h.AriaLabel(
+																			`Set up ${STACK_PLATFORMS[platform].label}`,
+																		),
+																		h.OnClick(
+																			Message.ClickedSetUp({
+																				platform,
+																			}),
+																		),
+																	],
+																},
 																["Set up"],
 															),
 														],
@@ -1106,12 +1046,7 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 												...(arriving.length > 0
 													? []
 													: [
-															h.li(
-																[
-																	h.Class(
-																		"flex items-center gap-3 px-4 py-3",
-																	),
-																],
+															hstack(h, { gap: "3", as: "li", className: "px-4 py-3" },
 																[
 																	icon(h, "ClockIcon", {
 																		size: 14,
@@ -1121,13 +1056,11 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 																		[h.Class("flex-1 text-sm")],
 																		["Your first span, log or metric"],
 																	),
-																	h.span(
+																	hstack(h, { gap: "1.5", as: "span", className: typographyClass({ size: "xs", tone: "muted" }) },
 																		[
-																			h.Class(
-																				"text-xs text-muted-foreground",
-																			),
+																			statusDot(h, { tone: "ok" }),
+																			"Listening",
 																		],
-																		["Listening"],
 																	),
 																],
 															),
@@ -1138,26 +1071,36 @@ export const liveStep = (h: H, model: Model, state: QuickStartState, orgName: st
 								),
 							]),
 					h.div(
-						[h.Class("flex flex-col items-center gap-3")],
+						[h.Class("flex flex-col items-center gap-4")],
 						[
-							button(
-								h,
-								{
-									size: "lg",
-									attributes: [h.OnClick(Message.ClickedContinue({ step: "live" }))],
-								},
-								[`Go to ${orgName}`, icon(h, "ArrowRightIcon", { size: 16 })],
-							),
-							h.a(
+							h.div(
+								[h.Class("flex max-w-full flex-wrap items-center justify-center gap-2")],
 								[
-									h.Href(hrefOf(AppRoute.Alerts({ search: {} }))),
-									h.Class(
-										"text-xs text-muted-foreground underline-offset-4 hover:underline",
+									backButton(h, "team"),
+									button(
+										h,
+										{
+											size: "lg",
+											attributes: [
+												h.OnClick(Message.ClickedContinue({ step: "live" })),
+											],
+										},
+										[
+											h.span([h.Class("max-w-64 truncate")], [`Go to ${orgName}`]),
+											icon(h, "ArrowRightIcon", { size: 16 }),
+										],
 									),
 								],
+							),
+							textLink(
+								h,
+								{
+									tone: "muted",
+									className: "text-xs",
+									href: hrefOf(AppRoute.Alerts({ search: {} })),
+								},
 								["Or set up your first alert"],
 							),
-							backButton(h, "team"),
 						],
 					),
 				],

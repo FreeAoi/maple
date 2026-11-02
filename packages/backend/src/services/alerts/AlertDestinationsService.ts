@@ -21,6 +21,7 @@ import {
 	type ChatWorkspaceId as ChatWorkspaceIdType,
 	type OrgId,
 	type UserId,
+	parseGoogleChatWebhookUrl,
 } from "@maple/domain/http"
 import * as Orm from "@maple-dev/effect-orm/database"
 import * as PG from "@maple-dev/effect-orm/postgres"
@@ -33,7 +34,6 @@ import { EmailService } from "@maple/backend/platform/EmailService"
 import { Env } from "@maple/backend/platform/Env"
 import { currentTxid, readTxid } from "@maple/backend/platform/electric-txid"
 import { validateExternalUrl } from "@maple/safe-fetch"
-import { HazelOAuthService, type HazelOAuthServiceApi } from "@maple/backend/services/auth/HazelOAuthService"
 import {
 	LinearOAuthService,
 	type LinearOAuthServiceApi,
@@ -110,7 +110,6 @@ const emailSecretConfig = (members: ReadonlyArray<OrgMember>): DestinationSecret
 })
 
 type AlertDestinationDependencyError =
-	| Effect.Error<ReturnType<HazelOAuthServiceApi["createChannelWebhook"]>>
 	| Effect.Error<ReturnType<OrgMembersServiceApi["resolveMembers"]>>
 	| Effect.Error<ReturnType<LinearOAuthServiceApi["getTeam"]>>
 
@@ -127,20 +126,23 @@ const linearSecretConfig = (team: LinearTeam): DestinationSecretConfig => ({
 	teamName: team.name,
 })
 
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
+
 const encryptSecret = (
-	plaintext: string,
+	secretConfig: DestinationSecretConfig,
 	encryptionKey: Buffer,
 	destinationId: AlertDestinationDocument["id"],
-): Effect.Effect<EncryptedValue, AlertDestinationEncryptionError> =>
-	encryptAes256Gcm(
-		plaintext,
-		encryptionKey,
-		() =>
-			new AlertDestinationEncryptionError({
-				message: "Failed to encrypt destination secret",
-				destinationId,
-			}),
+): Effect.Effect<EncryptedValue, AlertDestinationEncryptionError> => {
+	const encryptionError = () =>
+		new AlertDestinationEncryptionError({
+			message: "Failed to encrypt destination secret",
+			destinationId,
+		})
+	return Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(secretConfig).pipe(
+		Effect.mapError(encryptionError),
+		Effect.flatMap((plaintext) => encryptAes256Gcm(plaintext, encryptionKey, encryptionError)),
 	)
+}
 
 const summarizeWebhookUrl = (url: string) =>
 	Option.match(Option.liftThrowable(() => new URL(url))(), {
@@ -150,6 +152,22 @@ const summarizeWebhookUrl = (url: string) =>
 
 const TELEGRAM_MALFORMED_TOKEN_MESSAGE =
 	"Telegram bot token must look like `123456789:ABC-DEF…` — copy it from @BotFather without the `bot` prefix."
+
+/** The space id is not a secret; the `key` and `token` query parameters are. */
+const googleChatSummary = (webhookUrl: string) =>
+	Option.match(parseGoogleChatWebhookUrl(webhookUrl), {
+		onNone: () => "Google Chat space",
+		onSome: ({ spaceId }) => `Space ${spaceId}`,
+	})
+
+const validateGoogleChatWebhookUrl = (rawUrl: string): Effect.Effect<string, AlertValidationError> =>
+	Option.isSome(parseGoogleChatWebhookUrl(rawUrl))
+		? validateDestinationUrl(rawUrl, "webhookUrl")
+		: Effect.fail(
+				makeValidationError(
+					"Google Chat webhook URL must look like `https://chat.googleapis.com/v1/spaces/…/messages?key=…&token=…` — copy it from the space's Apps & integrations → Webhooks.",
+				),
+			)
 
 /** A chat id is not a secret, but it is also not a name — label it as what it is. */
 const telegramSummary = (chatId: string) => `Chat ${chatId.trim()}`
@@ -176,29 +194,18 @@ const buildPublicConfig = (
 		Match.discriminatorsExhaustive("type")({
 			pagerduty: () => ({ summary: "PagerDuty Events API v2", channelLabel: null }),
 			webhook: (r) => ({ summary: summarizeWebhookUrl(r.url), channelLabel: null }),
-			"hazel-oauth": (r) => ({
-				summary: `${r.hazelOrganizationName} · #${r.hazelChannelName}`,
-				channelLabel: `#${r.hazelChannelName}`,
-				hazelOrganizationId: r.hazelOrganizationId,
-				hazelOrganizationName: r.hazelOrganizationName,
-				hazelOrganizationLogoUrl: r.hazelOrganizationLogoUrl ?? null,
-				hazelChannelId: r.hazelChannelId,
-				hazelChannelName: r.hazelChannelName,
-			}),
 			discord: (r) => ({ summary: summarizeWebhookUrl(r.webhookUrl), channelLabel: null }),
 			// The chat id, not the token: this config is Electric-synced to the
 			// browser, so nothing secret may appear here. It rides in
 			// `channelLabel` as well as the summary so the edit form can prefill it
 			// — without that, renaming a destination would demand retyping the id.
 			telegram: (r) => ({ summary: telegramSummary(r.chatId), channelLabel: r.chatId.trim() }),
+			"google-chat": (r) => ({ summary: googleChatSummary(r.webhookUrl), channelLabel: null }),
 		}),
 	)
 
 const buildSecretConfig = (
-	request: Exclude<
-		AlertDestinationCreateRequest,
-		{ readonly type: "hazel-oauth" | "email" | "chat" | "linear" }
-	>,
+	request: Exclude<AlertDestinationCreateRequest, { readonly type: "email" | "chat" | "linear" }>,
 ): DestinationSecretConfig =>
 	Match.value(request).pipe(
 		Match.discriminatorsExhaustive("type")({
@@ -214,6 +221,7 @@ const buildSecretConfig = (
 				botToken: r.botToken.trim(),
 				chatId: r.chatId.trim(),
 			}),
+			"google-chat": (r) => ({ type: "google-chat" as const, webhookUrl: r.webhookUrl.trim() }),
 		}),
 	)
 
@@ -356,7 +364,6 @@ export class AlertDestinationsService extends Context.Service<
 		const env = yield* Env
 		const runtime = yield* AlertRuntime
 		const httpClient = yield* HttpClient.HttpClient
-		const hazelOAuth = yield* HazelOAuthService
 		const linearOAuth = yield* LinearOAuthService
 		const email = yield* EmailService
 		const orgMembers = yield* OrgMembersService
@@ -540,7 +547,7 @@ export class AlertDestinationsService extends Context.Service<
 			if (request.type === "webhook") yield* validateDestinationUrl(request.url, "url")
 			else if (request.type === "discord") {
 				yield* validateDestinationUrl(request.webhookUrl, "webhookUrl")
-			}
+			} else if (request.type === "google-chat") yield* validateGoogleChatWebhookUrl(request.webhookUrl)
 			const destinationId = decodeAlertDestinationIdSync(runtime.makeUuid())
 			let publicConfig: DestinationPublicConfig
 			let secretConfig: DestinationSecretConfig
@@ -566,36 +573,13 @@ export class AlertDestinationsService extends Context.Service<
 				secretConfig = linearSecretConfig(team)
 			} else {
 				publicConfig = buildPublicConfig(request)
-				secretConfig =
-					request.type === "hazel-oauth"
-						? yield* hazelOAuth
-								.createChannelWebhook(orgId, {
-									channelId: request.hazelChannelId.trim(),
-									name: request.name.trim(),
-								})
-								.pipe(
-									Effect.map((webhook) => ({
-										type: "hazel-oauth" as const,
-										hazelOrganizationId: request.hazelOrganizationId.trim(),
-										hazelOrganizationName: request.hazelOrganizationName.trim(),
-										hazelChannelId: request.hazelChannelId.trim(),
-										hazelChannelName: request.hazelChannelName.trim(),
-										webhookId: webhook.id,
-										webhookUrl: webhook.webhookUrl,
-										webhookToken: webhook.token,
-									})),
-								)
-						: buildSecretConfig(request)
+				secretConfig = buildSecretConfig(request)
 			}
 			if (secretConfig.type === "pagerduty") yield* validatePagerDutyKey(secretConfig.integrationKey)
 			if (secretConfig.type === "telegram") {
 				yield* validateTelegramCredentials(secretConfig.botToken, secretConfig.chatId)
 			}
-			const encryptedSecret = yield* encryptSecret(
-				JSON.stringify(secretConfig),
-				encryptionKey,
-				destinationId,
-			)
+			const encryptedSecret = yield* encryptSecret(secretConfig, encryptionKey, destinationId)
 			const timestamp = yield* runtime.now
 			const row = {
 				id: destinationId,
@@ -647,6 +631,12 @@ export class AlertDestinationsService extends Context.Service<
 				request.webhookUrl.trim().length > 0
 			) {
 				yield* validateDestinationUrl(request.webhookUrl, "webhookUrl")
+			} else if (
+				request.type === "google-chat" &&
+				request.webhookUrl != null &&
+				request.webhookUrl.trim().length > 0
+			) {
+				yield* validateGoogleChatWebhookUrl(request.webhookUrl)
 			}
 
 			const { nextPublicConfig, nextSecretConfig } = yield* Match.value(request).pipe(
@@ -687,61 +677,6 @@ export class AlertDestinationsService extends Context.Service<
 										: normalizeOptionalString(r.signingSecret),
 							} satisfies DestinationSecretConfig,
 						}),
-					"hazel-oauth": (r) =>
-						Effect.gen(function* () {
-							const previousSecret =
-								hydrated.secretConfig.type === "hazel-oauth" ? hydrated.secretConfig : null
-							const nextOrganizationId =
-								normalizeOptionalString(r.hazelOrganizationId) ??
-								previousSecret?.hazelOrganizationId ??
-								""
-							const nextOrganizationName =
-								normalizeOptionalString(r.hazelOrganizationName) ??
-								previousSecret?.hazelOrganizationName ??
-								""
-							const nextOrganizationLogoUrl =
-								r.hazelOrganizationLogoUrl === undefined
-									? (hydrated.publicConfig.hazelOrganizationLogoUrl ?? null)
-									: r.hazelOrganizationLogoUrl
-							const nextChannelId =
-								normalizeOptionalString(r.hazelChannelId) ??
-								previousSecret?.hazelChannelId ??
-								""
-							const nextChannelName =
-								normalizeOptionalString(r.hazelChannelName) ??
-								previousSecret?.hazelChannelName ??
-								""
-							const nextName = normalizeOptionalString(r.name) ?? existing.name
-							const channelChanged =
-								previousSecret == null || previousSecret.hazelChannelId !== nextChannelId
-							const provisioned = channelChanged
-								? yield* hazelOAuth.createChannelWebhook(orgId, {
-										channelId: nextChannelId,
-										name: nextName,
-									})
-								: null
-							return {
-								nextPublicConfig: {
-									summary: `${nextOrganizationName} · #${nextChannelName}`,
-									channelLabel: `#${nextChannelName}`,
-									hazelOrganizationId: nextOrganizationId,
-									hazelOrganizationName: nextOrganizationName,
-									hazelOrganizationLogoUrl: nextOrganizationLogoUrl,
-									hazelChannelId: nextChannelId,
-									hazelChannelName: nextChannelName,
-								} satisfies DestinationPublicConfig,
-								nextSecretConfig: {
-									type: "hazel-oauth" as const,
-									hazelOrganizationId: nextOrganizationId,
-									hazelOrganizationName: nextOrganizationName,
-									hazelChannelId: nextChannelId,
-									hazelChannelName: nextChannelName,
-									webhookId: provisioned?.id ?? previousSecret!.webhookId,
-									webhookUrl: provisioned?.webhookUrl ?? previousSecret!.webhookUrl,
-									webhookToken: provisioned?.token ?? previousSecret!.webhookToken,
-								} satisfies DestinationSecretConfig,
-							}
-						}),
 					discord: (r) =>
 						Effect.succeed({
 							nextPublicConfig: {
@@ -760,6 +695,26 @@ export class AlertDestinationsService extends Context.Service<
 										: ""),
 							} satisfies DestinationSecretConfig,
 						}),
+					"google-chat": (r) => {
+						const nextUrl = normalizeOptionalString(r.webhookUrl)
+						return Effect.succeed({
+							nextPublicConfig: {
+								summary:
+									nextUrl != null
+										? googleChatSummary(nextUrl)
+										: hydrated.publicConfig.summary,
+								channelLabel: null,
+							} satisfies DestinationPublicConfig,
+							nextSecretConfig: {
+								type: "google-chat" as const,
+								webhookUrl:
+									nextUrl ??
+									(hydrated.secretConfig.type === "google-chat"
+										? hydrated.secretConfig.webhookUrl
+										: ""),
+							} satisfies DestinationSecretConfig,
+						})
+					},
 					telegram: (r) => {
 						const previous =
 							hydrated.secretConfig.type === "telegram" ? hydrated.secretConfig : null
@@ -871,11 +826,7 @@ export class AlertDestinationsService extends Context.Service<
 			) {
 				yield* validateTelegramCredentials(nextSecretConfig.botToken, nextSecretConfig.chatId)
 			}
-			const encryptedSecret = yield* encryptSecret(
-				JSON.stringify(nextSecretConfig),
-				encryptionKey,
-				destinationId,
-			)
+			const encryptedSecret = yield* encryptSecret(nextSecretConfig, encryptionKey, destinationId)
 			const timestamp = yield* runtime.now
 			const nextName = normalizeOptionalString(request.name) ?? existing.name
 			const nextEnabled = request.enabled === undefined ? existing.enabled : request.enabled
@@ -996,7 +947,7 @@ export class AlertDestinationsService extends Context.Service<
 								.where(($) => [
 									$.orgId.eq(orgId),
 									PG.sql
-										.cond`${$.destinationIdsJson} @> ${JSON.stringify([destinationId])}::jsonb`,
+										.cond`${$.destinationIdsJson} @> ${encodeJson([destinationId])}::jsonb`,
 								]),
 						)
 						if (stillReferenced.length > 0) {
@@ -1088,7 +1039,6 @@ export class AlertDestinationsService extends Context.Service<
 		Layer.provide(
 			Layer.mergeAll(
 				EmailService.layer,
-				HazelOAuthService.layer,
 				LinearOAuthService.layer,
 				LinearIssueTracker.layer,
 				OrgMembersService.layer,

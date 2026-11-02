@@ -1,8 +1,7 @@
 import { cn } from "@maple/ui/lib/utils"
-import { badgeVariants } from "@maple/ui/styles/ui/badge"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { badge } from "../../../ui/display"
-import { icon } from "../../../ui/icon"
+import { badge, badgeClass } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
 
 // `HeroChip`.
 
@@ -37,9 +36,9 @@ const FIELD_CLASS = "min-w-0 gap-1 font-normal text-muted-foreground"
  */
 export const heroFieldChipClass = (isPicker: boolean): string =>
 	cn(
-		badgeVariants({ variant: isPicker ? "meta" : "muted", size: "xs", mono: true }),
+		badgeClass({ variant: isPicker ? "meta" : "muted", size: "xs", mono: true }),
 		FIELD_CLASS,
-		isPicker && "cursor-pointer transition-colors hover:text-foreground",
+		isPicker && "cursor-pointer hover:text-foreground active:text-foreground",
 	)
 
 export type HeroFieldChipOptions = Readonly<{
@@ -61,7 +60,7 @@ export const heroFieldChipParts = <M>(
 	return [
 		...(options.isValueFirst === true ? [value, ...label] : [...label, value]),
 		...(options.isPicker === true
-			? [icon(h, "ChevronDownIcon", { className: "size-3 shrink-0 opacity-60" })]
+			? [icon(h, "ChevronDownIcon", { className: "size-3 shrink-0" })]
 			: []),
 	]
 }

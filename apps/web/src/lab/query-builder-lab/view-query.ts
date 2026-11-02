@@ -11,12 +11,12 @@ import { QueryChange, type AddOnKey } from "../../page/kit/query-builder/change"
 import type { QueryDraft } from "../../page/kit/query-builder/draft"
 import { textInput } from "../../page/kit/query-builder/parts"
 import { whereEditor } from "../../page/kit/query-builder/where-editor"
-import { button } from "../../ui/button"
-import { card, cardHeader, cardPanel } from "../../ui/card"
-import * as Checkbox from "../../ui/checkbox"
-import { icon } from "../../ui/icon"
-import { label } from "../../ui/label"
-import { toggle } from "../../ui/toggle"
+import { button } from "@maple/views/ui/button"
+import { card, cardHeader, cardPanel } from "@maple/views/ui/card"
+import * as Checkbox from "@maple/views/ui/checkbox"
+import { icon } from "@maple/views/ui/icon"
+import { label } from "@maple/views/ui/label"
+import { toggle } from "@maple/views/ui/toggle"
 import { metricOptionsOf } from "./derive"
 import { Message, type Model } from "./model"
 import { fieldEyebrow, labSelect } from "./view-controls"
@@ -57,7 +57,7 @@ const header = (h: H, model: Model, query: QueryDraft): Html => {
 				[h.Class("flex flex-wrap items-center justify-between gap-2")],
 				[
 					labSelect(h, model, `source:${query.id}`, query.dataSource, DATA_SOURCES, {
-						className: "w-[120px]",
+						className: "w-32",
 						toView: (parts) =>
 							h.div(
 								[h.Class("flex items-center gap-2")],
@@ -248,7 +248,7 @@ const addOnToggles = (h: H, query: QueryDraft): Html =>
 							size: "xs",
 							isPressed: isOn,
 							onClick: changed(query, QueryChange.ToggledAddOn({ key: addOn.key })),
-							className: isOn ? "border-primary/40 text-foreground" : "text-muted-foreground",
+							className: isOn ? "border-primary-a4 text-foreground" : "text-muted-foreground",
 						},
 						[...(isOn ? [icon(h, "CheckIcon", { size: 12 })] : []), addOn.label],
 					)

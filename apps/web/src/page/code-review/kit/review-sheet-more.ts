@@ -1,18 +1,22 @@
 import type { CodeReviewDetail, PrReviewPostMerge, PrReviewTelemetry } from "@maple/domain/http"
-import { formatCount, outcomeOf } from "../../../components/code-review/code-review-format"
-import { countLabel, formatDuration, formatErrorRate } from "@maple/ui/lib/format"
+import { outcomeOf } from "../../../components/code-review/code-review-format"
+import { countLabel, formatDuration, formatErrorRate, formatNumber } from "@maple/ui/lib/format"
 import { formatRelativeFrom } from "@maple/ui/lib/time-format"
 import { TONE_TEXT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
 import { DateTime } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { skeleton } from "../../../ui/skeleton"
-import { truncatedId } from "../../../ui/truncated-id"
+import { ciRunsSkeleton } from "./skeletons"
+import { pressable } from "@maple/views/ui/pressable"
+import { truncatedId } from "@maple/views/ui/truncated-id"
 import { relativeTime } from "../../kit/relative-time"
 import { bulletList, ciResultBadge, section, traceLink } from "./parts"
 import { type ReviewSheet, SheetMessage } from "./review-sheet"
 import { CI_RUNS_SHOWN } from "./review-sheet-update"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { vstack } from "@maple/views/ui/stack"
 
 // `ProductionSection`, `PostMergeSection`, `PullRequestCiRuns` and the review history.
 
@@ -28,8 +32,7 @@ export const productionSection = (h: H, telemetry: PrReviewTelemetry): ReadonlyA
 			...(breaks.length === 0
 				? []
 				: [
-						h.ul(
-							[h.Class("flex flex-col gap-1.5 text-sm")],
+						vstack(h, { gap: "1.5", as: "ul", className: typographyClass({ size: "sm" }) },
 							breaks.map((item) =>
 								h.li(
 									[...(item.dismissed ? [h.Class("text-muted-foreground")] : [])],
@@ -46,7 +49,7 @@ export const productionSection = (h: H, telemetry: PrReviewTelemetry): ReadonlyA
 											[item.dismissed ? "Still emitted elsewhere" : "Stops arriving"],
 										),
 										" ",
-										h.code([h.Class("font-mono text-xs")], [item.name]),
+										h.code([h.Class(typographyClass({ size: "xs", mono: true }))], [item.name]),
 										" · ",
 										item.references.map((ref) => `${ref.kind} “${ref.name}”`).join(", "),
 									],
@@ -61,7 +64,7 @@ export const productionSection = (h: H, telemetry: PrReviewTelemetry): ReadonlyA
 							h,
 							telemetry.linkedIssues.map(
 								(issue) =>
-									`Open error in ${issue.path}: ${issue.title} (${formatCount(issue.occurrences)} occurrences)`,
+									`Open error in ${issue.path}: ${issue.title} (${formatNumber(issue.occurrences)} occurrences)`,
 							),
 						),
 					]),
@@ -74,7 +77,7 @@ export const productionSection = (h: H, telemetry: PrReviewTelemetry): ReadonlyA
 								.slice(0, 5)
 								.map(
 									(file) =>
-										`${file.path}: ${formatCount(file.perDay)} calls/day (${file.operations[0]?.spanName ?? ""})`,
+										`${file.path}: ${formatNumber(file.perDay)} calls/day (${file.operations[0]?.spanName ?? ""})`,
 								),
 						),
 					]),
@@ -119,14 +122,12 @@ const ciSection = (h: H, children: ReadonlyArray<Html>): Html => section(h, "CI 
 /** `PullRequestCiRuns`: the pull request's runs over the last 90 days. */
 export const ciRunsSection = (h: H, sheet: ReviewSheet): Html =>
 	AsyncData.matchData(sheet.ciRuns.data, {
-		onEmpty: () => ciSection(h, [skeleton(h, "h-16 w-full")]),
+		onEmpty: () => ciSection(h, [ciRunsSkeleton(h)]),
 		onFailure: () =>
-			ciSection(h, [h.p([h.Class("text-sm text-muted-foreground")], ["Couldn't load cI runs"])]),
+			ciSection(h, [typography(h, { size: "sm", tone: "muted", as: "p" }, ["Couldn't load CI runs"])]),
 		onData: (response) =>
 			response.runs.length === 0
-				? ciSection(h, [
-						h.p([h.Class("text-sm text-muted-foreground")], ["No CI runs in the last 90 days"]),
-					])
+				? ciSection(h, [emptyMessage(h, {}, ["No CI runs in the last 90 days"])])
 				: ciSection(h, [
 						h.ul(
 							[h.Class("-mx-2 flex flex-col")],
@@ -135,19 +136,18 @@ export const ciRunsSection = (h: H, sheet: ReviewSheet): Html =>
 									[
 										h.Key(run.traceId),
 										h.Class(
-											"flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-muted/60",
+											"flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-surface-sunken active:bg-surface-sunken",
 										),
 									],
 									[
 										ciResultBadge(h, run.result, run.attempt, "w-32 shrink-0"),
-										h.span(
-											[h.Class("min-w-0 flex-1 truncate"), h.Title(run.pipeline)],
+										typography(h, { truncate: true, className: "min-w-0 flex-1", attributes: [h.Title(run.pipeline)] },
 											[run.pipeline],
 										),
 										truncatedId(h, {
 											value: run.revision,
 											kind: "sha",
-											className: "text-xs text-muted-foreground",
+											className: typographyClass({ size: "xs", tone: "muted" }),
 										}),
 										h.span(
 											[
@@ -165,8 +165,7 @@ export const ciRunsSection = (h: H, sheet: ReviewSheet): Html =>
 						...(response.nextCursor === null
 							? []
 							: [
-									h.p(
-										[h.Class("text-xs text-muted-foreground")],
+									typography(h, { size: "xs", tone: "muted", as: "p" },
 										[`Latest ${CI_RUNS_SHOWN} runs`],
 									),
 								]),
@@ -183,27 +182,25 @@ export const historySection = (h: H, sheet: ReviewSheet, detail: CodeReviewDetai
 				return h.li(
 					[h.Key(entry.id)],
 					[
-						h.button(
-							[
-								h.Class(
-									cn(
-										"flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-										isCurrent ? "bg-muted" : "hover:bg-muted/60",
-									),
+						pressable(
+							h,
+							{
+								onClick: SheetMessage.ClickedHistoryEntry({ reviewId: entry.id }),
+								// The current review is marked by its tint, not dimmed like a disabled control.
+								isDisabled: isCurrent,
+								className: cn(
+									"flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-default disabled:opacity-100",
+									isCurrent ? "bg-muted" : "hover:bg-surface-sunken active:bg-surface-sunken",
 								),
-								...(isCurrent ? [h.Disabled(true)] : []),
-								h.Type("button"),
-								h.OnClick(SheetMessage.ClickedHistoryEntry({ reviewId: entry.id })),
-							],
+							},
 							[
 								truncatedId(h, {
 									value: entry.headSha,
 									kind: "sha",
-									className: "text-xs text-muted-foreground",
+									className: typographyClass({ size: "xs", tone: "muted" }),
 								}),
 								h.span([h.Class(cn("flex-1", outcome.tone))], [outcome.label]),
-								h.span(
-									[h.Class("tabular-nums text-muted-foreground")],
+								typography(h, { tone: "muted", numeric: true },
 									[countLabel(entry.findings, "issue")],
 								),
 								relativeTime(h, {

@@ -1,16 +1,19 @@
+import { pluralize } from "@maple/ui/lib/format"
 import { cn } from "@maple/ui/lib/utils"
-import { rowActionsMenuContentStyles, rowActionsMenuIconStyles } from "@maple/ui/styles/ui/row-actions-menu"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import { button, linkButton } from "../../../ui/button"
-import { empty, emptyContent, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../ui/empty"
-import { icon } from "../../../ui/icon"
-import { iconButton } from "../../../ui/icon-button"
+import { button, linkButton } from "@maple/views/ui/button"
+import { cardButton } from "@maple/views/ui/card-button"
+import { empty, emptyContent, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "@maple/views/ui/empty"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { rowActionsMenu } from "@maple/views/ui/row-actions-menu"
 import { listSectionHeader, toolbarSearch } from "../kit/list-parts"
-import * as Menu from "../../../ui/menu"
-import * as MenuView from "../../../ui/menu-view"
-import { segmentedSelect } from "../../../ui/segmented-select"
-import { skeleton, skeletonSlowNote } from "../../../ui/skeleton"
+import * as Menu from "@maple/views/ui/menu"
+import * as MenuView from "@maple/views/ui/menu-view"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
+import { skeleton, skeletonSlowNote } from "@maple/views/ui/skeleton"
+import { listToolbar, toolbarCount } from "../../kit/list-toolbar"
 import { docsLink } from "../../kit/signal-empty-state"
 import { DASHBOARD_SORT_OPTIONS, type DashboardSortOption } from "../kit/summary"
 import { relativeTime } from "../../kit/relative-time"
@@ -21,6 +24,8 @@ import type { ListDashboard, Model, Scope } from "./model"
 import { isReadOnly, rowMenuIdOf } from "./update"
 import { deleteDialog } from "./view-dialogs"
 import { tagFilterView } from "./view-tag-filter"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // `DashboardList`: the dashboards as rows.
 
@@ -55,7 +60,9 @@ const tagFilter = (h: H, model: Model, allTags: ReadonlyArray<string>): Html =>
 	allTags.length === 0
 		? disabledReason(
 				h,
-				button(h, { variant: "outline", className: "shrink-0", isDisabled: true }, ["Tags"]),
+				button(h, { variant: "outline", size: "sm", className: "shrink-0", isDisabled: true }, [
+					"Tags",
+				]),
 			)
 		: h.submodel({
 				slotId: "dashboards-tag-filter",
@@ -90,9 +97,11 @@ const sortMenu = (h: H, model: Model): Html => {
 				h.div(
 					[h.Class("contents")],
 					withTrigger(
-						button(h, { variant: "outline", className: "shrink-0", attributes: trigger }, [
-							SORT_LABELS[sort],
-						]),
+						button(
+							h,
+							{ variant: "outline", size: "sm", className: "shrink-0", attributes: trigger },
+							[SORT_LABELS[sort]],
+						),
 					),
 				),
 		},
@@ -102,43 +111,32 @@ const sortMenu = (h: H, model: Model): Html => {
 
 const toolbar = (h: H, model: Model, dashboards: ReadonlyArray<ListDashboard>, scoped: number): Html => {
 	const isFiltering = queryOf(model.search).trim().length > 0 || tagsOf(model.search).length > 0
-	return h.div(
-		[
-			h.Class(
-				cn(
-					"flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3",
-					"justify-start gap-2 border-b-0 px-0 pt-0",
-				),
-			),
-		],
-		[
+	return listToolbar(h, {
+		leading: segmentedSelect<Scope, Message>(h, {
+			options: SCOPE_OPTIONS,
+			value: scopeOf(model.search),
+			onChange: (scope) => Message.ChangedScope({ scope }),
+			ariaLabel: "Filter dashboards by favorite",
+			size: "sm",
+			className: "shrink-0",
+		}),
+		trailing: [
 			toolbarSearch(h, {
 				id: "dashboards-search",
 				draft: model.searchDraft,
-				placeholder: "Search dashboards",
-				className: "min-w-0 grow sm:max-w-70",
+				placeholder: "Search dashboards…",
+				className: "w-full min-w-0 sm:w-70",
 				onInput: (value) => Message.ChangedSearchDraft({ value }),
-			}),
-			segmentedSelect<Scope, Message>(h, {
-				options: SCOPE_OPTIONS,
-				value: scopeOf(model.search),
-				onChange: (scope) => Message.ChangedScope({ scope }),
-				ariaLabel: "Filter dashboards by favorite",
-				className: "shrink-0",
 			}),
 			tagFilter(h, model, collectTags(dashboards)),
 			sortMenu(h, model),
-			h.span([h.Class("grow")], []),
-			h.span(
-				[h.Class("text-muted-foreground shrink-0 font-mono text-2xs")],
-				[
-					isFiltering || scopeOf(model.search) === "favorites"
-						? `${scoped} of ${dashboards.length}`
-						: `${dashboards.length} of ${dashboards.length}`,
-				],
-			),
+			toolbarCount(h, [
+				isFiltering || scopeOf(model.search) === "favorites"
+					? `${scoped} of ${dashboards.length}`
+					: `${dashboards.length} of ${dashboards.length}`,
+			]),
 		],
-	)
+	})
 }
 
 /** The reason in the menu itself: a tooltip would break the menu's roving focus. */
@@ -163,7 +161,7 @@ const rowMenuEntries = (isReadOnly: boolean): ReadonlyArray<MenuView.MenuEntry> 
 			{
 				_tag: "Item",
 				value: "delete",
-				label: "Delete…",
+				label: "Delete",
 				variant: "destructive",
 				isDisabled: isReadOnly,
 			},
@@ -175,35 +173,12 @@ const rowMenuEntries = (isReadOnly: boolean): ReadonlyArray<MenuView.MenuEntry> 
 /** `RowActionsMenu`: the kebab trigger; only the active row holds live menu state. */
 const rowMenu = (h: H, model: Model, dashboard: ListDashboard): Html => {
 	const menu = model.rowMenuId === dashboard.id ? model.rowMenu : Menu.init(rowMenuIdOf(dashboard.id))
-	return h.submodel({
+	return rowActionsMenu(h, {
 		slotId: `row-menu-${dashboard.id}`,
 		model: menu,
-		view: MenuView.view,
-		viewInputs: {
-			entries: rowMenuEntries(isReadOnly(model)),
-			align: "end",
-			className: rowActionsMenuContentStyles,
-			toView: ({ trigger, withTrigger }) =>
-				h.div(
-					[h.Class("contents")],
-					withTrigger(
-						button(
-							h,
-							{
-								variant: "ghost",
-								size: "icon-sm",
-								className: "text-muted-foreground",
-								attributes: [
-									h.AriaLabel(`More actions for ${displayName(dashboard.name)}`),
-									...trigger,
-									h.DataAttribute("slot", "row-actions-trigger"),
-								],
-							},
-							[icon(h, "DotsVerticalIcon", { className: rowActionsMenuIconStyles })],
-						),
-					),
-				),
-		},
+		entries: rowMenuEntries(isReadOnly(model)),
+		label: `More actions for ${displayName(dashboard.name)}`,
+		className: "text-muted-foreground",
 		toParentMessage: (message) => Message.GotRowMenuMessage({ rowId: dashboard.id, message }),
 	})
 }
@@ -213,13 +188,13 @@ type RowContext = Readonly<{ model: Model; nowMs: number; timeZone: string }>
 /** `DashboardRow`: one link for the whole row, then the star and the kebab above it. */
 const dashboardRow = (h: H, context: RowContext, dashboard: ListDashboard, isFavorite: boolean): Html => {
 	const isEmpty = dashboard.widgetCount === 0
-	const widgets = `${dashboard.widgetCount} ${dashboard.widgetCount === 1 ? "widget" : "widgets"}`
+	const widgets = `${dashboard.widgetCount} ${pluralize(dashboard.widgetCount, "widget")}`
 	const name = displayName(dashboard.name)
 	return h.keyed("div")(
 		dashboard.id,
 		[
 			h.Class(
-				"group relative flex items-center border-b border-border last:border-b-0 transition-colors hover:bg-muted/50 focus-within:bg-muted/50",
+				"group relative flex items-center border-b border-border last:border-b-0 hover:bg-surface-sunken active:bg-surface-sunken focus-within:bg-surface-sunken",
 			),
 		],
 		[
@@ -265,7 +240,7 @@ const dashboardRow = (h: H, context: RowContext, dashboard: ListDashboard, isFav
 								[
 									h.Class(
 										cn(
-											"truncate text-sm font-medium",
+											typographyClass({ size: "sm", weight: "medium", truncate: true }),
 											dashboard.name.trim() !== ""
 												? "text-foreground"
 												: "text-muted-foreground",
@@ -307,15 +282,16 @@ const dashboardRow = (h: H, context: RowContext, dashboard: ListDashboard, isFav
 								[
 									h.Class(
 										cn(
-											"font-mono text-2xs",
+											typographyClass({ size: "2xs", mono: true }),
 											isEmpty ? "text-severity-warn" : "text-foreground",
 										),
 									),
 								],
 								[isEmpty ? "no widgets" : widgets],
 							),
-							h.span(
-								[h.Class("text-muted-foreground truncate font-mono text-3xs")],
+							typography(
+								h,
+								{ size: "3xs", tone: "muted", mono: true, truncate: true },
 								isEmpty ? [] : [dashboard.readsShort],
 							),
 						],
@@ -339,7 +315,7 @@ const dashboardRow = (h: H, context: RowContext, dashboard: ListDashboard, isFav
 						{
 							size: "icon-xs",
 							label: isFavorite ? `Unstar ${name}` : `Star ${name}`,
-							className: isFavorite ? "text-primary" : "text-muted-foreground/40",
+							className: isFavorite ? "text-primary" : "text-foreground-faint",
 							attributes: [
 								h.AriaPressed(String(isFavorite)),
 								h.OnClick(Message.ToggledFavorite({ id: dashboard.id })),
@@ -356,15 +332,14 @@ const dashboardRow = (h: H, context: RowContext, dashboard: ListDashboard, isFav
 
 /** `CreateRow`: pinned below the list so a filter can never make it read as a result. */
 const createRow = (h: H, isReadOnly: boolean): Html =>
-	h.button(
-		[
-			h.Type("button"),
-			h.OnClick(Message.ClickedCreate()),
-			...(isReadOnly ? [h.Disabled(true)] : []),
-			h.Class(
-				"mt-4 flex w-full shrink-0 items-center gap-3 rounded-md border border-dashed border-input bg-card py-3 pr-4 pl-3 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
-			),
-		],
+	cardButton(
+		h,
+		{
+			onClick: Message.ClickedCreate(),
+			isDisabled: isReadOnly,
+			className:
+				"mt-4 flex w-full shrink-0 items-center gap-3 border-dashed border-input py-3 pr-4 pl-3",
+		},
 		[
 			h.span(
 				[h.Class("flex size-5.5 shrink-0 items-center justify-center")],
@@ -373,14 +348,13 @@ const createRow = (h: H, isReadOnly: boolean): Html =>
 			h.span(
 				[h.Class("flex min-w-0 grow flex-wrap items-baseline gap-x-2.5 gap-y-0.5")],
 				[
-					h.span([h.Class("text-sm font-medium text-foreground")], ["New dashboard"]),
-					h.span(
-						[h.Class("text-muted-foreground text-2xs")],
-						["Start blank, or pick a template already wired to metrics you send."],
-					),
+					typography(h, { size: "sm", tone: "foreground", weight: "medium" }, ["New dashboard"]),
+					typography(h, { size: "2xs", tone: "muted" }, [
+						"Start blank, or pick a template already wired to metrics you send.",
+					]),
 				],
 			),
-			icon(h, "ArrowRightIcon", { size: 13, className: "text-muted-foreground shrink-0" }),
+			icon(h, "ArrowRightIcon", { size: 14, className: "text-muted-foreground shrink-0" }),
 		],
 	)
 
@@ -396,27 +370,22 @@ const firstRunEmpty = (h: H, isReadOnly: boolean): Html =>
 					"Templates check what your services already send, so you can start from one that will render data immediately. Or build from an empty canvas.",
 				]),
 			]),
-			h.div(
-				[h.Class("flex flex-wrap items-center justify-center gap-2")],
-				[
-					linkButton(
-						h,
-						{ size: "sm", href: hrefOf(AppRoute.DashboardsTemplates({ search: {} })) },
-						["Browse templates"],
-					),
-					button(
-						h,
-						{
-							variant: "outline",
-							size: "sm",
-							isDisabled: isReadOnly,
-							attributes: [h.OnClick(Message.ClickedCreate())],
-						},
-						["Create blank dashboard"],
-					),
-					docsLink(h, "dashboards"),
-				],
-			),
+			hstack(h, { gap: "2", justify: "center", wrap: true }, [
+				linkButton(h, { size: "sm", href: hrefOf(AppRoute.DashboardsTemplates({ search: {} })) }, [
+					"Browse templates",
+				]),
+				button(
+					h,
+					{
+						variant: "outline",
+						size: "sm",
+						isDisabled: isReadOnly,
+						attributes: [h.OnClick(Message.ClickedCreate())],
+					},
+					["Create blank dashboard"],
+				),
+				docsLink(h, "dashboards"),
+			]),
 		],
 		"py-16",
 	)
@@ -429,7 +398,7 @@ const nothingMatched = (h: H, model: Model): Html => {
 		h,
 		[
 			emptyHeader(h, [
-				emptyMedia(h, { variant: "icon" }, [icon(h, "MagnifierIcon", { size: 17 })]),
+				emptyMedia(h, { variant: "icon" }, [icon(h, "MagnifierIcon", { size: 16 })]),
 				emptyTitle(h, [
 					isSearching
 						? `No dashboard matches “${query}”`
@@ -442,37 +411,34 @@ const nothingMatched = (h: H, model: Model): Html => {
 				]),
 			]),
 			emptyContent(h, [
-				h.div(
-					[h.Class("flex items-center gap-2")],
-					[
-						...(isSearching
-							? [
-									button(
-										h,
-										{
-											variant: "outline",
-											size: "sm",
-											attributes: [h.OnClick(Message.ClickedClearSearch())],
-										},
-										["Clear search"],
-									),
-								]
-							: []),
-						...(tagsOf(model.search).length > 0
-							? [
-									button(
-										h,
-										{
-											variant: "outline",
-											size: "sm",
-											attributes: [h.OnClick(Message.ClickedShowAllTags())],
-										},
-										["Show all"],
-									),
-								]
-							: []),
-					],
-				),
+				hstack(h, { gap: "2" }, [
+					...(isSearching
+						? [
+								button(
+									h,
+									{
+										variant: "outline",
+										size: "sm",
+										attributes: [h.OnClick(Message.ClickedClearSearch())],
+									},
+									["Clear search"],
+								),
+							]
+						: []),
+					...(tagsOf(model.search).length > 0
+						? [
+								button(
+									h,
+									{
+										variant: "outline",
+										size: "sm",
+										attributes: [h.OnClick(Message.ClickedShowAllTags())],
+									},
+									["Show all"],
+								),
+							]
+						: []),
+				]),
 			]),
 		],
 		"py-14",
@@ -484,7 +450,7 @@ const nothingStarred = (h: H): Html =>
 		h,
 		[
 			emptyHeader(h, [
-				emptyMedia(h, { variant: "icon" }, [icon(h, "StarIcon", { size: 17 })]),
+				emptyMedia(h, { variant: "icon" }, [icon(h, "StarIcon", { size: 16 })]),
 				emptyTitle(h, ["Nothing starred on this device"]),
 				emptyDescription(h, [
 					"Favorites are stored in this browser, not shared with your org. Star a dashboard to pin it to the top of the list.",
@@ -557,7 +523,7 @@ export const listBody = (
 						h.div(
 							[h.Class("flex items-center gap-2 border-y border-border py-2 text-2xs")],
 							[
-								h.span([h.Class("font-mono text-foreground")], [String(sections.matched)]),
+								typography(h, { tone: "foreground", mono: true }, [String(sections.matched)]),
 								h.span(
 									[h.Class("text-muted-foreground")],
 									["of ", String(dashboards.length), " match name, description or tag"],

@@ -4,7 +4,7 @@ import { SupabaseProjectRef } from "@maple/domain/primitives"
 import { Result, Schema } from "effect"
 import { expect as expectView, given, role, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { PageOutMessage, type PageContext } from "../contract"
 import { overviewOf } from "./derive"
 import { Message } from "./message"
@@ -288,7 +288,7 @@ describe("supabase card", () => {
 		expect(failed.outMessage).toEqual(
 			PageOutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to stop collecting logs",
+				title: "Couldn't stop collecting logs",
 				description: toLoadFailure("boom").message,
 			}),
 		)
@@ -411,7 +411,7 @@ describe("supabase card", () => {
 		expect(failed.outMessage).toEqual(
 			PageOutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to create the log drain",
+				title: "Couldn't create the log drain",
 				description: toLoadFailure("Log drains need a Supabase Pro plan or higher.").message,
 			}),
 		)
@@ -544,7 +544,7 @@ describe("supabase card", () => {
 		expect(failed.outMessage).toEqual(
 			PageOutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to sync Supabase",
+				title: "Couldn't sync Supabase",
 				description: toLoadFailure("boom").message,
 			}),
 		)
@@ -635,7 +635,7 @@ describe("supabase card", () => {
 		expect(failed.outMessage).toEqual(
 			PageOutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to start collecting metrics",
+				title: "Couldn't start collecting metrics",
 				description: toLoadFailure("boom").message,
 			}),
 		)

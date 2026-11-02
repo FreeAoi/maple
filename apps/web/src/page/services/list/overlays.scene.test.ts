@@ -2,7 +2,7 @@ import { OrgId } from "@maple/domain"
 import { Result, Schema } from "effect"
 import { AsyncData } from "foldkit"
 import { describe, expect, test } from "vitest"
-import * as HoverCard from "../../../ui/hover-card"
+import * as HoverCard from "@maple/views/ui/hover-card"
 import type { PageContext } from "../../contract"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -59,7 +59,7 @@ describe("services list overlays", () => {
 		expect(landed(false)).toMatchObject({
 			_tag: "RequestedNavigation",
 			url,
-			toast: { type: "error", title: "Failed to copy commit sha" },
+			toast: { type: "error", title: "Couldn't copy commit sha" },
 		})
 	})
 

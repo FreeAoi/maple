@@ -5,12 +5,12 @@ import {
 } from "../timeline-fixture"
 import { Option, Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
-import * as SpanPanel from "../../page/traces/detail/span-panel"
+import * as SpanPanel from "@maple/views/traces/span-panel"
 import * as Timeline from "../../page/traces/detail/timeline"
-import { type SpanEvents, TraceData, toSpanNode } from "../../page/traces/detail/trace-data"
+import { type SpanEvents, TraceData, toSpanNode } from "@maple/views/traces/trace-data"
 import * as Waterfall from "../../page/traces/detail/waterfall"
-import * as TraceFlow from "../../service-map/trace-flow/trace-flow"
-import * as Tabs from "../../ui/tabs"
+import * as TraceFlow from "@maple/views/service-map/trace-flow/trace-flow"
+import * as Tabs from "@maple/views/ui/tabs"
 
 // `/lab/timeline`: `TraceViewTabs` over a synthetic trace with a
 // wide dynamic range, span event markers, and the selected span's events beside it.

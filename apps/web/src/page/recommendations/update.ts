@@ -1,12 +1,12 @@
 import type { V2Recommendation } from "@maple/domain/http/v2"
 import { Option, Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Keyed from "../../data/keyed"
-import type { LoadFailure } from "../../data/load-failure"
-import { requestKey } from "../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
 import type { Resources } from "../../platform/resources"
 import type { AppRoute } from "../../route"
-import * as CopyButton from "../../ui/copy-button"
+import * as CopyButton from "@maple/views/ui/copy-button"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import {
 	CreateMapping,
@@ -128,14 +128,14 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 		ClickedReopen: () => startWrite(model, "reopen", (issue) => Option.some(ReopenRecommendation({ id: issue.id }))),
 		CompletedApply: ({ result }) =>
 			settle(model, context, result, {
-				error: "Failed to create mapping",
+				error: "Couldn't create mapping",
 				withMappings: true,
 				success: (mapping) => `Mapping created: ${mapping.source_key} → ${mapping.target_key}`,
 			}),
 		CompletedDismiss: ({ result }) =>
-			settle(model, context, result, { error: "Failed to dismiss recommendation", withMappings: false }),
+			settle(model, context, result, { error: "Couldn't dismiss recommendation", withMappings: false }),
 		CompletedReopen: ({ result }) =>
-			settle(model, context, result, { error: "Failed to reopen recommendation", withMappings: false }),
+			settle(model, context, result, { error: "Couldn't reopen recommendation", withMappings: false }),
 		GotCopyMessage: ({ message: inner }) => {
 			const next = CopyButton.update(model.copy, inner)
 			// `useCopy`'s toast: on by default for `<CopyButton label="Mapping">`.
@@ -144,7 +144,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				isCurrent && inner._tag === "SucceededCopy"
 					? { outMessage: PageOutMessage.RequestedToast({ type: "success", title: "Mapping copied", description: "" }) }
 					: isCurrent && inner._tag === "FailedCopy"
-						? { outMessage: PageOutMessage.RequestedToast({ type: "error", title: "Failed to copy mapping", description: "" }) }
+						? { outMessage: PageOutMessage.RequestedToast({ type: "error", title: "Couldn't copy mapping", description: "" }) }
 						: {}
 			return {
 				model: { ...model, copy: next.model },

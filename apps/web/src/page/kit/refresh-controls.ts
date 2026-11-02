@@ -1,11 +1,11 @@
 import { REFRESH_INTERVAL_OPTIONS } from "../../lib/dashboard-controls/search-params"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../ui/button"
-import { icon } from "../../ui/icon"
-import type * as Menu from "../../ui/menu"
-import * as MenuView from "../../ui/menu-view"
-import { refreshButton } from "../../ui/refresh-button"
+import { button } from "@maple/views/ui/button"
+import { icon } from "@maple/views/ui/icon"
+import type * as Menu from "@maple/views/ui/menu"
+import * as MenuView from "@maple/views/ui/menu-view"
+import { refreshButton } from "@maple/views/ui/refresh-button"
 
 // `RefreshControls`: Reload joined to the
 // auto-refresh cadence menu. The caller owns the menu Model and what a picked cadence does.
@@ -82,7 +82,7 @@ export const refreshControls = <M>(h: HtmlBuilder<M>, options: RefreshControlsOp
 											[h.Class(cn("tabular-nums", !isOn && "text-muted-foreground"))],
 											[formatRefreshInterval(seconds)],
 										),
-										icon(h, "ChevronDownIcon", { className: "size-3 opacity-60" }),
+										icon(h, "ChevronDownIcon", { className: "size-3.5" }),
 									],
 								),
 							),

@@ -1,13 +1,14 @@
+import { Schema } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { dashboardPage } from "../../page/kit/dashboard-page"
 import { textInput } from "../../page/kit/query-builder/parts"
 import { timeControls } from "../../page/kit/time-controls"
 import * as TimeRangePicker from "../../page/kit/time-range-picker"
-import { button } from "../../ui/button"
-import { card, cardDescription, cardFooter, cardHeader, cardPanel, cardTitle } from "../../ui/card"
-import { separator } from "../../ui/display"
-import { icon } from "../../ui/icon"
-import { scrollArea } from "../../ui/scroll-area"
+import { button } from "@maple/views/ui/button"
+import { card, cardDescription, cardFooter, cardHeader, cardPanel, cardTitle } from "@maple/views/ui/card"
+import { separator } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { scrollArea } from "@maple/views/ui/scroll-area"
 import { MeasureScrollArea } from "./command"
 import { scrollOverflowOf } from "./derive"
 import { type FormulaDraft, Message, type Model } from "./model"
@@ -15,6 +16,8 @@ import { DEFAULT_PRESET } from "./update"
 import { fieldEyebrow } from "./view-controls"
 import { queryRow } from "./view-query"
 import { resultsContent } from "./view-results"
+
+const encodePrettyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }))
 
 // `QueryBuilderLabPage` inside `DashboardLayout`: the header time controls and the lab card.
 
@@ -168,21 +171,17 @@ const statePreview = (h: H, model: Model): Html =>
 			h.pre(
 				[
 					h.Class(
-						"max-h-72 overflow-auto rounded-none border bg-muted/30 p-2 font-mono text-2xs leading-relaxed",
+						"max-h-72 overflow-auto rounded-none border bg-surface-sunken p-2 font-mono text-2xs leading-relaxed",
 					),
 				],
 				[
-					JSON.stringify(
-						{
-							startTime: model.window.startTime,
-							endTime: model.window.endTime,
-							queries: model.queries,
-							formulas: model.formulas,
-							submittedInput: model.submitted,
-						},
-						null,
-						2,
-					),
+					encodePrettyJson({
+						startTime: model.window.startTime,
+						endTime: model.window.endTime,
+						queries: model.queries,
+						formulas: model.formulas,
+						submittedInput: model.submitted,
+					}),
 				],
 			),
 		],

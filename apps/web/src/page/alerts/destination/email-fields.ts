@@ -3,7 +3,7 @@ import { AsyncData, Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { clerkTry, currentClerkOrganization } from "../../../platform/clerk"
 import type { Resources } from "../../../platform/resources"
-import * as Combobox from "../../../ui/combobox"
+import * as Combobox from "@maple/views/ui/combobox"
 import type { DestinationForm } from "./form"
 
 // `EmailMemberPicker`: workspace members from Clerk's
@@ -48,17 +48,19 @@ export const FetchEmailMembers = Command.define("FetchAlertEmailMembers", {
 				organization.getMemberships({ initialPage: 1, pageSize: PAGE_SIZE }),
 			),
 		),
-		Effect.map((result) =>
-			result.data.flatMap((member): ReadonlyArray<MemberOption> => {
-				const user = member.publicUserData
-				const userId = user?.userId
-				const email = user?.identifier
-				if (userId === undefined || userId === null || email === undefined || email === "") return []
-				const name = [user?.firstName, user?.lastName].filter((part) => part).join(" ")
-				return [{ userId, label: name || email, meta: name ? email : null }]
-			}),
-		),
-		Effect.mapError((error) => error.message),
+		Effect.mapBoth({
+			onSuccess: (result) =>
+				result.data.flatMap((member): ReadonlyArray<MemberOption> => {
+					const user = member.publicUserData
+					const userId = user?.userId
+					const email = user?.identifier
+					if (userId === undefined || userId === null || email === undefined || email === "")
+						return []
+					const name = [user?.firstName, user?.lastName].filter((part) => part).join(" ")
+					return [{ userId, label: name || email, meta: name ? email : null }]
+				}),
+			onFailure: (error) => error.message,
+		}),
 		Effect.result,
 		Effect.map((result) => Message.CompletedFetchMembers({ result })),
 	),

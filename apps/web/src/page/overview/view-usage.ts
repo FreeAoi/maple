@@ -1,22 +1,22 @@
 import { formatNumber } from "@maple/ui/lib/format"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { LoadFailure } from "../../data/load-failure"
-import { delta } from "../../ui/delta"
-import { skeleton } from "../../ui/skeleton"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { delta } from "@maple/views/ui/delta"
+import { skeleton } from "@maple/views/ui/skeleton"
 import type { Model, UsageTotals } from "./model"
 import { statRail, statRailItem, statRailLoading } from "../kit/stat-rail"
+import { typography } from "@maple/views/ui/typography"
 
 // The service usage cards.
 
-/** Overview rails share the chart cards' corner radius and their 24px inner inset. */
-export const OVERVIEW_RAIL_CLASS = "rounded-2xl"
-const OVERVIEW_TILE_CLASS = "px-6"
+/** Overview tiles share the chart cards' 16px inner inset. */
+const OVERVIEW_TILE_CLASS = "px-4"
 
 const CARDS: ReadonlyArray<{ title: string; key: keyof UsageTotals; format: (value: number) => string }> = [
-	{ title: "Total Logs", key: "logs", format: formatNumber },
-	{ title: "Total Traces", key: "traces", format: formatNumber },
-	{ title: "Total Metrics", key: "metrics", format: formatNumber },
+	{ title: "Total logs", key: "logs", format: formatNumber },
+	{ title: "Total traces", key: "traces", format: formatNumber },
+	{ title: "Total metrics", key: "metrics", format: formatNumber },
 ]
 
 /** Loading tiles; on failure a quiet "Couldn't load" rail, or bare tiles when the page strip
@@ -27,16 +27,16 @@ export const usageCards = <M>(
 	isExplained: (failure: LoadFailure) => boolean,
 ): Html =>
 	AsyncData.matchData(model.usage.data, {
-		onEmpty: () => statRailLoading(h, CARDS.length, 3, OVERVIEW_RAIL_CLASS),
+		onEmpty: () => statRailLoading(h, CARDS.length, 3),
 		onFailure: (failure) =>
 			statRail(
 				h,
-				{ columns: 3, className: OVERVIEW_RAIL_CLASS },
+				{ columns: 3 },
 				CARDS.map((card) =>
 					statRailItem(h, {
 						eyebrow: card.title,
 						// The muted table empty glyph, not a bold value-sized dash.
-						value: h.span([h.Class("font-normal text-muted-foreground")], ["–"]),
+						value: typography(h, { tone: "muted", weight: "normal" }, ["–"]),
 						subline: isExplained(failure)
 							? h.span([h.Class("sr-only")], ["Couldn't load"])
 							: h.span([h.Class("font-prose")], ["Couldn't load"]),
@@ -49,7 +49,7 @@ export const usageCards = <M>(
 		onData: ({ totals, previous }) =>
 			statRail(
 				h,
-				{ columns: 3, className: OVERVIEW_RAIL_CLASS },
+				{ columns: 3 },
 				CARDS.map((card) =>
 					statRailItem(h, {
 						eyebrow: card.title,

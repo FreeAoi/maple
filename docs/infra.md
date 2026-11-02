@@ -8,10 +8,11 @@ order not to break the code; incidents, measurements and retired designs live in
 ## The AI Worker (`maple-ai`)
 
 `apps/ai` hosts every agent surface: the MCP transport and its tools, and the `ChatSession`
-Durable Object, which also runs every investigation's autonomous pass. `apps/api` keeps the
-hostname and forwards `/mcp`, `/api/chat/*` and `/internal/chat/*` to it over a service
-binding, so the OAuth issuer and the RFC 8707 resource identifiers never move off api's
-origin.
+Durable Object, which runs every investigation (its autonomous pass and the follow-up
+conversation on its page), pull request review, and the Slack/Discord bot's threads.
+`apps/api` keeps the hostname and forwards `/mcp`, `/api/chat/*` and `/internal/chat/*` to it
+over a service binding, so the OAuth issuer and the RFC 8707 resource identifiers never move
+off api's origin.
 
 Two things a future change here needs to know:
 
@@ -499,7 +500,7 @@ The Rust OTLP gateway (`apps/ingest`) runs on an ECS EC2 fleet of Graviton c7gd 
 one task per host in host networking, with the WAL on the local NVMe instance store. PR
 previews run one t4g.small instead, with a 4 GiB WAL on the root volume (`WAL_STORAGE`). That is
 the only ingest path. The OTel collector and Electric (`apps/electric`) run as ECS Fargate
-services. The Prometheus scraper (`apps/scraper`, US prd only) is a Fargate singleton in the
+services. The Prometheus and uptime scraper (`apps/scraper`, one per prd instance) is a Fargate singleton in the
 same VPC with no inbound traffic; its image is the single-file bundle `alchemy:build-deps`
 writes to `apps/scraper/dist`, and ECS replaces the task when its `/health` stops answering.
 

@@ -8,16 +8,18 @@ import { formatCount } from "../../../lib/billing/usage"
 import type { BillingCustomer } from "@maple/domain/http"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../../ui/button"
-import * as DialogView from "../../../ui/dialog-view"
-import { badge } from "../../../ui/display"
-import { errorState } from "../../../ui/error-state"
-import { eyebrow } from "../../../ui/eyebrow"
-import { icon } from "../../../ui/icon"
-import { panel } from "../../../ui/panel"
-import { skeleton } from "../../../ui/skeleton"
+import { button } from "@maple/views/ui/button"
+import * as DialogView from "@maple/views/ui/dialog-view"
+import { badge } from "@maple/views/ui/display"
+import { errorState } from "@maple/views/ui/error-state"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import { panel } from "@maple/views/ui/panel"
+import { skeleton, skeletonBlock } from "@maple/views/ui/skeleton"
 import { settingsSection } from "../kit/section"
 import { Message, type Model } from "./model"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 type H = HtmlBuilder<Message>
 
@@ -43,23 +45,45 @@ const perInterval = (dollars: number | null, interval: string | null | undefined
 /** One line of the plan list: a name and caption on the left, a price and an optional action on the right. */
 const planLine = (
 	h: H,
-	options: Readonly<{ key: string; name: Html | string; caption: string; price: Html | string; muted?: boolean; action?: Html }>,
+	options: Readonly<{
+		key: string
+		name: Html | string
+		caption: string
+		price: Html | string
+		muted?: boolean
+		action?: Html
+	}>,
 ): Html =>
 	h.div(
-		[h.Key(options.key), h.Class("flex flex-wrap items-center justify-between gap-x-6 gap-y-1 px-4 py-3")],
 		[
-			h.div(
-				[h.Class("flex min-w-0 flex-col gap-0.5")],
-				[
-					h.span([h.Class(cn("text-sm font-medium", options.muted === true && "text-muted-foreground"))], [options.name]),
-					h.span([h.Class("text-2xs text-muted-foreground")], [options.caption]),
-				],
-			),
-			h.div(
-				[h.Class("flex items-center gap-4")],
+			h.Key(options.key),
+			h.Class("flex flex-wrap items-center justify-between gap-x-6 gap-y-1 px-4 py-3"),
+		],
+		[
+			vstack(h, { gap: "0.5", shrink: true },
 				[
 					h.span(
-						[h.Class(cn("font-mono text-sm tabular-nums", options.muted === true && "text-muted-foreground"))],
+						[
+							h.Class(
+								cn(typographyClass({ size: "sm", weight: "medium" }), options.muted === true && "text-muted-foreground"),
+							),
+						],
+						[options.name],
+					),
+					typography(h, { size: "2xs", tone: "muted" }, [options.caption]),
+				],
+			),
+			hstack(h, { gap: "4" },
+				[
+					h.span(
+						[
+							h.Class(
+								cn(
+									typographyClass({ size: "sm", mono: true, numeric: true }),
+									options.muted === true && "text-muted-foreground",
+								),
+							),
+						],
 						[options.price],
 					),
 					...(options.action === undefined ? [] : [options.action]),
@@ -72,13 +96,13 @@ const planLine = (
 const planRow = (h: H, spend: SpendModel, plans: ReadonlyArray<CatalogPlan>, canManage: boolean): Html => {
 	if (spend.planName === null)
 		return panel(h, { padded: true }, [
-			h.p([h.Class("text-sm text-muted-foreground")], ["No active plan. Compare plans to pick one."]),
+			typography(h, { size: "sm", tone: "muted", as: "p" }, ["No active plan. Compare plans to pick one."]),
 		])
 	const { price, suffix } = priceLabel(spend)
 	const activeIds = new Set(spend.addOns.map((addOn) => addOn.id))
 	const available = plans.filter((plan) => plan.addOn === true && !activeIds.has(plan.id))
 	const activeCharges = spend.charges.filter((charge) => charge.kind === "addOn")
-	return panel(h, { className: "divide-y divide-border/60" }, [
+	return panel(h, { className: "divide-y divide-border-subtle" }, [
 		planLine(h, {
 			key: "plan",
 			name: sentenceCasePlanName(spend.planName),
@@ -91,8 +115,7 @@ const planRow = (h: H, spend: SpendModel, plans: ReadonlyArray<CatalogPlan>, can
 		...activeCharges.map((charge) =>
 			planLine(h, {
 				key: charge.key,
-				name: h.span(
-					[h.Class("flex items-center gap-2")],
+				name: hstack(h, { gap: "2", as: "span" },
 					[sentenceCasePlanName(charge.name), badge(h, { size: "sm", variant: "ok" }, ["Active"])],
 				),
 				caption: "Add-on, billed with your plan",
@@ -121,15 +144,34 @@ const planRow = (h: H, spend: SpendModel, plans: ReadonlyArray<CatalogPlan>, can
 const includedRun = (plan: CatalogPlan): string =>
 	plan.items
 		.flatMap((item) => {
-			if (!isPricingCardFeature(item.featureId) || item.included === undefined || item.included === null) return []
+			if (
+				!isPricingCardFeature(item.featureId) ||
+				item.included === undefined ||
+				item.included === null
+			)
+				return []
 			if (item.featureId === "ai_credits") return [`$${formatCount(item.included)} AI usage`]
 			const amount = formatCount(item.included)
-			return [featureUnit(item.featureId) === "GB" ? `${amount} GB ${item.featureId}` : `${amount} ${featureUnit(item.featureId)}`]
+			return [
+				featureUnit(item.featureId) === "GB"
+					? `${amount} GB ${item.featureId}`
+					: `${amount} ${featureUnit(item.featureId)}`,
+			]
 		})
 		.join(" · ")
 
 const currentBadge = (h: H, text: string): Html =>
-	badge(h, { variant: "muted", pill: true, size: "xs", mono: true, className: "px-2 bg-primary/15 text-primary" }, [text])
+	badge(
+		h,
+		{
+			variant: "muted",
+			pill: true,
+			size: "xs",
+			mono: true,
+			className: "px-2 bg-primary-a2 text-primary",
+		},
+		[text],
+	)
 
 /** A custom-priced customer's own plan, never a catalog offer they do not pay. */
 const customPlanPlate = (h: H, spend: SpendModel): Html => {
@@ -148,46 +190,67 @@ const customPlanPlate = (h: H, spend: SpendModel): Html => {
 		)
 		.join(" · ")
 	const isPriced = price !== undefined && price !== null
-	return panel(h, { padded: true, className: "gap-6 border-primary/40 bg-primary/[0.03] lg:flex-row lg:items-start lg:justify-between" }, [
-		h.div(
-			[h.Class("max-w-sm")],
-			[
-				h.div(
-					[h.Class("flex items-center gap-2")],
-					[h.span([h.Class("text-sm")], [spend.planName ?? "Your plan"]), currentBadge(h, "Current plan")],
-				),
-				h.div(
-					[h.Class("mt-3 flex items-baseline gap-2")],
-					[
-						h.span([h.Class("font-mono text-3xl tabular-nums")], [isPriced ? `$${price}` : "Custom"]),
-						h.span(
-							[h.Class("text-2xs text-muted-foreground")],
-							[!isPriced ? "negotiated pricing" : hasUsage ? `/${interval} + usage` : `/${interval}`],
-						),
-					],
-				),
-				h.p(
-					[h.Class("mt-3 text-2xs leading-relaxed text-muted-foreground")],
-					[
-						hasUsage
-							? "A custom plan: your allotments and rates are your own, not the published ones."
-							: "A custom plan with hard caps: usage past your allotments is rejected, never billed.",
-					],
-				),
-			],
-		),
-		h.div(
-			[h.Class("flex-1 lg:px-6")],
-			[
-				eyebrow(h, {}, ["Included every cycle"]),
-				h.p(
-					[h.Class("mt-2 font-mono text-2xs leading-relaxed text-foreground/85")],
-					[included.length > 0 ? included : "Allotments are set on your contract."],
-				),
-			],
-		),
-		h.p([h.Class("w-full shrink-0 text-2xs text-muted-foreground lg:w-44 lg:text-center")], [CURRENT_PLAN_CAPTION]),
-	])
+	return panel(
+		h,
+		{
+			padded: true,
+			className:
+				"gap-6 border-primary-a4 bg-primary/[0.03] lg:flex-row lg:items-start lg:justify-between",
+		},
+		[
+			h.div(
+				[h.Class("max-w-sm")],
+				[
+					hstack(h, { gap: "2" },
+						[
+							h.span([h.Class("text-sm")], [spend.planName ?? "Your plan"]),
+							currentBadge(h, "Current plan"),
+						],
+					),
+					h.div(
+						[h.Class("mt-3 flex items-baseline gap-2")],
+						[
+							h.span(
+								[h.Class("font-mono text-3xl font-semibold tabular-nums")],
+								[isPriced ? `$${price}` : "Custom"],
+							),
+							typography(h, { size: "2xs", tone: "muted" },
+								[
+									!isPriced
+										? "negotiated pricing"
+										: hasUsage
+											? `/${interval} + usage`
+											: `/${interval}`,
+								],
+							),
+						],
+					),
+					h.p(
+						[h.Class("mt-3 text-2xs leading-relaxed text-muted-foreground")],
+						[
+							hasUsage
+								? "A custom plan: your allotments and rates are your own, not the published ones."
+								: "A custom plan with hard caps: usage past your allotments is rejected, never billed.",
+						],
+					),
+				],
+			),
+			h.div(
+				[h.Class("flex-1 lg:px-6")],
+				[
+					eyebrow(h, {}, ["Included every cycle"]),
+					h.p(
+						[h.Class("mt-2 font-mono text-2xs leading-relaxed text-foreground-soft")],
+						[included.length > 0 ? included : "Allotments are set on your contract."],
+					),
+				],
+			),
+			h.p(
+				[h.Class("w-full shrink-0 text-2xs text-muted-foreground lg:w-44 lg:text-center")],
+				[CURRENT_PLAN_CAPTION],
+			),
+		],
+	)
 }
 
 const offerPanel = (
@@ -199,16 +262,23 @@ const offerPanel = (
 ): Html => {
 	const isActive = !options.isCustom && plan.customerEligibility?.status === "active"
 	const isTrialAvailable = plan.customerEligibility?.trialAvailable === true
-	const retention = getPlanFeatures(plan.id.toLowerCase()).find((feature) => feature.label === "Data retention")
+	const retention = getPlanFeatures(plan.id.toLowerCase()).find(
+		(feature) => feature.label === "Data retention",
+	)
 	return panel(
 		h,
-		{ padded: true, className: cn("gap-6 lg:flex-row lg:items-start lg:justify-between", isActive && "border-primary/40 bg-primary/[0.03]") },
+		{
+			padded: true,
+			className: cn(
+				"gap-6 lg:flex-row lg:items-start lg:justify-between",
+				isActive && "border-primary-a4 bg-primary/[0.03]",
+			),
+		},
 		[
 			h.div(
 				[h.Class("max-w-sm")],
 				[
-					h.div(
-						[h.Class("flex items-center gap-2")],
+					hstack(h, { gap: "2" },
 						[
 							h.span([h.Class("text-sm")], [plan.name]),
 							...(isActive ? [currentBadge(h, options.trialText ?? "Current plan")] : []),
@@ -217,8 +287,13 @@ const offerPanel = (
 					h.div(
 						[h.Class("mt-3 flex items-baseline gap-2")],
 						[
-							h.span([h.Class("font-mono text-3xl tabular-nums")], ["$", String(plan.price?.amount ?? 0)]),
-							h.span([h.Class("text-2xs text-muted-foreground")], ["/", plan.price?.interval ?? "month", " + usage"]),
+							h.span(
+								[h.Class("font-mono text-3xl font-semibold tabular-nums")],
+								["$", String(plan.price?.amount ?? 0)],
+							),
+							typography(h, { size: "2xs", tone: "muted" },
+								["/", plan.price?.interval ?? "month", " + usage"],
+							),
 						],
 					),
 					h.p(
@@ -232,22 +307,31 @@ const offerPanel = (
 				[
 					eyebrow(h, {}, ["Included every cycle"]),
 					h.p(
-						[h.Class("mt-2 font-mono text-2xs leading-relaxed text-foreground/85")],
-						[includedRun(plan), ...(retention === undefined ? [] : [` · ${retention.value.toLowerCase()} retention`])],
+						[h.Class("mt-2 font-mono text-2xs leading-relaxed text-foreground-soft")],
+						[
+							includedRun(plan),
+							...(retention === undefined
+								? []
+								: [` · ${retention.value.toLowerCase()} retention`]),
+						],
 					),
 					...(addOns.length > 0
 						? [
 								h.div(
 									[h.Class("mt-3 space-y-1")],
 									addOns.map((addOn) =>
-										h.p(
-											[h.Key(addOn.id), h.Class("text-2xs text-muted-foreground")],
+										typography(h, { size: "2xs", tone: "muted", as: "p", attributes: [h.Key(addOn.id)] },
 											[
-												addOn.customerEligibility?.status === "active" ? "Add-on active · " : "Add-on available · ",
+												addOn.customerEligibility?.status === "active"
+													? "Add-on active · "
+													: "Add-on available · ",
 												addOn.name,
-												...(addOn.price?.amount === undefined || addOn.price.amount === null
+												...(addOn.price?.amount === undefined ||
+												addOn.price.amount === null
 													? []
-													: [` +$${addOn.price.amount}/${addOn.price.interval ?? "month"}`]),
+													: [
+															` +$${addOn.price.amount}/${addOn.price.interval ?? "month"}`,
+														]),
 											],
 										),
 									),
@@ -259,7 +343,12 @@ const offerPanel = (
 			h.div(
 				[h.Class("flex w-full shrink-0 flex-col gap-2 lg:w-44")],
 				isActive
-					? [h.p([h.Class("text-2xs text-muted-foreground lg:text-center")], [CURRENT_PLAN_CAPTION])]
+					? [
+							h.p(
+								[h.Class("text-2xs text-muted-foreground lg:text-center")],
+								[CURRENT_PLAN_CAPTION],
+							),
+						]
 					: [
 							button(
 								h,
@@ -274,7 +363,10 @@ const offerPanel = (
 										: "Subscribe",
 								],
 							),
-							h.p([h.Class("text-center text-2xs text-muted-foreground")], ["$0 due today · cancel anytime"]),
+							h.p(
+								[h.Class("text-center text-2xs text-muted-foreground")],
+								["$0 due today · cancel anytime"],
+							),
 						],
 			),
 		],
@@ -282,13 +374,30 @@ const offerPanel = (
 }
 
 /** The plan picker behind "Compare plans": one offer, not a tier ladder. */
-const planOffer = (h: H, model: Model, spend: SpendModel | null, customer: BillingCustomer | null): ReadonlyArray<Html> => {
+const planOffer = (
+	h: H,
+	model: Model,
+	spend: SpendModel | null,
+	customer: BillingCustomer | null,
+): ReadonlyArray<Html> => {
 	const { isTrialing, daysRemaining } = getTrialStatus(customer ?? undefined)
 	const trialText = isTrialing && daysRemaining !== null ? `Trial · ${daysRemaining}d left` : null
 	return AsyncData.matchDataSplitEmpty(model.plans, {
-		onIdle: () => [h.div([h.Class("space-y-3")], [skeleton(h, "h-32 w-full rounded-md"), skeleton(h, "h-16 w-full rounded-md")])],
-		onLoading: () => [h.div([h.Class("space-y-3")], [skeleton(h, "h-32 w-full rounded-md"), skeleton(h, "h-16 w-full rounded-md")])],
-		onFailure: (failure) => [errorState(h, { failure, title: "Unable to load pricing plans", variant: "row" })],
+		onIdle: () => [
+			h.div(
+				[h.Class("space-y-3")],
+				[skeletonBlock(h, { height: "32" }), skeletonBlock(h, { height: "16" })],
+			),
+		],
+		onLoading: () => [
+			h.div(
+				[h.Class("space-y-3")],
+				[skeletonBlock(h, { height: "32" }), skeletonBlock(h, { height: "16" })],
+			),
+		],
+		onFailure: (failure) => [
+			errorState(h, { failure, title: "Unable to load pricing plans", variant: "row" }),
+		],
 		onData: (plans) => {
 			const offers = plans.filter((plan) => plan.addOn !== true && plan.autoEnable !== true)
 			const addOns = plans.filter((plan) => plan.addOn === true)
@@ -306,7 +415,12 @@ const planOffer = (h: H, model: Model, spend: SpendModel | null, customer: Billi
 	})
 }
 
-const compareDialog = (h: H, model: Model, spend: SpendModel | null, customer: BillingCustomer | null): Html =>
+const compareDialog = (
+	h: H,
+	model: Model,
+	spend: SpendModel | null,
+	customer: BillingCustomer | null,
+): Html =>
 	h.submodel({
 		slotId: "billing-compare",
 		model: model.compareDialog,
@@ -319,9 +433,16 @@ const compareDialog = (h: H, model: Model, spend: SpendModel | null, customer: B
 			toContent: () => [
 				DialogView.dialogHeader(h, "dialog", [
 					DialogView.dialogTitle(h, "dialog", model.compareDialog.id, "Compare plans"),
-					DialogView.dialogDescription(h, "dialog", model.compareDialog.id, "Plans and add-ons you can switch to."),
+					DialogView.dialogDescription(
+						h,
+						"dialog",
+						model.compareDialog.id,
+						"Plans and add-ons you can switch to.",
+					),
 				]),
-				DialogView.dialogPanel(h, "dialog", model.compareDialog.id, [...planOffer(h, model, spend, customer)]),
+				DialogView.dialogPanel(h, "dialog", model.compareDialog.id, [
+					...planOffer(h, model, spend, customer),
+				]),
 			],
 		},
 	})
@@ -330,7 +451,12 @@ const compareDialog = (h: H, model: Model, spend: SpendModel | null, customer: B
 export const planSection = (
 	h: H,
 	model: Model,
-	options: Readonly<{ spend: SpendModel | null; customer: BillingCustomer | null; isLegacy: boolean; canManage: boolean }>,
+	options: Readonly<{
+		spend: SpendModel | null
+		customer: BillingCustomer | null
+		isLegacy: boolean
+		canManage: boolean
+	}>,
 ): Html => {
 	const plans = AsyncData.getOrElse(model.plans, () => undefined)
 	const visiblePlans = AsyncData.isFailure(model.plans) ? [] : plans
@@ -344,8 +470,16 @@ export const planSection = (
 			...(options.canManage && {
 				actions: button(
 					h,
-					{ variant: "link", size: "sm", className: "text-primary", attributes: [h.OnClick(Message.ClickedCompare())] },
-					["Compare plans", icon(h, "ArrowRightIcon", { className: "size-3", attributes: [h.AriaHidden(true)] })],
+					{
+						variant: "link",
+						size: "sm",
+						className: "text-primary",
+						attributes: [h.OnClick(Message.ClickedCompare())],
+					},
+					[
+						"Compare plans",
+						icon(h, "ArrowRightIcon", { className: "size-3.5", attributes: [h.AriaHidden(true)] }),
+					],
 				),
 			}),
 		},
@@ -357,7 +491,9 @@ export const planSection = (
 				? [
 						h.p(
 							[h.Class("px-1 text-xs text-muted-foreground")],
-							["You're on a legacy plan that's no longer offered. Compare plans for current pricing and features."],
+							[
+								"You're on a legacy plan that's no longer offered. Compare plans for current pricing and features.",
+							],
 						),
 					]
 				: []),
@@ -368,7 +504,9 @@ export const planSection = (
 					" ",
 					h.a(
 						[
-							h.Class("font-medium whitespace-nowrap text-foreground underline underline-offset-4"),
+							h.Class(
+								"font-medium whitespace-nowrap text-foreground underline underline-offset-4",
+							),
 							h.Href(ENTERPRISE_CALL_URL),
 							h.Rel("noopener noreferrer"),
 							h.Target("_blank"),

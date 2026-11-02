@@ -2,30 +2,28 @@ import { formatDuration } from "@maple/ui/lib/format"
 import { formatClock } from "@maple/ui/lib/replay-format"
 import { parseAttributes } from "@maple/ui/lib/span-tree"
 import { cn } from "@maple/ui/lib/utils"
-import {
-	parseChTimestampMs,
-	spanDisplayRange,
-	type Timeline,
-} from "../../../components/replays/replay-timeline"
+import { parseChTimestampMs, spanRange } from "../../../components/replays/replay-timeline"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import { createLazy, type Html, type HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import { badge } from "../../../ui/display"
-import { emptyMessage } from "../../../ui/empty"
-import { errorState } from "../../../ui/error-state"
-import { eyebrow } from "../../../ui/eyebrow"
-import { httpSpanLabel } from "../../../ui/http-span-label"
-import { icon } from "../../../ui/icon"
-import { iconButton } from "../../../ui/icon-button"
-import { panel } from "../../../ui/panel"
-import { skeleton } from "../../../ui/skeleton"
+import { badge } from "@maple/views/ui/display"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { httpSpanLabel } from "@maple/views/ui/http-span-label"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { panel } from "@maple/views/ui/panel"
+import { pressable } from "@maple/views/ui/pressable"
+import { skeleton } from "@maple/views/ui/skeleton"
 import { stableSlice } from "../../kit/stable-slice"
 import { MARKER_LABELS, MARKER_STYLES } from "../kit/replay-meta"
-import { timelineFrom } from "./derive"
 import { Message } from "./message"
 import type { Model, SpanRow, TraceSummary } from "./model"
-import { idleBandsTrack, markersTrack, type Playhead, playheadOf } from "./view-player"
+import { bufferedTrack, idleBandsTrack, markersTrack, type Playhead, playheadOf } from "./view-player"
+import { typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 // The replay editor timeline.
 // TODO(tooltip): the trace and span bars' hover tooltips.
@@ -46,8 +44,7 @@ export const markerLegend = (h: H): Html =>
 			h.AriaLabel("Activity marker legend"),
 		],
 		KINDS.map((kind) =>
-			h.li(
-				[h.Class("flex items-center gap-1.5")],
+			hstack(h, { gap: "1.5", as: "li" },
 				[
 					h.span(
 						[
@@ -65,9 +62,9 @@ export const markerLegend = (h: H): Html =>
 const timeRuler = (h: H, totalMs: number): Html => {
 	const ticks = Array.from({ length: 7 }, (_, i) => (totalMs * i) / 6)
 	return h.div(
-		[h.Class("flex items-stretch border-b border-border/60 bg-muted/10")],
+		[h.Class("flex items-stretch border-b border-border-subtle bg-surface-faint")],
 		[
-			h.div([h.Class(cn(LANE_GUTTER, "shrink-0 border-r border-border/60"))], []),
+			h.div([h.Class(cn(LANE_GUTTER, "shrink-0 border-r border-border-subtle"))], []),
 			h.div(
 				[h.Class("relative h-5 flex-1")],
 				ticks.map((ms, i) =>
@@ -93,7 +90,7 @@ const timeRuler = (h: H, totalMs: number): Html => {
 
 const activityTrack = (h: H, model: Model, playhead: Playhead): Html =>
 	h.div(
-		[h.Class("flex items-stretch border-b border-border/60")],
+		[h.Class("flex items-stretch border-b border-border-subtle")],
 		[
 			activityGutterSlot(activityGutter, [h]),
 			h.div(
@@ -106,6 +103,7 @@ const activityTrack = (h: H, model: Model, playhead: Playhead): Html =>
 							),
 						],
 						[
+							bufferedTrack(h, model, "timeline"),
 							idleBandsTrack(h, model, "timeline"),
 							h.div(
 								[
@@ -128,11 +126,11 @@ const activityGutter = (h: H): Html =>
 			h.Class(
 				cn(
 					LANE_GUTTER,
-					"flex shrink-0 items-center gap-1.5 border-r border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground",
+					"flex shrink-0 items-center gap-1.5 border-r border-border-subtle px-3 py-2 text-xs font-medium text-muted-foreground",
 				),
 			),
 		],
-		[icon(h, "CursorIcon", { className: "size-3.5 opacity-70" }), "Activity"],
+		[icon(h, "CursorIcon", { className: "size-3.5" }), "Activity"],
 	)
 
 const scrubSurface = (h: H, playhead: Playhead): Html =>
@@ -167,7 +165,7 @@ const tracesHeader = (h: H, count: number | null): Html =>
 		{
 			as: "div",
 			variant: "label",
-			className: "flex items-center gap-2 border-b border-border/60 bg-muted/20 px-3 py-1.5",
+			className: "flex items-center gap-2 border-b border-border-subtle bg-surface-faint px-3 py-1.5",
 		},
 		[
 			icon(h, "PulseIcon", { className: "size-3.5" }),
@@ -180,7 +178,7 @@ const tracesHeader = (h: H, count: number | null): Html =>
 								variant: "muted",
 								pill: true,
 								size: "xs",
-								className: "bg-primary/10 text-primary tabular-nums",
+								className: "bg-primary-a2 text-primary tabular-nums",
 							},
 							[String(count)],
 						),
@@ -195,33 +193,30 @@ const tracesOf = stableSlice((model: Model) => ({
 	spans: model.spans,
 	expandedTraces: model.expandedTraces,
 	startTime: model.meta.startTime,
-	inactiveIntervals: model.meta.inactiveIntervals,
 	totalMs: model.player.totalMs,
-	isSkippingIdle: model.player.isSkippingIdle,
 }))
 type TracesView = ReturnType<typeof tracesOf>
 
-type SeekFrame = Readonly<{ view: TracesView; timeline: Timeline }>
-
-const rangeOf = (frame: SeekFrame, startTime: string, durationMs: number) =>
-	spanDisplayRange({
+const rangeOf = (view: TracesView, startTime: string, durationMs: number) =>
+	spanRange({
 		spanStartIso: startTime,
 		durationMs,
-		recordingStartEpochMs: frame.view.startTime,
-		realTotalMs: frame.view.totalMs,
-		timeline: frame.timeline,
+		recordingStartEpochMs: view.startTime,
+		realTotalMs: view.totalMs,
 	})
 
-const spanRowItem = (h: H, frame: SeekFrame, span: SpanRow): Html => {
-	const range = rangeOf(frame, span.startTime, span.durationMs)
-	const leftPct = pct(range.displayStartMs, frame.timeline.activeTotalMs)
-	const widthPct = Math.max(0.4, pct(range.displayEndMs, frame.timeline.activeTotalMs) - leftPct)
+const spanRowItem = (h: H, view: TracesView, span: SpanRow): Html => {
+	const range = rangeOf(view, span.startTime, span.durationMs)
+	const leftPct = pct(range.startMs, view.totalMs)
+	const widthPct = Math.max(0.4, pct(range.endMs, view.totalMs) - leftPct)
 	return h.div(
 		[h.Key(span.spanId), h.Class("flex items-stretch")],
 		[
 			h.div(
 				[
-					h.Class(cn(LANE_GUTTER, "shrink-0 truncate border-r border-border/40 px-2 py-1 pl-6")),
+					h.Class(
+						cn(LANE_GUTTER, "shrink-0 truncate border-r border-border-subtle px-2 py-1 pl-6"),
+					),
 					h.Title(`${span.serviceName} · ${span.spanName}`),
 				],
 				[
@@ -230,22 +225,19 @@ const spanRowItem = (h: H, frame: SeekFrame, span: SpanRow): Html => {
 						spanAttributes: span.spanAttributes,
 						spanKind: span.spanKind,
 						className: "text-3xs",
-						textClassName: "text-3xs text-muted-foreground",
+						textClassName: typographyClass({ size: "3xs", tone: "muted" }),
 					}),
 				],
 			),
-			h.button(
-				[
-					h.Type("button"),
-					h.OnClick(Message.RequestedSeek({ displayMs: range.displayStartMs })),
-					h.Class("relative h-5 flex-1 cursor-pointer"),
-				],
+			pressable(
+				h,
+				{ onClick: Message.RequestedSeek({ offsetMs: range.startMs }), className: "relative h-5 flex-1 cursor-pointer" },
 				[
 					h.span(
 						[
 							h.Class(
 								cn(
-									"absolute top-1/2 h-2.5 -translate-y-1/2 rounded-sm transition-[filter] hover:brightness-110",
+									"absolute top-1/2 h-2.5 -translate-y-1/2 rounded-sm transition-[filter] hover:brightness-110 active:brightness-110",
 									span.statusCode === "Error" ? "bg-severity-error" : "bg-primary/70",
 									range.outOfRange && "opacity-50",
 								),
@@ -260,39 +252,39 @@ const spanRowItem = (h: H, frame: SeekFrame, span: SpanRow): Html => {
 	)
 }
 
-const spanLane = (h: H, frame: SeekFrame, traceId: string): Html => {
-	const data = frame.view.spans[traceId] ?? AsyncData.Loading()
+const spanLane = (h: H, view: TracesView, traceId: string): Html => {
+	const data = view.spans[traceId] ?? AsyncData.Loading()
 	return AsyncData.matchData(data, {
-		onEmpty: () => h.div([h.Class("bg-muted/10 px-3 py-2")], [skeleton(h, "h-3 w-1/2")]),
+		onEmpty: () => h.div([h.Class("bg-surface-faint px-3 py-2")], [skeleton(h, "h-3 w-1/2")]),
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,
 				variant: "inline",
 				title: "Couldn't load spans for this trace",
-				className: "bg-muted/10 px-3 py-2",
+				className: "bg-surface-faint px-3 py-2",
 			}),
 		onData: (spans) =>
 			spans.length === 0
-				? emptyMessage(h, { className: "bg-muted/10 py-2 text-2xs" }, [
-						"No spans found for this trace.",
+				? emptyMessage(h, { className: "bg-surface-faint py-2 text-2xs" }, [
+						"No spans found for this trace",
 					])
 				: h.div(
-						[h.Class("max-h-56 space-y-px overflow-y-auto bg-muted/10 py-1")],
+						[h.Class("max-h-56 space-y-px overflow-y-auto bg-surface-faint py-1")],
 						[...spans]
 							.sort((a, b) => parseChTimestampMs(a.startTime) - parseChTimestampMs(b.startTime))
-							.map((span) => spanRowItem(h, frame, span)),
+							.map((span) => spanRowItem(h, view, span)),
 					),
 	})
 }
 
-const traceRow = (h: H, frame: SeekFrame, summary: TraceSummary): Html => {
-	const isExpanded = frame.view.expandedTraces.includes(summary.traceId)
-	const range = rangeOf(frame, summary.startTime, summary.durationMs)
+const traceRow = (h: H, view: TracesView, summary: TraceSummary): Html => {
+	const isExpanded = view.expandedTraces.includes(summary.traceId)
+	const range = rangeOf(view, summary.startTime, summary.durationMs)
 	const isError = summary.hasError > 0
-	const leftPct = pct(range.displayStartMs, frame.timeline.activeTotalMs)
-	const widthPct = Math.max(0.6, pct(range.displayEndMs, frame.timeline.activeTotalMs) - leftPct)
+	const leftPct = pct(range.startMs, view.totalMs)
+	const widthPct = Math.max(0.6, pct(range.endMs, view.totalMs) - leftPct)
 	return h.li(
-		[h.Key(summary.traceId), h.Class("border-b border-border/40 last:border-b-0")],
+		[h.Key(summary.traceId), h.Class("border-b border-border-subtle last:border-b-0")],
 		[
 			h.div(
 				[h.Class("flex items-stretch")],
@@ -302,7 +294,7 @@ const traceRow = (h: H, frame: SeekFrame, summary: TraceSummary): Html => {
 							h.Class(
 								cn(
 									LANE_GUTTER,
-									"flex shrink-0 items-center gap-1.5 border-r border-border/60 pr-2 pl-2 text-xs",
+									"flex shrink-0 items-center gap-1.5 border-r border-border-subtle pr-2 pl-2 text-xs",
 								),
 							),
 						],
@@ -338,12 +330,11 @@ const traceRow = (h: H, frame: SeekFrame, summary: TraceSummary): Html => {
 									h.Target("_blank"),
 									h.Rel("noreferrer"),
 									h.Class(
-										"group/trace flex min-w-0 flex-1 items-center rounded px-1 py-1.5 text-left transition-colors hover:bg-muted/50",
+										"group/trace flex min-w-0 flex-1 items-center rounded-sm px-1 py-1.5 text-left hover:bg-surface-sunken active:bg-surface-sunken",
 									),
 								],
 								[
-									h.span(
-										[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
+									vstack(h, { gap: "0.5", shrink: true, grow: true, as: "span" },
 										[
 											h.span(
 												[
@@ -381,21 +372,18 @@ const traceRow = (h: H, frame: SeekFrame, summary: TraceSummary): Html => {
 							),
 						],
 					),
-					h.button(
-						[
-							h.Type("button"),
-							h.OnClick(Message.RequestedSeek({ displayMs: range.displayStartMs })),
-							h.Class("relative h-11 flex-1 cursor-pointer"),
-						],
+					pressable(
+						h,
+						{ onClick: Message.RequestedSeek({ offsetMs: range.startMs }), className: "relative h-11 flex-1 cursor-pointer" },
 						[
 							h.span(
 								[
 									h.Class(
 										cn(
-											"absolute top-1/2 flex h-5 -translate-y-1/2 items-center overflow-hidden rounded px-1.5 text-3xs font-medium text-white ring-1 ring-inset transition-[filter] hover:brightness-110",
+											"absolute top-1/2 flex h-5 -translate-y-1/2 items-center overflow-hidden rounded-sm px-1.5 text-3xs font-medium text-white ring-1 ring-inset transition-[filter] hover:brightness-110 active:brightness-110",
 											isError
-												? "bg-severity-error ring-severity-error/40"
-												: "bg-primary ring-primary/40",
+												? "bg-severity-error ring-severity-error-a4"
+												: "bg-primary ring-primary-a4",
 											range.outOfRange &&
 												"opacity-60 outline-1 outline-dashed outline-white/70 -outline-offset-1",
 										),
@@ -412,13 +400,12 @@ const traceRow = (h: H, frame: SeekFrame, summary: TraceSummary): Html => {
 					),
 				],
 			),
-			...(isExpanded ? [spanLane(h, frame, summary.traceId)] : []),
+			...(isExpanded ? [spanLane(h, view, summary.traceId)] : []),
 		],
 	)
 }
 
 const tracesTrack = (h: H, view: TracesView, traceIds: ReadonlyArray<string>): Html => {
-	const frame: SeekFrame = { view, timeline: timelineFrom(view) }
 	if (traceIds.length === 0)
 		return h.div(
 			[],
@@ -455,7 +442,7 @@ const tracesTrack = (h: H, view: TracesView, traceIds: ReadonlyArray<string>): H
 						])
 					: h.ul(
 							[h.Class("max-h-72 overflow-y-auto")],
-							summaries.map((summary) => traceRow(h, frame, summary)),
+							summaries.map((summary) => traceRow(h, view, summary)),
 						),
 			],
 		}),
@@ -469,14 +456,18 @@ const tracesSlot = createLazy()
 
 const timelineHeader = (h: H): Html =>
 	h.div(
-		[h.Class("flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-3 py-2")],
+		[
+			h.Class(
+				"flex items-center justify-between gap-3 border-b border-border bg-surface-sunken px-3 py-2",
+			),
+		],
 		[eyebrow(h, { variant: "label" }, ["Timeline"]), markerLegend(h)],
 	)
 
 /** The timeline panel: legend, ruler, activity, traces, one playhead over them. A tick rebuilds the playhead only. */
 export const replayTimeline = (h: H, model: Model, traceIds: ReadonlyArray<string>): Html => {
 	const playhead = playheadOf(model)
-	return panel(h, { className: "shadow-sm" }, [
+	return panel(h, { className: "shadow-raised" }, [
 		headerSlot(timelineHeader, [h]),
 		h.div(
 			[h.Class("relative")],
@@ -509,7 +500,7 @@ const playheadLine = (h: H, playhead: Playhead): Html =>
 					h.div(
 						[
 							h.Class(
-								"absolute -top-0.5 left-1/2 size-2 -translate-x-1/2 rounded-full bg-primary shadow-sm",
+								"absolute -top-0.5 left-1/2 size-2 -translate-x-1/2 rounded-full bg-primary shadow-raised",
 							),
 						],
 						[],

@@ -3,15 +3,15 @@ import type { V2Investigation } from "@maple/domain/http/v2"
 import { Option, Result, Schema } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
-import * as Keyed from "../../../data/keyed"
-import type { LoadFailure } from "../../../data/load-failure"
-import { requestKey } from "../../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
 import type { Resources } from "../../../platform/resources"
 import { AppRoute, hrefOf } from "../../../route"
-import * as Canvas from "../../../service-map/xyflow/canvas"
-import * as Dialog from "../../../ui/dialog"
-import * as Menu from "../../../ui/menu"
-import * as Tooltip from "../../../ui/tooltip"
+import * as Canvas from "@maple/views/service-map/xyflow/canvas"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Menu from "@maple/views/ui/menu"
+import * as Tooltip from "@maple/views/ui/tooltip"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import {
 	FetchEscalation,
@@ -196,7 +196,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 		CompletedResolve: ({ result }) =>
 			Result.match(result, {
 				onSuccess: () => ({ model: { ...model, busy: null }, outMessage: toast("success", "Investigation resolved") }),
-				onFailure: (failure) => ({ model: { ...model, busy: null }, outMessage: toast("error", "Failed to resolve investigation", failure.message) }),
+				onFailure: (failure) => ({ model: { ...model, busy: null }, outMessage: toast("error", "Couldn't resolve investigation", failure.message) }),
 			}),
 		CompletedRestart: ({ result }) =>
 			Result.match(result, {
@@ -206,7 +206,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				}),
 				onFailure: (failure) => ({
 					model: { ...model, busy: null },
-					outMessage: toast("error", isResolved(model) ? "Failed to reopen investigation" : "Failed to restart investigation", failure.message),
+					outMessage: toast("error", isResolved(model) ? "Couldn't reopen investigation" : "Couldn't restart investigation", failure.message),
 				}),
 			}),
 		ClickedFollowUp: () => navigateSearch(model, { tab: "chat" }, false),

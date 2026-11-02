@@ -3,9 +3,9 @@ import { snapTimestamp } from "@maple/web-data/lib/time-range"
 import { getServiceUsage } from "@maple/web-data/warehouse/service-usage"
 import { Duration, Effect, Option, Result, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleInternalApiClient } from "../../../platform/api-clients"
-import * as Dialog from "../../../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { revisitData } from "../kit/revisit"
 import { type ConnectionDraft, Message, type Model } from "./model"
@@ -254,7 +254,7 @@ export const update = (model: Model, message: Message): Return =>
 					...withCommands(refreshConnection({ ...closed.model, password: "", draft: null, committedOver: null }), [closed.commands]),
 					outMessage: toast("success", "Disconnected"),
 				}),
-				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Failed to disconnect", error.message) }),
+				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Couldn't disconnect", error.message) }),
 			})
 		},
 		ClickedRefreshDiff: () => ({ model: { ...model, diff: refresh(model.diff) }, commands: [FetchDiff()] }),
@@ -289,7 +289,7 @@ export const update = (model: Model, message: Message): Return =>
 				}),
 				onFailure: (error) => ({
 					model: { ...model, isStarting: false },
-					outMessage: toast("error", "Failed to start schema apply", error.message),
+					outMessage: toast("error", "Couldn't start schema apply", error.message),
 				}),
 			}),
 		ElapsedStartingHandoff: () => ({ model: { ...model, isStarting: false } }),

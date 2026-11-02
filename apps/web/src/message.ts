@@ -10,8 +10,7 @@ import * as SignIn from "./page/sign-in"
 import { ClerkSnapshot } from "./platform/clerk"
 import { SessionTimeRange } from "./route/session-time-range"
 import * as Shell from "./shell"
-import * as ChatSheet from "./page/chat/sheet"
-import * as Toast from "./ui/toast"
+import * as Toast from "@maple/views/ui/toast"
 
 /** Why the stored self-hosted session did not resolve to a signed-in tenant. */
 export const SessionCheckFailure = Schema.Literals(["NoToken", "Rejected", "Unreachable"])
@@ -45,7 +44,6 @@ export const Message = defineMessageUnion({
 	GotShellMessage: { message: Shell.Message },
 	GotToastMessage: { message: Toast.Message },
 	GotPageMessage: { message: PageMessage },
-	GotChatSheetMessage: { message: ChatSheet.Message },
 	GotOnboardingMessage: { message: Onboarding.Message },
 	/** Link intent (`page/preload.ts`): hovered, focused or touched; left or blurred. */
 	IntendedLink: { href: Schema.String, isImmediate: Schema.Boolean },

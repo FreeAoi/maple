@@ -60,6 +60,7 @@ import {
 	ServiceDependenciesBundleResponse,
 	ServiceMapBundleResponse,
 	ServiceWorkloadsResponse,
+	ServiceRuntimesResponse,
 	ServiceUsageResponse,
 	ServiceEndpointsResponse,
 	ServiceApiOverviewResponse,
@@ -104,6 +105,8 @@ import {
 	WebAnalyticsBreakdownsResponse,
 	WebAnalyticsAiReferralsResponse,
 	WebAnalyticsAiCrawlersResponse,
+	SecurityExposureResponse,
+	SecurityRuntimesResponse,
 	ProductEventsFunnelResponse,
 	ProductEventsFunnelBreakdownResponse,
 	ProductEventsFunnelTimingResponse,
@@ -164,6 +167,10 @@ import {
 	withServiceApiFallback,
 } from "@maple/backend/queries/dashboard-reads"
 import { runQueryEngineBatch } from "@/routes/query-engine-batch"
+import { RuntimeAdvisoryCatalog } from "@maple/backend/services/security/RuntimeAdvisoryCatalog"
+import { RuntimeReleaseCatalog } from "@maple/backend/services/security/RuntimeReleaseCatalog"
+import { advisoryTargetOf } from "@maple/domain/runtime-advisories"
+import { type RuntimeProduct, runtimeProductOf } from "@maple/domain/runtime-posture"
 import type { ExecutionTenant, WarehouseExecutionError } from "@maple/query-engine/execution"
 import type { TenantContext } from "@maple/backend/services/auth/AuthService"
 import * as Integrations from "@maple/query-engine-integrations"
@@ -327,10 +334,21 @@ const toServiceWorkloadRow = (row: CH.ServiceWorkloadsOutput) => ({
 	avgMemoryLimitUtilization: row.avgMemoryLimitUtilization == null ? null : row.avgMemoryLimitUtilization,
 })
 
+const toServiceRuntimeRows = (
+	rows: ReadonlyArray<CH.ServiceRuntimesOutput>,
+	requested: ReadonlyArray<string>,
+) =>
+	CH.serviceRuntimeResources(rows, requested).map((row) => ({
+		...row,
+		serviceName: decodeServiceName(row.serviceName),
+	}))
+
 export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "queryEngine", (handlers) =>
 	Effect.gen(function* () {
 		const queryEngine = yield* QueryEngineService
 		const warehouse = yield* WarehouseQueryService
+		const runtimeReleases = yield* RuntimeReleaseCatalog
+		const runtimeAdvisories = yield* RuntimeAdvisoryCatalog
 		const reads = makeDashboardReads({ warehouse, queryEngine })
 		const { runQuery, runQueryFirst } = reads
 
@@ -1382,16 +1400,34 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 						for (const row of overviewRows) services.add(row.serviceName)
 						services.delete("")
 
-						const workloadRows =
-							services.size === 0
-								? []
-								: yield* runQuery(Queries.serviceWorkloads, tenant, {
-										startTime: payload.startTime,
-										endTime: payload.endTime,
-										services: Array.from(services)
-											.sort()
-											.map((name) => decodeServiceName(name)),
-									})
+						const serviceNames = Array.from(services)
+							.sort()
+							.map((name) => decodeServiceName(name))
+						const range = { startTime: payload.startTime, endTime: payload.endTime }
+						const [workloadRows, runtimeRows] =
+							serviceNames.length === 0
+								? [[], []]
+								: yield* Effect.all(
+										[
+											runQuery(Queries.serviceWorkloads, tenant, {
+												...range,
+												services: serviceNames,
+											}),
+											// The map draws without platform labels rather than fail on them.
+											runQuery(Queries.serviceRuntimes, tenant, {
+												...range,
+												services: serviceNames,
+											}).pipe(
+												Effect.tapCause((cause) =>
+													Effect.logWarning("service map runtimes failed", cause),
+												),
+												Effect.orElseSucceed(
+													(): ReadonlyArray<CH.ServiceRuntimesOutput> => [],
+												),
+											),
+										],
+										{ concurrency: 2 },
+									)
 
 						return new ServiceMapBundleResponse({
 							dependencies: dependencyRows.map((row) => ({ ...row })),
@@ -1400,6 +1436,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 							overview: overviewRows.map((row) => ({ ...row })),
 							platforms: platformRows.map(toServicePlatformRow),
 							workloads: workloadRows.map(toServiceWorkloadRow),
+							runtimes: toServiceRuntimeRows(runtimeRows, serviceNames),
 						})
 					}),
 				)
@@ -1469,6 +1506,18 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 						}
 						const rows = yield* runQuery(Queries.serviceWorkloads, tenant, payload)
 						return new ServiceWorkloadsResponse({ data: rows.map(toServiceWorkloadRow) })
+					}),
+				)
+				.handle("serviceRuntimes", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						if (payload.services.length === 0) {
+							return new ServiceRuntimesResponse({ data: [] })
+						}
+						const rows = yield* runQuery(Queries.serviceRuntimes, tenant, payload)
+						return new ServiceRuntimesResponse({
+							data: toServiceRuntimeRows(rows, payload.services),
+						})
 					}),
 				)
 				.handle("serviceUsage", ({ payload }) =>
@@ -1732,6 +1781,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 										hostArch: row.hostArch,
 										cloudProvider: row.cloudProvider,
 										cloudRegion: row.cloudRegion,
+										sourceId: row.sourceId,
 										firstSeen: DateTime.formatIso(row.firstSeen),
 										lastSeen: DateTime.formatIso(row.lastSeen),
 										cpuPct: row.cpuPct || 0,
@@ -1865,6 +1915,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 										podUid: row.podUid,
 										computeType: row.computeType,
 										podStartTime: row.podStartTime,
+										sourceId: row.sourceId,
 										firstSeen: DateTime.formatIso(row.firstSeen),
 										lastSeen: DateTime.formatIso(row.lastSeen),
 										cpuUsage: row.cpuUsage || 0,
@@ -1989,6 +2040,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 										composeProject: row.composeProject,
 										composeService: row.composeService,
 										runtime: row.runtime,
+										sourceId: row.sourceId,
 										firstSeen: DateTime.formatIso(row.firstSeen),
 										lastSeen: DateTime.formatIso(row.lastSeen),
 										cpuPct: row.cpuPct || 0,
@@ -2098,6 +2150,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 										nodeUid: row.nodeUid,
 										kubeletVersion: row.kubeletVersion,
 										containerRuntime: row.containerRuntime,
+										sourceId: row.sourceId,
 										firstSeen: DateTime.formatIso(row.firstSeen),
 										lastSeen: DateTime.formatIso(row.lastSeen),
 										...nodeCapacity(row),
@@ -2156,6 +2209,7 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 										kind: payload.kind,
 										namespace: row.namespace,
 										podCount: row.podCount || 0,
+										sourceId: row.sourceId,
 										firstSeen: DateTime.formatIso(row.firstSeen),
 										lastSeen: DateTime.formatIso(row.lastSeen),
 										avgCpuLimitPct: row.avgCpuLimitPct || 0,
@@ -2524,6 +2578,98 @@ export const HttpQueryEngineLive = HttpApiBuilder.group(MapleInternalApi, "query
 									crawlers: row.crawlers,
 									lastSeen: DateTime.formatIso(row.lastSeen),
 								})),
+							},
+						})
+					}),
+				)
+				// No raw fallback, like the crawler tab: a cluster without migration 0050 answers 502.
+				.handle("securityExposure", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* warehouse.warmRoute(tenant)
+						const [signatures, exposed, sources, timeline] = yield* Effect.all(
+							[
+								runQuery(Queries.scannerSignatures, tenant, payload),
+								runQuery(Queries.scannerExposed, tenant, payload),
+								runQuery(Queries.scannerSources, tenant, payload),
+								runQuery(Queries.scannerTimeline, tenant, payload),
+							],
+							{ concurrency: 4 },
+						)
+						return new SecurityExposureResponse({
+							data: {
+								signatures: signatures.map((row) => ({
+									signature: row.signature,
+									service: row.service,
+									requests: row.requests || 0,
+									answered: row.answered || 0,
+									sources: row.sources || 0,
+									lastSeen: DateTime.formatIso(row.lastSeen),
+								})),
+								exposed: exposed.map((row) => ({
+									service: row.service,
+									host: row.host,
+									path: row.path,
+									signature: row.signature,
+									httpStatus: row.httpStatus || 0,
+									requests: row.requests || 0,
+									lastSeen: DateTime.formatIso(row.lastSeen),
+									sampleTraceId: row.sampleTraceId,
+								})),
+								sources: sources.map((row) => ({
+									clientAddress: row.clientAddress,
+									requests: row.requests || 0,
+									signatures: row.signatures || 0,
+									scanner: row.scanner,
+									userAgent: row.userAgent,
+									lastSeen: DateTime.formatIso(row.lastSeen),
+								})),
+								timeline: timeline.map((row) => ({
+									bucket: DateTime.formatIso(row.bucket),
+									requests: row.requests || 0,
+									answered: row.answered || 0,
+								})),
+							},
+						})
+					}),
+				)
+				.handle("securityRuntimes", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* warehouse.warmRoute(tenant)
+						const rows = yield* runQuery(Queries.runtimeVersions, tenant, payload)
+						const products = rows.flatMap((row): ReadonlyArray<RuntimeProduct> => {
+							const product = runtimeProductOf(row.runtimeName, row.sdkLanguage)
+							return product === undefined || row.runtimeVersion === "" ? [] : [product]
+						})
+						// Busiest services first, so the read cap drops the quietest versions.
+						const targets = rows
+							.toSorted((a, b) => (b.spans || 0) - (a.spans || 0))
+							.flatMap((row) => {
+								const target = advisoryTargetOf(row)
+								return target === undefined ? [] : [target]
+							})
+						const [releases, advisories] = yield* Effect.all(
+							[runtimeReleases.releases(products), runtimeAdvisories.advisories(targets)],
+							{ concurrency: 2 },
+						)
+						return new SecurityRuntimesResponse({
+							data: {
+								runtimes: rows.map((row) => ({
+									service: row.service,
+									environment: row.environment,
+									runtimeName: row.runtimeName,
+									runtimeVersion: row.runtimeVersion,
+									executableName: row.executableName,
+									sdkLanguage: row.sdkLanguage,
+									sdkName: row.sdkName,
+									sdkVersion: row.sdkVersion,
+									spans: row.spans || 0,
+									lastSeen: DateTime.formatIso(row.lastSeen),
+								})),
+								releases,
+								advisories: advisories.advisories,
+								advisoriesSkipped: advisories.skipped,
 							},
 						})
 					}),

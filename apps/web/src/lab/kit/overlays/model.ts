@@ -1,15 +1,15 @@
 import { OVERLAY_ITEMS } from "../overlay-items"
 import { Option, Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
-import * as Combobox from "../../../ui/combobox"
-import * as ContextMenu from "../../../ui/context-menu"
-import * as Dialog from "../../../ui/dialog"
-import * as HoverCard from "../../../ui/hover-card"
-import * as Menu from "../../../ui/menu"
-import * as Popover from "../../../ui/popover"
-import * as Select from "../../../ui/select"
-import * as Toast from "../../../ui/toast"
-import * as Tooltip from "../../../ui/tooltip"
+import * as Combobox from "@maple/views/ui/combobox"
+import * as ContextMenu from "@maple/views/ui/context-menu"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as HoverCard from "@maple/views/ui/hover-card"
+import * as Menu from "@maple/views/ui/menu"
+import * as Popover from "@maple/views/ui/popover"
+import * as Select from "@maple/views/ui/select"
+import * as Toast from "@maple/views/ui/toast"
+import * as Tooltip from "@maple/views/ui/tooltip"
 
 export const OverlayItem = Schema.Literals(OVERLAY_ITEMS)
 export type OverlayItem = typeof OverlayItem.Type
@@ -74,7 +74,7 @@ export const toastTypeOf = (item: OverlayItem): Option.Option<Toast.ToastType> =
 export const TOAST_COPY = {
 	default: { title: "Dashboard saved", description: "Checkout latency is up to date." },
 	success: { title: "Schema applied", description: "All 14 tables are on the latest version." },
-	error: { title: "Failed to delete rule", description: "The alert rule is referenced by a policy." },
+	error: { title: "Couldn't delete rule", description: "The alert rule is referenced by a policy." },
 	info: { title: "New version available", description: "Reload to get the latest Maple." },
 	warning: { title: "Approaching ingest quota", description: "82% of this month's spans are used." },
 	loading: { title: "Exporting logs", description: "Preparing 12,480 rows." },

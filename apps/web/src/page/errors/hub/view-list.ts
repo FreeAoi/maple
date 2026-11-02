@@ -1,10 +1,11 @@
 import type { ErrorSignal } from "../../../lib/models/error-signal"
 import { Option } from "effect"
 import { createKeyedLazy, type Html, type HtmlBuilder } from "foldkit/html"
-import { button } from "../../../ui/button"
-import { toLoadFailure } from "../../../data/load-failure"
-import { errorState } from "../../../ui/error-state"
-import { skeletonList } from "../../../ui/skeleton"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import { errorState } from "@maple/views/ui/error-state"
+import { listFooter } from "@maple/views/ui/list-footer"
+import { stripClass } from "@maple/views/ui/rule"
+import { skeletonList } from "@maple/views/ui/skeleton"
 import { MountRowSelect } from "./command"
 import { listFailureOf, type ListStatus, type PagingState, pagingOf } from "./derive"
 import { bulkBar } from "./view-bulk"
@@ -28,7 +29,7 @@ const loadingBody = (h: H): ReadonlyArray<Html> => [
 	skeletonList(h, {
 		rows: SKELETON_ROWS,
 		renderRow: (index) => signalRowSkeleton(h, index),
-		className: "gap-0 divide-y divide-border/40",
+		className: "gap-0 divide-y divide-border-subtle",
 	}),
 ]
 
@@ -43,33 +44,27 @@ const failedBody = (h: H, model: Model): ReadonlyArray<Html> => [
 ]
 
 /** The bottom of a page that is not the bottom of the list. */
-const pagingFooter = (h: H, paging: PagingState): ReadonlyArray<Html> => {
+export const pagingFooter = (h: H, paging: PagingState): ReadonlyArray<Html> => {
 	if (paging === "end") return []
 	if (paging === "loading") {
 		return [
 			skeletonList(h, {
 				rows: LOAD_MORE_SKELETON_ROWS,
 				renderRow: (index) => signalRowSkeleton(h, index),
-				className: "gap-0 divide-y divide-border/40 border-t border-border/40",
+				className: "gap-0 divide-y divide-border-subtle border-t border-border-subtle",
 			}),
 		]
 	}
-	return [
-		h.div(
-			[h.Class("flex items-center justify-center gap-3 border-t border-border/40 p-4")],
-			[
-				...(paging === "failed"
-					? [h.span([h.Class("text-xs text-muted-foreground")], ["Couldn't load more errors."])]
-					: []),
-				loadMoreButton(h, paging === "failed" ? "Retry" : "Load more"),
-			],
-		),
-	]
+	const footer = listFooter(h, {
+		hasMore: paging === "more",
+		isFailed: paging === "failed",
+		onLoadMore: Message.ClickedLoadMore(),
+		className: stripClass("block"),
+		children:
+			paging === "failed" ? [h.span([], ["Couldn't load more errors."])] : [],
+	})
+	return footer === null ? [] : [footer]
 }
-
-/** `LoadMoreButton`: an outline sm Button. */
-const loadMoreButton = (h: H, label: string): Html =>
-	button(h, { variant: "outline", size: "sm", attributes: [h.OnClick(Message.ClickedLoadMore())] }, [label])
 
 export type ListInputs = Readonly<{
 	status: ListStatus
@@ -142,7 +137,7 @@ const readyBody = (h: H, model: Model, inputs: ListInputs): ReadonlyArray<Html> 
 			[
 				signalHeader(h, selection),
 				h.div(
-					[h.Role("list"), h.Class("divide-y divide-border/40"), h.OnMount(MountRowSelect())],
+					[h.Role("list"), h.Class("divide-y divide-border-subtle"), h.OnMount(MountRowSelect())],
 					signals.map((signal, index) =>
 						h.div(
 							[h.Key(signal.id), h.Role("listitem")],

@@ -3,15 +3,16 @@ import { BAR_VALUE_TONE } from "../../../../components/infra/severity-tokens"
 import { EMPTY_VALUE, formatPercent } from "@maple/ui/lib/format"
 import { refreshingClass } from "@maple/ui/lib/refreshing"
 import { cn } from "@maple/ui/lib/utils"
-import { rowSelectedClass } from "@maple/ui/styles/ui/list-row"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../../route"
-import { eyebrow } from "../../../../ui/eyebrow"
-import { skeletonList } from "../../../../ui/skeleton"
-import { serviceDot } from "../../../../ui/values"
+import { laneLink } from "@maple/views/ui/lane-link"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { skeletonList } from "@maple/views/ui/skeleton"
+import { serviceDot } from "@maple/views/ui/values"
 import type { TimeSearch } from "../../kit/view-tabs"
 import type { Model } from "./rail"
+import { typography, typographyClass } from "@maple/views/ui/typography"
 
 // `ServiceLensRail` and the rail rows `useServiceLensRail` folds out of the join.
 
@@ -73,24 +74,24 @@ export const lensRail = <M>(
 	const state = railState(model)
 	return h.div(
 		[
-			h.Class(cn("flex h-full flex-col gap-0.5 p-3", refreshingClass(state.isWaiting))),
+			h.Class(cn("flex h-full flex-col gap-0.5", refreshingClass(state.isWaiting))),
 			...(state.isWaiting ? [h.AriaBusy(true)] : []),
 		],
 		[
-			eyebrow(h, { as: "div", className: "px-2 pb-2.5" }, ["Services on this cluster"]),
+			eyebrow(h, { as: "div", className: "flex h-8 items-center px-2" }, ["Services on this cluster"]),
 			...(state.isLoading
 				? [skeletonList(h, { rows: 6, rowClassName: "h-[22px]", className: "gap-1.5 px-2 pt-1" })]
 				: state.services.length === 0
 					? [
 							h.p([h.Class("px-2 text-2xs leading-relaxed text-muted-foreground")], [
-								"No service resolves to a Kubernetes workload in this window.",
+								"No service resolves to a Kubernetes workload in this window",
 							]),
 						]
 					: state.services.map((service) => railRow(h, service, service.serviceName === activeService, timeSearch))),
 			...(state.unlinkedCount > 0
 				? [
 						h.div(
-							[h.Class("mt-auto space-y-1.5 border-t px-2 pb-1 pt-3.5")],
+							[h.Class("-mx-4 mt-auto space-y-1.5 border-t px-6 pb-1 pt-3.5")],
 							[
 								h.div([h.Class("text-2xs text-foreground")], [
 									String(state.unlinkedCount),
@@ -98,13 +99,13 @@ export const lensRail = <M>(
 									state.unlinkedCount === 1 ? "service" : "services",
 									" not linked",
 								]),
-								h.p([h.Class("text-2xs leading-relaxed text-muted-foreground")], [
+								typography(h, { size: "2xs", tone: "muted", as: "p", className: "leading-relaxed" }, [
 									"Their spans carry no workload identity, so the lens can't reach their pods.",
 									" ",
 									h.a(
 										[
 											h.Href(hrefOf(AppRoute.InfraKubernetesPods({ search: timeSearch }))),
-											h.Class("text-primary hover:underline"),
+											h.Class(typographyClass({ tone: "primary", className: "hover:underline active:underline" })),
 										],
 										["Browse pods directly"],
 									),
@@ -120,18 +121,17 @@ export const lensRail = <M>(
 
 const railRow = <M>(h: HtmlBuilder<M>, service: RailService, isActive: boolean, timeSearch: TimeSearch): Html => {
 	const utilization = service.avgCpuLimitUtilization
-	return h.a(
-		[
-			h.Key(service.serviceName),
-			h.Href(hrefOf(AppRoute.InfraKubernetesService({ serviceName: service.serviceName, search: timeSearch }))),
-			h.Class(
-				cn(
-					"flex h-[34px] items-center gap-2.5 rounded-md px-2 transition-colors",
-					rowSelectedClass(isActive),
-					!isActive && "hover:bg-accent/50",
-				),
+	return laneLink(
+		h,
+		{
+			href: hrefOf(AppRoute.InfraKubernetesService({ serviceName: service.serviceName, search: timeSearch })),
+			isSelected: isActive,
+			className: cn(
+				"flex h-8 items-center gap-2.5 rounded-lg px-2 transition-colors",
+				isActive ? "rounded-l-none" : "hover:bg-surface-sunken active:bg-surface-sunken",
 			),
-		],
+			attributes: [h.Key(service.serviceName)],
+		},
 		[
 			serviceDot(h, { serviceName: service.serviceName, size: "sm" }),
 			h.span(

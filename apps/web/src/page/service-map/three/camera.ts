@@ -1,9 +1,12 @@
+import { Schema } from "effect"
 import { connectedIds, type SpatialView } from "../../../components/service-map/three/spatial-layout"
 import type { Topology3D } from "../../../components/service-map/three/types"
 import * as THREE from "three"
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 import type { Vec3 } from "./kit"
 import type { Layout } from "./world"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 // The camera rig. The camera and HTML labels share
 // one projection; labels are the `[data-scene-label]` elements under the scene root.
@@ -57,11 +60,11 @@ const derive = (input: RigInput) => ({
 	input,
 	linksById: new Map(input.layout.links.map((link) => [link.id, link])),
 	nodesById: new Map(input.topology.nodes.map((node) => [node.id, node])),
-	labelRevision: JSON.stringify([
+	labelRevision: encodeJson([
 		input.topology.nodes.map((node) => [node.id, node.label, node.throughput, node.dimmed]),
 		input.layout.links.map((link) => [link.id, link.edge.callsPerSecond]),
 	]),
-	layoutKey: JSON.stringify([...input.layout.layout.positions]),
+	layoutKey: encodeJson([...input.layout.layout.positions]),
 	bounds: boundsOf(input.layout.layout),
 })
 
@@ -153,8 +156,8 @@ export const cameraRig = (
 
 type Memo = ReturnType<typeof derive>
 
-/** Declutter labels in screen space. The selected service wins every collision;
- * the full keyboard-accessible inventory stays available in the inspector. */
+/** Declutter labels in screen space. The selected service wins every collision, namespace
+ * signs outrank rate tags; the full keyboard-accessible inventory stays in the inspector. */
 const projectLabels = ({
 	camera,
 	probe,
@@ -196,9 +199,11 @@ const projectLabels = ({
 					? nodesById.get(id)?.dimmed
 						? 1
 						: 2
-					: linksById.has(id)
-						? 0.5
-						: 0
+					: id.startsWith("district:")
+						? 1.5
+						: linksById.has(id)
+							? 0.5
+							: 0
 	const entries = labels
 		.toSorted(
 			([a], [b]) =>
@@ -232,8 +237,8 @@ const projectLabels = ({
 			y > sizeHeight - 25 ||
 			occupied.some(
 				(other) =>
-					Math.abs(other.x - x) < (other.width + width) / 2 + 3 &&
-					Math.abs(other.y - (y + height / 2)) < (other.height + height) / 2 + 2,
+					Math.abs(other.x - x) < (other.width + width) / 2 + 6 &&
+					Math.abs(other.y - (y + height / 2)) < (other.height + height) / 2 + 4,
 			)
 		element.style.cssText = `transform:translate3d(${x}px,${y}px,0) translateX(-50%);visibility:${hidden ? "hidden" : "visible"};opacity:${element.style.opacity};background-color:${element.style.backgroundColor};color:${element.style.color}`
 		if (!hidden) occupied.push({ x, y: y + height / 2, width, height })

@@ -1,7 +1,7 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon } from "../../../ui/icon"
-import type { IconName } from "../../../ui/icons.generated"
+import { icon } from "@maple/views/ui/icon"
+import type { IconName } from "@maple/views/ui/icons.generated"
 import type { SourceId } from "./model"
 
 // `SOURCE_TITLE` and `SourceMark`: the sidebar's marks.
@@ -18,7 +18,7 @@ export const SOURCE_TITLE = {
 	aws: "AWS",
 } satisfies Record<SourceId, string>
 
-const SOURCE_ICON = {
+export const SOURCE_ICON = {
 	hosts: "ServerIcon",
 	containers: "DockerIcon",
 	kubernetes: "KubernetesIcon",

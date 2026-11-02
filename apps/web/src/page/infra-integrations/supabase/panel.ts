@@ -1,13 +1,15 @@
 import { cn } from "@maple/ui/lib/utils"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { Keyed } from "../../../data/keyed"
-import type { LoadFailure } from "../../../data/load-failure"
+import type { Keyed } from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
 import { AppRoute, hrefOf } from "../../../route"
-import { emptyMessage } from "../../../ui/empty"
-import { errorState } from "../../../ui/error-state"
-import { skeleton } from "../../../ui/skeleton"
-import { panel, panelHeader, panelTitle } from "../../../ui/panel"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { skeleton } from "@maple/views/ui/skeleton"
+import { panel, panelHeader, panelTitle } from "@maple/views/ui/panel"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { vstack } from "@maple/views/ui/stack"
 
 // The Supabase pages' panel frame, header link, row skeleton and load states.
 
@@ -23,13 +25,12 @@ export const sectionPanel = <M>(
 		panelHeader(h, {
 			action: options.action,
 			children: [
-				h.div(
-					[h.Class("flex min-w-0 flex-col gap-0.5")],
+				vstack(h, { gap: "0.5", shrink: true },
 					[
 						panelTitle(h, [options.title]),
 						...(options.description === undefined
 							? []
-							: [h.p([h.Class("text-2xs text-muted-foreground/70")], [options.description])]),
+							: [typography(h, { size: "2xs", tone: "subtle", as: "p" }, [options.description])]),
 					],
 				),
 			],
@@ -39,12 +40,12 @@ export const sectionPanel = <M>(
 
 export const panelLink = <M>(h: HtmlBuilder<M>, href: string, label: string): Html =>
 	h.a(
-		[h.Href(href), h.Class("text-2xs text-muted-foreground transition-colors hover:text-foreground")],
+		[h.Href(href), h.Class("text-2xs text-muted-foreground hover:text-foreground active:text-foreground")],
 		[`${label} →`],
 	)
 
 export const panelMeta = <M>(h: HtmlBuilder<M>, text: string, className?: string): Html =>
-	h.span([h.Class(cn("font-mono text-2xs tabular-nums text-muted-foreground", className))], [text])
+	h.span([h.Class(cn(typographyClass({ size: "2xs", tone: "muted", mono: true, numeric: true }), className))], [text])
 
 export const rowsLoading = <M>(h: HtmlBuilder<M>, count: number): Html =>
 	h.div(

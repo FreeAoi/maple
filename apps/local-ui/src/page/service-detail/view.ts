@@ -1,18 +1,19 @@
+import { errorState } from "@maple/views/ui/error-state"
 import { WIDEST_RANGE } from "../../lib/time"
-import * as Chart from "@maple/web/charts/chart"
-import { AREA_CHART_TOKENS } from "@maple/web/charts/area-chart"
-import { isChartRuntimeReady } from "@maple/web/charts/chart-runtime"
-import { ResolveThemeColors } from "@maple/web/charts/theme-colors"
-import { button } from "@maple/web/ui/button"
-import { spinner } from "@maple/web/ui/spinner"
+import * as Chart from "@maple/views/charts/chart"
+import { AREA_CHART_TOKENS } from "@maple/views/charts/area-chart"
+import { isChartRuntimeReady } from "@maple/views/charts/chart-runtime"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
+import { button } from "@maple/views/ui/button"
+import { spinner } from "@maple/views/ui/spinner"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
 import { rangeOf } from "../contract"
 import type { PageViewInputs } from "../kit/inputs"
+import { emptyNotice } from "../kit/placeholders"
 import { seriesChart } from "../kit/series-chart"
-import { emptyState, errorState } from "../kit/view-states"
 import { boundsOf, chartOf, topSpanNames } from "./load"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -28,9 +29,9 @@ const quiet = (h: HtmlBuilder<Message>, range: string): Html =>
 	h.div(
 		[h.Class("flex h-full flex-col items-center justify-center gap-3")],
 		[
-			emptyState(h, {
+			emptyNotice(h, {
 				title: "No spans from this service in this range",
-				hint: ["Widen the time range, or send some traffic to this service."],
+				hint: "Widen the time range, or send some traffic to this service.",
 			}),
 			...(range !== WIDEST_RANGE
 				? [button(h, { variant: "outline", size: "sm", attributes: [h.OnClick(Message.ClickedWidenRange())] }, ["Widen to 30 days"])]
@@ -49,13 +50,16 @@ const loaded = (h: HtmlBuilder<Message>, model: Model, inputs: PageViewInputs, s
 			? []
 			: [
 					Option.isSome(goldenFailure)
-						? errorState(h, { label: "service charts", failure: goldenFailure.value, onRetry: Message.ClickedRetryGoldenSignals() })
+						? errorState(h, {
+								failure: goldenFailure.value, title: "Couldn’t load service charts",
+								onRetry: Message.ClickedRetryGoldenSignals(),
+							})
 						: goldenSignals(
 								h,
 								model,
 								Option.getOrElse(AsyncData.getData(model.golden.data), () => []),
 								chartOf(model, bounds),
-								isPending(model.golden),
+								isAwaitingFirstData(model.golden),
 								context,
 							),
 					h.section(
@@ -68,7 +72,7 @@ const loaded = (h: HtmlBuilder<Message>, model: Model, inputs: PageViewInputs, s
 								window: chartOf(model, bounds),
 								fill: "zero",
 								unit: "requests_per_sec",
-								isPending: isPending(model.timeseries) && topSpanNames(model).length > 0,
+								isPending: isAwaitingFirstData(model.timeseries) && topSpanNames(model).length > 0,
 								chart: model.charts["operations-throughput"] ?? Chart.init(),
 								toChartMessage: (message) => Message.GotChartMessage({ chartId: "operations-throughput", message }),
 								theme: context === null ? null : context.theme,
@@ -81,10 +85,13 @@ const loaded = (h: HtmlBuilder<Message>, model: Model, inputs: PageViewInputs, s
 }
 
 const content = (h: HtmlBuilder<Message>, model: Model, inputs: PageViewInputs): Html => {
-	if (isPending(model.overview)) return h.div([h.Class("flex h-full items-center justify-center")], [spinner(h)])
+	if (isAwaitingFirstData(model.overview)) return h.div([h.Class("flex h-full items-center justify-center")], [spinner(h)])
 	const failure = failureWithoutData(model.overview)
 	if (Option.isSome(failure))
-		return errorState(h, { label: "service", failure: failure.value, onRetry: Message.ClickedRetryOverview() })
+		return errorState(h, {
+			failure: failure.value, title: "Couldn’t load service",
+			onRetry: Message.ClickedRetryOverview(),
+		})
 	const overview = Option.getOrNull(AsyncData.getData(model.overview.data))
 	return overview === null ? quiet(h, rangeOf(inputs.context)) : loaded(h, model, inputs, overview.stats)
 }

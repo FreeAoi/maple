@@ -2,7 +2,6 @@ import { HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
 import { Schema } from "effect"
 import {
 	AwsAccountId,
-	ExternalUserId,
 	GcpProjectId,
 	GcpResourceNumber,
 	GcpScopeType,
@@ -15,6 +14,7 @@ import { SessionAuthorization } from "./current-tenant"
 import { OAuthCompleteRequest, OAuthCompleteResponse } from "./oauth-return"
 import { HttpTaggedError } from "./error-policy"
 import { PrReviewOrgSettings, PrReviewRepositoryConfig } from "./pr-review"
+import { InfraPresenceRequest, InfraSurfaceLiteral } from "./query-engine"
 import {
 	GitCommitSha,
 	PullRequestSummary,
@@ -26,6 +26,7 @@ import {
 	VcsRepoStatus,
 	VcsRepoSyncStatus,
 	VcsRepositoryId,
+	VcsRepositoryDiscovery,
 } from "./vcs"
 
 const RETURN_PATH_MAX_LENGTH = 2048
@@ -64,67 +65,6 @@ export const validateIntegrationReturnPath = (raw: string | null | undefined): s
 	typeof raw === "string" && raw.length <= RETURN_PATH_MAX_LENGTH && RETURN_PATH_PATTERN.test(raw)
 		? raw
 		: null
-
-export class HazelIntegrationStatus extends Schema.Class<HazelIntegrationStatus>("HazelIntegrationStatus")({
-	connected: Schema.Boolean,
-	externalUserId: Schema.NullOr(ExternalUserId),
-	externalUserEmail: Schema.NullOr(Schema.String),
-	connectedByUserId: Schema.NullOr(UserId),
-	scope: Schema.NullOr(Schema.String),
-}) {}
-
-export class HazelOrganizationSummary extends Schema.Class<HazelOrganizationSummary>(
-	"HazelOrganizationSummary",
-)({
-	id: Schema.String,
-	name: Schema.String,
-	slug: Schema.NullOr(Schema.String),
-	logoUrl: Schema.NullOr(Schema.String),
-}) {}
-
-export class HazelOrganizationsListResponse extends Schema.Class<HazelOrganizationsListResponse>(
-	"HazelOrganizationsListResponse",
-)({
-	organizations: Schema.Array(HazelOrganizationSummary),
-}) {}
-
-export const HazelChannelType = Schema.Literals(["public", "private"]).annotate({
-	identifier: "@maple/HazelChannelType",
-	title: "Hazel Channel Type",
-})
-export type HazelChannelType = Schema.Schema.Type<typeof HazelChannelType>
-
-export class HazelChannelSummary extends Schema.Class<HazelChannelSummary>("HazelChannelSummary")({
-	id: Schema.String,
-	name: Schema.String,
-	type: HazelChannelType,
-	organizationId: Schema.String,
-}) {}
-
-export class HazelChannelsListResponse extends Schema.Class<HazelChannelsListResponse>(
-	"HazelChannelsListResponse",
-)({
-	channels: Schema.Array(HazelChannelSummary),
-}) {}
-
-export class HazelStartConnectRequest extends Schema.Class<HazelStartConnectRequest>(
-	"HazelStartConnectRequest",
-)({
-	returnTo: Schema.optionalKey(IntegrationReturnPath),
-}) {}
-
-export class HazelStartConnectResponse extends Schema.Class<HazelStartConnectResponse>(
-	"HazelStartConnectResponse",
-)({
-	redirectUrl: Schema.String,
-	state: Schema.String,
-}) {}
-
-export class HazelDisconnectResponse extends Schema.Class<HazelDisconnectResponse>("HazelDisconnectResponse")(
-	{
-		disconnected: Schema.Boolean,
-	},
-) {}
 
 export class LinearIntegrationStatus extends Schema.Class<LinearIntegrationStatus>("LinearIntegrationStatus")(
 	{
@@ -803,6 +743,7 @@ export class GithubIntegrationStatus extends Schema.Class<GithubIntegrationStatu
 		repositorySelection: Schema.NullOr(VcsRepoSelection),
 		/** Whether GitHub Actions runs become traces. True before the org has connected. */
 		ciTracesEnabled: Schema.Boolean,
+		repositoryDiscovery: Schema.NullOr(VcsRepositoryDiscovery),
 		repositories: Schema.Array(GithubRepoSummary),
 	},
 ) {}
@@ -811,6 +752,8 @@ export class GithubStartConnectRequest extends Schema.Class<GithubStartConnectRe
 	"GithubStartConnectRequest",
 )({
 	returnTo: Schema.optionalKey(IntegrationReturnPath),
+	/** Open the App install page instead of user authorization ("Install on another GitHub account"). */
+	mode: Schema.optionalKey(Schema.Literal("install")),
 }) {}
 
 export class GithubStartConnectResponse extends Schema.Class<GithubStartConnectResponse>(
@@ -818,6 +761,19 @@ export class GithubStartConnectResponse extends Schema.Class<GithubStartConnectR
 )({
 	redirectUrl: Schema.String,
 	state: Schema.String,
+}) {}
+
+export class GithubSelectInstallationRequest extends Schema.Class<GithubSelectInstallationRequest>(
+	"GithubSelectInstallationRequest",
+)({
+	state: Schema.String,
+	installationId: Schema.String,
+}) {}
+
+export class GithubSelectInstallationResponse extends Schema.Class<GithubSelectInstallationResponse>(
+	"GithubSelectInstallationResponse",
+)({
+	connected: Schema.Literal(true),
 }) {}
 
 export class GithubDisconnectResponse extends Schema.Class<GithubDisconnectResponse>(
@@ -1464,65 +1420,31 @@ export type IntegrationHttpError =
 	| IntegrationsPersistenceError
 
 /**
- * Dashboard control surface for the Hazel, Linear, Cloudflare, Railway and GitHub
+ * Dashboard control surface for the Linear, Cloudflare, Railway and GitHub
  * integrations, plus VCS lookups. Internal transport: session-only, absent from
  * the public docs. PlanetScale and chat connectors are public v2 resources.
  *
  * The OAuth callbacks and webhook receivers are raw routers under `/api/...`,
  * not part of this group: providers store those URLs on their side.
  */
+/** Connected or not; `null` when that provider's lookup failed, so one failure leaves the rest. */
+const ProviderConnected = Schema.NullOr(Schema.Boolean)
+
+/** The sidebar's infra surfaces in one read: the presence probe and every provider's status. */
+export class InfraSurfacesResponse extends Schema.Class<InfraSurfacesResponse>("InfraSurfacesResponse")({
+	/** The surfaces that reported in the window; `null` when the probe failed. */
+	surfaces: Schema.NullOr(Schema.Array(InfraSurfaceLiteral)),
+	integrations: Schema.Struct({
+		cloudflare: ProviderConnected,
+		railway: ProviderConnected,
+		planetscale: ProviderConnected,
+		gcp: ProviderConnected,
+		supabase: ProviderConnected,
+		aws: ProviderConnected,
+	}),
+}) {}
+
 export class IntegrationsApiGroup extends HttpApiGroup.make("integrations")
-	.add(
-		HttpApiEndpoint.get("hazelStatus", "/hazel/status", {
-			success: HazelIntegrationStatus,
-			error: IntegrationsPersistenceError,
-		}),
-	)
-	.add(
-		HttpApiEndpoint.post("hazelStart", "/hazel/start", {
-			payload: HazelStartConnectRequest,
-			success: HazelStartConnectResponse,
-			error: [
-				IntegrationsForbiddenError,
-				IntegrationsValidationError,
-				IntegrationsUpstreamError,
-				IntegrationsPersistenceError,
-			],
-		}),
-	)
-	.add(
-		HttpApiEndpoint.get("hazelOrganizations", "/hazel/organizations", {
-			success: HazelOrganizationsListResponse,
-			error: [
-				IntegrationsValidationError,
-				IntegrationsNotConnectedError,
-				IntegrationsRevokedError,
-				IntegrationsUpstreamError,
-				IntegrationsPersistenceError,
-			],
-		}),
-	)
-	.add(
-		HttpApiEndpoint.get("hazelChannels", "/hazel/organizations/:organizationId/channels", {
-			params: {
-				organizationId: Schema.String.check(Schema.isMinLength(1), Schema.isTrimmed()),
-			},
-			success: HazelChannelsListResponse,
-			error: [
-				IntegrationsValidationError,
-				IntegrationsNotConnectedError,
-				IntegrationsRevokedError,
-				IntegrationsUpstreamError,
-				IntegrationsPersistenceError,
-			],
-		}),
-	)
-	.add(
-		HttpApiEndpoint.delete("hazelDisconnect", "/hazel", {
-			success: HazelDisconnectResponse,
-			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
-		}),
-	)
 	.add(
 		HttpApiEndpoint.get("linearStatus", "/linear/status", {
 			success: LinearIntegrationStatus,
@@ -1557,6 +1479,12 @@ export class IntegrationsApiGroup extends HttpApiGroup.make("integrations")
 		HttpApiEndpoint.delete("linearDisconnect", "/linear", {
 			success: LinearDisconnectResponse,
 			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("infraSurfaces", "/infra-surfaces", {
+			payload: InfraPresenceRequest,
+			success: InfraSurfacesResponse,
 		}),
 	)
 	.add(
@@ -1740,6 +1668,18 @@ export class IntegrationsApiGroup extends HttpApiGroup.make("integrations")
 		HttpApiEndpoint.post("githubStart", "/github/start", {
 			payload: GithubStartConnectRequest,
 			success: GithubStartConnectResponse,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("githubSelectInstallation", "/github/select", {
+			payload: GithubSelectInstallationRequest,
+			success: GithubSelectInstallationResponse,
 			error: [
 				IntegrationsForbiddenError,
 				IntegrationsValidationError,

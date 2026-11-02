@@ -35,7 +35,7 @@ const loadingState: WidgetDataState = { status: "loading" }
 
 const emptyState: WidgetDataState = {
 	status: "error",
-	message: "No query data found in selected time range",
+	message: "No data in this window",
 }
 
 const runtimeErrorState: WidgetDataState = {
@@ -172,7 +172,7 @@ export const statScenarios: WidgetScenario[] = [
 		display: { title: "Active spans", unit: "number" },
 	},
 	{
-		label: "Error: decode (Fix with AI)",
+		label: "Error: decode",
 		dataState: decodeErrorState,
 		display: { title: "Active spans", unit: "number" },
 	},

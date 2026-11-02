@@ -2,8 +2,8 @@ import { isClerkAuthEnabled } from "../lib/services/common/auth-mode"
 import { Array, Equal, Option, Record, Struct } from "effect"
 import { AsyncData, Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
-import * as Dialog from "../ui/dialog"
-import * as Tooltip from "../ui/tooltip"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Tooltip from "@maple/views/ui/tooltip"
 import type { Resources } from "../platform/resources"
 import { integrationsAnswered, PENDING_INTEGRATIONS, settledSurfaces } from "../data/infra-surfaces"
 import {
@@ -11,23 +11,12 @@ import {
 	FocusSiblingMenuItem,
 	FocusShortcutSearch,
 	LogOut,
-	OpenGlobalChat,
 	SaveInfraSurfaces,
 	SaveNamespace,
 	SaveSidebarState,
 	SaveTheme,
 } from "./command"
-import {
-	LoadCloudflareStatus,
-	LoadAwsStatus,
-	LoadGcpStatus,
-	LoadInfraPresence,
-	LoadNamespaces,
-	LoadPlanetscaleStatus,
-	LoadRailwayStatus,
-	LoadSupabaseStatus,
-	LoadTenant,
-} from "./data"
+import { LoadInfraSurfaces, LoadNamespaces, LoadSources } from "./data"
 import { DismissQuotaBanner, OpenCustomerPortal } from "./billing-banners"
 import * as ClerkOrgSwitcher from "./clerk-org-switcher"
 import * as Checklist from "./onboarding-checklist"
@@ -46,7 +35,7 @@ import {
 	type Model,
 	NamespacesData,
 	shellProbe,
-	TenantData,
+	SourcesData,
 } from "./model"
 
 export type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage, Resources>
@@ -67,19 +56,18 @@ export const enter =
 		if (Option.contains(model.maybeOrgId, orgId)) return { model }
 		const entered = modifyFields(model, {
 			maybeOrgId: () => Option.some(orgId),
-			tenant: () => TenantData.Loading(),
 			hasRequestedSidebarData: () => false,
 			// Nothing read for the previous org (an in-place org change) carries over.
 			infraPresence: () => InfraPresenceData.Idle(),
 			integrations: () => PENDING_INTEGRATIONS,
 			dashboards: () => DashboardsData.Idle(),
 			namespaces: () => NamespacesData.Idle(),
+			sources: () => SourcesData.Idle(),
 		})
 		const sidebar = model.isMobile ? { model: entered } : requestSidebarData(entered)
 		return {
 			model: sidebar.model,
 			commands: [
-				LoadTenant(),
 				...(sidebar.commands ?? []),
 				// Clerk: the reward pill (`OnboardingChecklistButton`) and who is looking at it.
 				...(isClerkAuthEnabled
@@ -105,7 +93,10 @@ const requestSidebarData = (model: Model): UpdateReturn => {
 	}
 }
 
-/** `useInfraSurfaces`: the last hour's presence probe and the four integration statuses, once. */
+/** Every integration settled as not connected, as when the combined read failed. */
+const NOT_CONNECTED = Record.map(PENDING_INTEGRATIONS, () => false)
+
+/** `useInfraSurfaces`: the last hour's presence probe and every integration status, once. */
 const requestInfraSurfaces = (model: Model): UpdateReturn =>
 	Option.match(model.maybeOrgId, {
 		onNone: () => ({ model }),
@@ -114,17 +105,25 @@ const requestInfraSurfaces = (model: Model): UpdateReturn =>
 				? { model }
 				: {
 						model: modifyFields(model, { infraPresence: () => InfraPresenceData.Loading() }),
-						commands: [
-							LoadInfraPresence({ orgId }),
-							LoadCloudflareStatus({ orgId }),
-							LoadPlanetscaleStatus({ orgId }),
-							LoadRailwayStatus({ orgId }),
-							LoadGcpStatus({ orgId }),
-							LoadSupabaseStatus({ orgId }),
-							LoadAwsStatus({ orgId }),
-						],
+						commands: [LoadInfraSurfaces({ orgId })],
 					},
 	})
+
+/** The org's sources, once; a refresh re-reads while the last answer stays up. */
+const requestSources = (model: Model, isRefresh: boolean): UpdateReturn =>
+	Option.match(
+		Option.all([
+			model.maybeOrgId,
+			(isRefresh ? AsyncData.revalidateOrLoad : AsyncData.loadIfMissing)(model.sources),
+		]),
+		{
+			onNone: () => ({ model }),
+			onSome: ([orgId, sources]) => ({
+				model: modifyFields(model, { sources: () => sources }),
+				commands: [LoadSources({ orgId, isRefresh })],
+			}),
+		},
+	)
 
 /**
  * `NamespaceScopeList` mounts with each menu open and probes a fresh 24 h window (cached while the
@@ -196,32 +195,32 @@ export const connectPollTicked = (): Message =>
 	Message.GotConnectMessage({ message: ConnectPanel.Message.TickedPoll() })
 
 /**
- * A signed-in route outside the shell (`/cli-login`, `/quick-start`): the root still mounts
- * the global chat sheet, whose org lookup is the only request of the shell's that it sends.
- */
-export const enterBare = (model: Model): UpdateReturn =>
-	AsyncData.isIdle(model.tenant)
-		? { model: modifyFields(model, { tenant: () => TenantData.Loading() }), commands: [LoadTenant()] }
-		: { model }
-
-/**
- * Navigation closes every menu and the mobile sheet. The page
+ * Navigation closes every menu, the Connect panel and the mobile sheet. The page
  * rails' sheets live in the page's `PageLayout.Root`: they survive a search change, not a new page.
  */
 export const routeChanged =
 	(isSamePage: boolean, hasTopBar = true) =>
-	(model: Model): UpdateReturn => ({
-		model: modifyFields(closeMenu(model), {
-			isMobileNavOpen: () => false,
-			filterSheet: (sheet) => (isSamePage ? sheet : initFilterSheet()),
-			rightSheet: (sheet) => (isSamePage ? sheet : initRightSheet()),
-		}),
-		commands: checklistRefreshOnNavigation(model, hasTopBar, isClerkAuthEnabled),
-	})
+	(model: Model): UpdateReturn => {
+		const connect = ConnectPanel.close(model.connect)
+		return {
+			model: modifyFields(closeMenu(model), {
+				isMobileNavOpen: () => false,
+				filterSheet: (sheet) => (isSamePage ? sheet : initFilterSheet()),
+				rightSheet: (sheet) => (isSamePage ? sheet : initRightSheet()),
+				connect: () => connect.model,
+			}),
+			commands: [
+				...checklistRefreshOnNavigation(model, hasTopBar, isClerkAuthEnabled),
+				...Command.mapMessages(connect.commands ?? [], (message) =>
+					Message.GotConnectMessage({ message }),
+				),
+			],
+		}
+	}
 
 /**
  * Every checklist step is done on another page: a navigation re-reads it (`onResolved`), but only
- * where the top bar's pill is mounted. `/chat` has no top bar, so it never re-reads there.
+ * where the top bar's pill is mounted.
  */
 export const checklistRefreshOnNavigation = (model: Model, hasTopBar: boolean, isClerk: boolean) =>
 	isClerk && hasTopBar && model.checklist.checklist !== null ? [toChecklist(Checklist.LoadChecklist())] : []
@@ -339,8 +338,8 @@ const foldMessage = (model: Model, message: Message): UpdateReturn =>
 	Message.match<UpdateReturn>(message, {
 		ClickedSidebarTrigger: () => toggleSidebar(model, false),
 		PressedSidebarShortcut: () => toggleSidebar(model, true),
-		ClickedPageSidebarTrigger: () => (model.isMobile ? toggleSidebar(model, false) : { model }),
 		RequestedInfraSurfaces: () => requestInfraSurfaces(model),
+		RequestedSources: ({ isRefresh }) => requestSources(model, isRefresh),
 		ChangedViewport: ({ isMobile }) => {
 			const changed = modifyFields(closeMenu(model), {
 				isMobile: () => isMobile,
@@ -411,34 +410,33 @@ const foldMessage = (model: Model, message: Message): UpdateReturn =>
 		}),
 		ClickedReload: () => ({ model, commands: [ReloadPage()] }),
 		CompletedReloadPage: () => ({ model }),
-		ClickedAskMapleAi: () => ({ model, commands: [OpenGlobalChat({ isFocusVisible: false })] }),
-		CompletedOpenGlobalChat: () => ({ model }),
-		SucceededLoadTenant: ({ orgId }) => ({
-			model: modifyFields(model, { tenant: () => TenantData.Success({ data: orgId }) }),
-		}),
-		FailedLoadTenant: () => ({
-			model: modifyFields(model, { tenant: () => TenantData.Failure({ error: "Failed" }) }),
-		}),
 		// Org-stamped answers: one for an org the shell has left is dropped.
-		SucceededLoadInfraPresence: ({ orgId, surfaces }) =>
+		// A failed probe lays out every surface; a failed status counts as not connected.
+		SucceededLoadInfraSurfaces: ({ orgId, maybeSurfaces, integrations }) =>
 			surfacesAnswered(model, orgId, (current) =>
-				modifyFields(current, { infraPresence: () => InfraPresenceData.Success({ data: surfaces }) }),
+				modifyFields(current, {
+					infraPresence: () =>
+						Option.match(maybeSurfaces, {
+							onNone: () => InfraPresenceData.Failure({ error: "Failed" }),
+							onSome: (surfaces) => InfraPresenceData.Success({ data: surfaces }),
+						}),
+					integrations: () => integrations,
+				}),
 			),
-		FailedLoadInfraPresence: ({ orgId }) =>
+		FailedLoadInfraSurfaces: ({ orgId }) =>
 			surfacesAnswered(model, orgId, (current) =>
 				modifyFields(current, {
 					infraPresence: () => InfraPresenceData.Failure({ error: "Failed" }),
+					integrations: () => NOT_CONNECTED,
 				}),
 			),
-		SucceededLoadIntegration: ({ orgId, integration, isConnected }) =>
-			surfacesAnswered(model, orgId, (current) =>
-				modifyFields(current, {
-					integrations: (known) => ({ ...known, [integration]: isConnected }),
-				}),
+		SucceededLoadSources: ({ orgId, sources }) =>
+			forOrg(model, orgId, (current) =>
+				modifyFields(current, { sources: () => SourcesData.Success({ data: sources }) }),
 			),
-		FailedLoadIntegration: ({ orgId, integration }) =>
-			surfacesAnswered(model, orgId, (current) =>
-				modifyFields(current, { integrations: (known) => ({ ...known, [integration]: false }) }),
+		FailedLoadSources: ({ orgId }) =>
+			forOrg(model, orgId, (current) =>
+				modifyFields(current, { sources: () => SourcesData.Failure({ error: "Failed" }) }),
 			),
 		// A result for an org the shell has left is dropped.
 		SucceededLoadDashboards: ({ orgId, dashboards }) =>

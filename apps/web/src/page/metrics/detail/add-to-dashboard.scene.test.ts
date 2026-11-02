@@ -1,6 +1,6 @@
 import { Result } from "effect"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import * as AddToDashboard from "./add-to-dashboard"
 
 const draft = null
@@ -58,6 +58,6 @@ describe("add to dashboard", () => {
 			context,
 		)
 		expect(failed.outMessage).toBeUndefined()
-		expect(failed.model.error?.title).toBe("Failed to create dashboard")
+		expect(failed.model.error?.title).toBe("Couldn't create dashboard")
 	})
 })

@@ -1,14 +1,14 @@
 import type { AnomalyIncidentDocument } from "@maple/domain/http"
 import { Option, Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Keyed from "../../../data/keyed"
-import { requestKey } from "../../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import { requestKey } from "@maple/views/data/request-key"
 import type { Resources } from "../../../platform/resources"
 import { AppRoute, hrefOf } from "../../../route"
-import * as FilterSections from "../../../ui/filters/filter-sections"
-import * as Tabs from "../../../ui/tabs"
+import * as FilterSections from "@maple/views/ui/filters/filter-sections"
+import * as Tabs from "@maple/views/ui/tabs"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
-import { SignalPresenceData } from "../../kit/signal-presence"
+import { SignalPresenceData } from "@maple/views/data/signal-presence"
 import {
 	FetchFirstPage,
 	listQueryOf,

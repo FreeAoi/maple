@@ -3,9 +3,8 @@ import { getServiceColor } from "@maple/ui/lib/colors"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as Checkbox from "../../../ui/checkbox"
-import { separator } from "../../../ui/display"
-import { filterDescriptionMark, filterSection } from "../../../ui/filters/filter-section"
+import * as Checkbox from "@maple/views/ui/checkbox"
+import { filterDescriptionMark, filterSection } from "@maple/views/ui/filters/filter-section"
 import {
 	filterSidebarBody,
 	filterSidebarEmpty,
@@ -13,12 +12,13 @@ import {
 	filterSidebarFrame,
 	filterSidebarHeader,
 	filterSidebarLoading,
-} from "../../../ui/filters/filter-sidebar"
-import { percentilePresets, toLogBuckets } from "../../../ui/filters/range-distribution"
-import { type RangePreset, rangeFilterSection } from "../../../ui/filters/range-filter-section"
-import type { RangeUnit } from "../../../ui/filters/range-format"
-import type { RangeBucket } from "../../../ui/filters/range-histogram"
-import { label } from "../../../ui/label"
+	filterSidebarDivider,
+} from "@maple/views/ui/filters/filter-sidebar"
+import { percentilePresets, toLogBuckets } from "@maple/views/ui/filters/range-distribution"
+import { type RangePreset, rangeFilterSection } from "@maple/views/ui/filters/range-filter-section"
+import type { RangeUnit } from "@maple/views/ui/filters/range-format"
+import type { RangeBucket } from "@maple/views/ui/filters/range-histogram"
+import { label } from "@maple/views/ui/label"
 import { detectLookup } from "../kit/detected-models"
 import { modelVendorColor, modelVendorIcon, vendorColor, vendorIcon, vendorLabel } from "../kit/vendor"
 import { hasFilters, RANGE_PARAMS } from "./derive"
@@ -175,7 +175,7 @@ const singleCheckbox = (h: H, title: string, isChecked: boolean, onToggle: Messa
 				h,
 				{
 					className:
-						"flex-1 min-w-0 flex items-center gap-1.5 cursor-pointer text-xs text-foreground font-normal",
+						"flex-1 min-w-0 flex items-center gap-1.5 cursor-pointer text-xs text-foreground font-normal sm:text-xs",
 					attributes: [h.For(inputId), h.Id(Checkbox.labelId(inputId)), h.Title(title)],
 				},
 				[h.span([h.Class("truncate")], [title]), filterDescriptionMark(h, title)],
@@ -237,9 +237,9 @@ const loadedRail = (h: H, model: Model, facets: Facets): Html => {
 				{ title: "Environment", facet: "environments", isSearchable: false, hasDescription: false },
 				facets.environments,
 			),
-			separator(h, "horizontal", "my-2"),
+			filterSidebarDivider(h),
 			...RANGES.map((spec) => rangeSection(h, model, distributions, spec)),
-			separator(h, "horizontal", "my-2"),
+			filterSidebarDivider(h),
 			singleCheckbox(
 				h,
 				"Hide single-trace sessions",

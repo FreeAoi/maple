@@ -1,6 +1,6 @@
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../../ui/button"
-import { icon, type IconName } from "../../../ui/icon"
+import { button } from "@maple/views/ui/button"
+import { icon, type IconName } from "@maple/views/ui/icon"
 
 // `TraceDepthControls` (packages/ui/src/components/traces/trace-depth-controls.tsx), shared by the
 // Timeline and the Waterfall. TODO(tooltip): the trigger markup is ported; the label popup is not.
@@ -27,7 +27,7 @@ const depthButton = <M>(
 			variant: "ghost",
 			size: "sm",
 			className:
-				"h-5 w-6 rounded-[3px] p-0 text-muted-foreground hover:text-foreground pointer-coarse:h-7 pointer-coarse:w-8",
+				"h-5 w-6 rounded-xs p-0 text-muted-foreground hover:text-foreground active:text-foreground pointer-coarse:h-7 pointer-coarse:w-8",
 			slot: "tooltip-trigger",
 			attributes: [
 				h.AriaLabel(label),
@@ -36,7 +36,7 @@ const depthButton = <M>(
 				h.OnClick(onClick),
 			],
 		},
-		[icon(h, name, { size: 11 })],
+		[icon(h, name, { size: 12 })],
 	)
 
 export const depthControls = <M>(h: HtmlBuilder<M>, options: DepthControlsOptions<M>): Html =>

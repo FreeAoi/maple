@@ -1,11 +1,14 @@
 // The search schema of every route. Shapes match the URLs already in use, so existing links decode.
 import { Schema, SchemaGetter } from "effect"
+import { MCP_CLIENT_KINDS } from "@maple/domain/mcp-clients"
 import {
 	AiSessionSortDir,
 	AiSessionSortKey,
 	CiBranchName,
 	CiPipelineName,
 	CiRunResult,
+	CodeReviewSortDir,
+	CodeReviewSortKey,
 	IssueKind,
 	PrReviewCategory,
 	PrReviewFindingStatus,
@@ -111,13 +114,39 @@ const CodeReviewIssuesSearchFields = {
 	severity: Schema.optional(PrReviewSeverity),
 	category: Schema.optional(PrReviewCategory),
 	state: Schema.optional(PrReviewFindingStatus),
+	q: Schema.optional(Schema.String),
 	review: Schema.optional(PrReviewId),
 }
 
 const CodeReviewListSearchFields = {
 	...CodeReviewSearchFields,
 	status: Schema.optional(Schema.Literals(["completed", "failed", "skipped", "running", "queued"])),
+	q: Schema.optional(Schema.String),
+	sortBy: Schema.optional(CodeReviewSortKey),
+	sortDir: Schema.optional(CodeReviewSortDir),
 	review: Schema.optional(PrReviewId),
+}
+
+/** The Team scorecard's sort column; `person` is by login. */
+export const CodeReviewTeamSort = Schema.Literals([
+	"person",
+	"merged",
+	"mergeTime",
+	"fixRate",
+	"criticalPerPr",
+	"firstTryGreen",
+	"rerunRate",
+	"shippedClean",
+	"ciTime",
+])
+export type CodeReviewTeamSort = typeof CodeReviewTeamSort.Type
+
+const CodeReviewTeamSearchFields = {
+	repo: Schema.optional(VcsRepositoryId),
+	...TimeRangeSearchFields,
+	sort: Schema.optional(CodeReviewTeamSort),
+	/** Ranked: people with enough pull requests, numbered by the sort column. */
+	ranked: BooleanParam,
 }
 
 const CodeReviewCiSearchFields = {
@@ -219,16 +248,6 @@ export const HomeSearch = Schema.Struct({
 
 export const AccountSearch = Schema.Struct({
 	tab: Schema.optional(Schema.Literals(accountTabValues)),
-})
-
-export const ChatSearch = Schema.Struct({
-	tab: Schema.optional(Schema.String),
-	mode: Schema.optional(Schema.Literals(["alert", "widget-fix"])),
-	alert: Schema.optional(Schema.String),
-	widget: Schema.optional(Schema.String),
-	shared: Schema.optional(Schema.String),
-	title: Schema.optional(Schema.String),
-	m: Schema.optional(Schema.String),
 })
 
 export const CliLoginSearch = Schema.Struct({
@@ -345,7 +364,19 @@ export const IngestRuleNewSearch = Schema.Struct({
 	template: Schema.optional(Schema.String),
 })
 
+/** The retired `/alerts/status-pages/$pageId`: `tab` picks the view its redirect opens. */
+export const AlertsStatusPageSearch = Schema.Struct({
+	tab: Schema.optional(Schema.String),
+})
+
+/** `/status-pages/$pageId`: `view` is `appearance`, `settings`, `json` or `live`; none is the page itself. */
+export const StatusPageSearch = Schema.Struct({
+	view: Schema.optional(Schema.String),
+})
+
 export const CodeReviewCiSearch = Schema.Struct(CodeReviewCiSearchFields)
+
+export const CodeReviewTeamSearch = Schema.Struct(CodeReviewTeamSearchFields)
 
 export const CodeReviewIssuesSearch = Schema.Struct(CodeReviewIssuesSearchFields)
 
@@ -572,6 +603,7 @@ export const ReplaysSearch = Schema.Struct({
 	userId: Schema.optional(Schema.String),
 	user: Schema.optional(Schema.String),
 	group: Schema.optional(Schema.String),
+	groupId: Schema.optional(Schema.String),
 	visitorId: Schema.optional(Schema.String),
 	hasErrors: Schema.optional(Schema.Union([Schema.Boolean, BooleanFromStringParam])),
 	durationMin: Schema.optional(Schema.Union([Schema.Number, NumberFromStringParam])),
@@ -653,9 +685,7 @@ export const AgentSessionToolSearch = Schema.Struct({
 	...TimeRangeSearchFields,
 })
 
-export const AlertIncidentSearch = Schema.Struct({
-	alert: Schema.optional(Schema.String),
-})
+export const AlertIncidentSearch = Schema.Struct({})
 
 // sessionTimeRangeSearchMiddleware()
 export const ErrorIssueSearch = Schema.Struct({
@@ -700,6 +730,20 @@ export const InfraSupabaseProjectSearch = Schema.Struct({
 })
 
 // Nested list routes
+
+// sessionTimeRangeSearchMiddleware()
+/** `/mcp-servers`, a server, its tool page and its sessions share one search: the time range and the toolbar. */
+export const McpServersSearch = Schema.Struct({
+	...TimeRangeSearchFields,
+	client: Schema.optional(Schema.String),
+	kind: Schema.optional(Schema.Literals(MCP_CLIENT_KINDS)),
+	q: Schema.optional(Schema.String),
+	failing: Schema.optional(Schema.Boolean),
+	metric: Schema.optional(Schema.Literals(["calls", "error_rate", "duration", "clients"])),
+	percentile: Schema.optional(Schema.Literals(["p50", "p90", "p95"])),
+	identity: Schema.optional(Schema.Literals(["ua", "info"])),
+	calls: Schema.optional(Schema.Literals(["slowest", "failed", "recent"])),
+})
 
 // sessionTimeRangeSearchMiddleware()
 export const AgentSessionToolsSearch = Schema.Struct({
@@ -922,5 +966,13 @@ export const SecurityFindingsSearch = Schema.Struct({
 export const SecurityRunsSearch = Schema.Struct({
 	target: Schema.optional(Schema.String),
 })
+/** One repository's breakdown on the Dependencies tab; absent shows them all. */
+export const SecurityDependenciesSearch = Schema.Struct({
+	repo: Schema.optional(Schema.String),
+	/** The repositories or advisories table; absent shows the matrix, or a repository's upgrade plan. */
+	view: Schema.optional(Schema.Literals(["repositories", "advisories"])),
+})
+
 export type SecurityFindingsSearch = typeof SecurityFindingsSearch.Type
 export type SecurityRunsSearch = typeof SecurityRunsSearch.Type
+export type SecurityDependenciesSearch = typeof SecurityDependenciesSearch.Type

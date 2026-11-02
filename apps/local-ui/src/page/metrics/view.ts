@@ -1,17 +1,18 @@
-import { isChartRuntimeReady } from "@maple/web/charts/chart-runtime"
-import { ResolveThemeColors } from "@maple/web/charts/theme-colors"
+import { isChartRuntimeReady } from "@maple/views/charts/chart-runtime"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
+import { errorState } from "@maple/views/ui/error-state"
+import { skeletonList } from "@maple/views/ui/skeleton"
 import { METRIC_TYPE_COLORS } from "@maple/web/page/metrics/shared"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
-import type { Html } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import type { Html, HtmlBuilder } from "foldkit/html"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
 import { queryOf } from "../../route"
 import { rangeOf } from "../contract"
 import type { PageViewInputs } from "../kit/inputs"
 import { pageShell } from "../kit/page-shell"
 import { signalEmptyState } from "../kit/signal-empty-state"
 import { refreshButton, timeRangeSelect, toolbar, toolbarSearch, toolbarStat, toolbarStats } from "../kit/toolbar"
-import { errorState, listSkeleton } from "../kit/view-states"
 import { metricsFilters } from "./load"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -27,6 +28,15 @@ const THEME_TOKENS = [...METRIC_TYPE_COLORS.values(), "var(--chart-1)"]
 const toCopy = (id: string, message: Parameters<typeof Message.GotCopyMessage>[0]["message"]) =>
 	Message.GotCopyMessage({ id, message })
 
+/** The metric grid while it loads: one card-sized block per grid cell. */
+const gridSkeleton = (h: HtmlBuilder<Message>): Html =>
+	skeletonList(h, {
+		rows: 9,
+		gap: "3",
+		className: "m-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+		rowClassName: "h-[124px] rounded-md",
+	})
+
 export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, inputs, h) => {
 	const { context } = inputs
 	const { service, type, search } = metricsFilters(context)
@@ -38,10 +48,13 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 		0,
 	)
 	const content = (): Html => {
-		if (isPending(model.list)) return listSkeleton(h, { variant: "grid", rows: 9 })
+		if (isAwaitingFirstData(model.list)) return gridSkeleton(h)
 		const failure = failureWithoutData(model.list)
 		if (Option.isSome(failure))
-			return errorState(h, { label: "metrics", failure: failure.value, onRetry: Message.ClickedRefresh() })
+			return errorState(h, {
+				failure: failure.value, title: "Couldn’t load metrics",
+				onRetry: Message.ClickedRefresh(),
+			})
 		if (entries.length === 0)
 			return signalEmptyState(h, {
 				signal: "metrics",
@@ -49,22 +62,22 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 				onClearFilters: Message.ClickedClearFilters(),
 				range,
 				onWidenRange: Message.ClickedWidenRange(),
-				maybePresence: inputs.presenceOf("metrics"),
+				presence: inputs.presenceOf("metrics"),
 				nowMs: inputs.presenceNowMs,
 				guide: { id: "metrics-empty", endpoint: context.env.otlpEndpoint, copies: model.copies, toCopyMessage: toCopy },
 			})
 		const theme = model.themeColors
-		if (theme === null || !isChartRuntimeReady(model.chartRuntime)) return listSkeleton(h, { variant: "grid", rows: 9 })
+		if (theme === null || !isChartRuntimeReady(model.chartRuntime)) return gridSkeleton(h)
 		const sparklines = AsyncData.getData(model.sparklines.data)
 		return metricGrid(h, {
 			entries,
 			points: Option.getOrUndefined(
 				Option.map(sparklines, (list) => new Map(list.map((entry) => [entry.metricName, entry.points]))),
 			),
-			isLoading: isPending(model.sparklines),
+			isLoading: isAwaitingFirstData(model.sparklines),
 			isFailed: Option.isSome(failureWithoutData(model.sparklines)),
 			query: queryOf(context.location),
-			isDimmed: model.list.isPlaceholder,
+			isDimmed: model.list.retained === true,
 			viewport: model.grid,
 			theme,
 		})

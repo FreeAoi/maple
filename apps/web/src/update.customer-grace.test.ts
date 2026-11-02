@@ -8,7 +8,6 @@ vi.hoisted(() => {
 	vi.stubEnv("VITE_MAPLE_AUTH_MODE", "clerk")
 	Object.assign(globalThis, { window: new EventTarget() })
 })
-import * as ChatSheet from "./page/chat/sheet"
 import { Message } from "./message"
 import { ClerkPhase, type Model, Session } from "./model"
 import { initCustomer } from "./page/onboarding/plan-gate"
@@ -17,7 +16,7 @@ import * as SignIn from "./page/sign-in"
 import type { ClerkSnapshot } from "./platform/clerk"
 import { AppRoute } from "./route"
 import * as Shell from "./shell"
-import * as Toast from "./ui/toast"
+import * as Toast from "@maple/views/ui/toast"
 import { planGateOf, update } from "./update"
 
 const orgId = Schema.decodeSync(OrgId)("org_acme")
@@ -31,7 +30,6 @@ const base = (knownToRenderApp: Record<string, boolean>): Model => ({
 	toasts: Toast.init("toasts"),
 	toastActions: {},
 	toastRootActions: {},
-	chatSheet: ChatSheet.init(),
 	page: null,
 	pageInstances: 0,
 	parkedPages: [],
@@ -55,7 +53,7 @@ const snapshot: ClerkSnapshot = {
 		homeRegion: "us",
 		isServedHere: true,
 		isRegionOpen: false,
-		flags: { aiAutoTriage: false, releases: false, securityAudit: false },
+		flags: { aiAutoTriage: false, releases: false, securityAudit: false, statusPages: false },
 	}),
 	memberships: [],
 	maybePendingTask: Option.none(),
@@ -99,5 +97,29 @@ describe("plan gate splash on a slow customer read", () => {
 		const settled = update(elapsed.model, Message.SucceededLoadCustomer({ orgId, customer }))
 		const redirect = Option.flatMap(planGateOf(settled.model), (gate) => gate.redirect)
 		expect(Option.map(redirect, ({ url }) => url.startsWith("/quick-start"))).toEqual(Option.some(true))
+	})
+})
+
+describe("statusPages rollout", () => {
+	const withFlag = (statusPages: boolean): ClerkSnapshot => ({
+		...snapshot,
+		maybeOrganization: Option.map(snapshot.maybeOrganization, (organization) => ({
+			...organization,
+			flags: { ...organization.flags, statusPages },
+		})),
+	})
+	const atStatusPages = (): Model => ({ ...base({ [orgId]: true }), route: AppRoute.StatusPages() })
+
+	test("an org outside the rollout is sent home without the status pages list mounting", () => {
+		const loaded = update(atStatusPages(), Message.CompletedLoadClerk({ snapshot: withFlag(false) }))
+		expect(loaded.model.page).toBeNull()
+		expect(namesOf(loaded)).toContain("ReplaceUrl")
+		expect(namesOf(loaded)).not.toContain("FetchStatusPages")
+	})
+
+	test("an org in the rollout gets the list", () => {
+		const loaded = update(atStatusPages(), Message.CompletedLoadClerk({ snapshot: withFlag(true) }))
+		expect(loaded.model.page).not.toBeNull()
+		expect(namesOf(loaded)).not.toContain("ReplaceUrl")
 	})
 })

@@ -1,7 +1,7 @@
 import { LAB_ENTRIES, type LabEntry as RegistryEntry } from "../registry"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { dashboardPage } from "../../page/kit/dashboard-page"
-import { eyebrow } from "../../ui/eyebrow"
+import { eyebrow } from "@maple/views/ui/eyebrow"
 import { defineStaticShellLab } from "../static-shell-lab"
 
 // `/lab`: every lab and bench surface, read from the registry.
@@ -27,7 +27,7 @@ const entryCard = <M>(h: HtmlBuilder<M>, entry: RegistryEntry): Html =>
 				[
 					h.Href(entry.path),
 					h.Class(
-						"flex h-full flex-col gap-1 rounded-md border bg-card px-3 py-2.5 transition-colors hover:bg-accent",
+						"flex h-full flex-col gap-1 rounded-md border bg-card p-3 hover:bg-accent active:bg-accent",
 					),
 				],
 				[

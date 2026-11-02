@@ -1,10 +1,12 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as RadioGroup from "../../ui/radio-group"
-import * as ToggleGroup from "../../ui/toggle-group"
+import { label } from "@maple/views/ui/label"
+import * as RadioGroup from "@maple/views/ui/radio-group"
+import * as ToggleGroup from "@maple/views/ui/toggle-group"
 import type { ConfigureModel, SetupMethod } from "./gcp-configure-schema"
 import { Message } from "./message"
 import { GCP_TITLE, SMALL } from "./view-gcp-parts"
+import { hstack, vstack, vstackClass } from "@maple/views/ui/stack"
 
 // `GcpMethodChoice`: one row per way to connect.
 
@@ -49,8 +51,7 @@ const flavourToggle = (h: H, configure: ConfigureModel, flavour: "terraform" | "
 	h.div(
 		[h.Class("flex flex-col gap-1.5 pl-7")],
 		[
-			h.div(
-				[h.Class("flex flex-wrap items-center gap-3")],
+			hstack(h, { gap: "3", wrap: true },
 				[
 					ToggleGroup.view(h, {
 						model: { ...configure.flavourGroup, values: [flavour] },
@@ -82,27 +83,28 @@ export const methodChoice = (h: H, configure: ConfigureModel, changing: boolean)
 		items: ITEMS,
 	}
 	return h.fieldset(
-		[h.Class("flex flex-col gap-3")],
+		[h.Class(vstackClass({ gap: "3" }))],
 		[
 			h.legend(
 				[h.Class(cn(GCP_TITLE, "mb-3"))],
 				[changing ? "How do you want to apply the change?" : "How do you want to connect?"],
 			),
-			RadioGroup.radioGroup(h, { className: "gap-0 divide-y divide-border/60 rounded-lg border" }, [
+			RadioGroup.radioGroup(h, { className: "gap-0 divide-y divide-border-subtle rounded-md border" }, [
 				...METHODS.map((option) =>
-					h.div(
-						[h.Key(option.value), h.Class("flex flex-col gap-3 p-4")],
+					vstack(h, { gap: "3", className: "p-4", attributes: [h.Key(option.value)] },
 						[
-							h.div(
-								[h.Class("flex items-start gap-3")],
+							hstack(h, { gap: "3", align: "start" },
 								[
 									...RadioGroup.radio(h, config, option.value, "mt-0.5"),
-									h.label(
-										[
-											h.Id(RadioGroup.labelId(`gcp-method-${option.value}-input`)),
-											h.For(`gcp-method-${option.value}-input`),
-											h.Class("flex min-w-0 cursor-pointer flex-col gap-0.5"),
-										],
+									label(
+										h,
+										{
+											className: "flex min-w-0 cursor-pointer flex-col items-stretch gap-0.5 font-normal",
+											attributes: [
+												h.Id(RadioGroup.labelId(`gcp-method-${option.value}-input`)),
+												h.For(`gcp-method-${option.value}-input`),
+											],
+										},
 										[
 											h.span(
 												[h.Class("flex items-baseline gap-2 text-sm font-medium")],
@@ -110,7 +112,16 @@ export const methodChoice = (h: H, configure: ConfigureModel, changing: boolean)
 													option.title,
 													...(option.badge === null
 														? []
-														: [h.span([h.Class("text-xs font-normal text-muted-foreground")], [option.badge])]),
+														: [
+																h.span(
+																	[
+																		h.Class(
+																			"text-xs font-normal text-muted-foreground",
+																		),
+																	],
+																	[option.badge],
+																),
+															]),
 												],
 											),
 											h.span([h.Class(SMALL)], [option.description]),
@@ -118,7 +129,9 @@ export const methodChoice = (h: H, configure: ConfigureModel, changing: boolean)
 									),
 								],
 							),
-							...(option.value === "code" && row === "code" ? [flavourToggle(h, configure, flavour)] : []),
+							...(option.value === "code" && row === "code"
+								? [flavourToggle(h, configure, flavour)]
+								: []),
 						],
 					),
 				),

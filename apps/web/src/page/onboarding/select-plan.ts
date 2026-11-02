@@ -6,10 +6,12 @@ import { Command, type Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import type { Resources } from "../../platform/resources"
-import { badge } from "../../ui/display"
-import { icon } from "../../ui/icon"
+import { badge } from "@maple/views/ui/display"
+import { heading } from "@maple/views/ui/heading"
+import { icon } from "@maple/views/ui/icon"
 import * as PricingCards from "./pricing-cards"
 import * as PricingCardsView from "./pricing-cards-view"
+import { layer } from "@maple/views/ui/layer"
 
 // `/select-plan`: the trial pitch, or for a returning subscriber whose plan lapsed, the reactivation framing,
 // over the same pricing cards.
@@ -44,7 +46,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
 type H = HtmlBuilder<Message>
 
-const heading = (h: H, isReactivating: boolean): Html =>
+const planHeading = (h: H, isReactivating: boolean): Html =>
 	h.div(
 		[h.Class("text-center flex flex-col items-center")],
 		[
@@ -57,7 +59,7 @@ const heading = (h: H, isReactivating: boolean): Html =>
 								pill: true,
 								size: "lg",
 								className:
-									"mb-6 gap-2 border-primary/20 bg-primary/5 px-3 text-2xs tracking-wider text-primary uppercase sm:text-2xs",
+									"mb-6 gap-2 border-primary-a3 bg-primary-a1 px-3 text-2xs tracking-wider text-primary uppercase sm:text-2xs",
 							},
 							[
 								icon(h, "RocketIcon", { size: 14, className: "size-3.5" }),
@@ -66,12 +68,9 @@ const heading = (h: H, isReactivating: boolean): Html =>
 							],
 						),
 					]),
-			h.h1(
-				[
-					h.Class(
-						"text-3xl md:text-4xl font-semibold tracking-tight text-foreground [text-wrap:balance]",
-					),
-				],
+			heading(
+				h,
+				{ level: 1, variant: "display", className: "text-balance" },
 				[isReactivating ? "Pick up where you left off" : "Start your free trial"],
 			),
 			h.p(
@@ -114,13 +113,14 @@ export const view = (h: H, model: Model, customer: BillingCustomer | undefined):
 					),
 				],
 			),
-			h.div(
-				[h.Class("pointer-events-none absolute inset-0")],
+			layer(
+				h,
+				{},
 				[
 					h.div(
 						[
 							h.Class(
-								"absolute top-[20%] left-[50%] -translate-x-1/2 -translate-y-1/2 size-[40rem] rounded-full bg-primary/5 blur-[100px]",
+								"absolute top-[20%] left-[50%] -translate-x-1/2 -translate-y-1/2 size-[40rem] rounded-full bg-primary-a1 blur-[100px]",
 							),
 						],
 						[],
@@ -130,7 +130,7 @@ export const view = (h: H, model: Model, customer: BillingCustomer | undefined):
 			h.section(
 				[h.Class("relative mx-auto flex w-full max-w-5xl flex-col gap-10 px-6 md:px-8 z-10")],
 				[
-					heading(h, hasLapsedPlan(customer)),
+					planHeading(h, hasLapsedPlan(customer)),
 					h.div(
 						[h.Class("mt-4")],
 						[

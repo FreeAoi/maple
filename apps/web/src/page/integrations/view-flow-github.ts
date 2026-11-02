@@ -2,10 +2,10 @@ import type { GithubIntegrationStatus, GithubRepoSummary } from "@maple/domain/h
 import { countLabel, EMPTY_VALUE } from "@maple/ui/lib/format"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../ui/button"
-import { badge } from "../../ui/display"
-import { icon } from "../../ui/icon"
-import { meter } from "../../ui/meter"
+import { button } from "@maple/views/ui/button"
+import { badge } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { meter } from "@maple/views/ui/meter"
 import { columnHead, dataTable, dataTableEmpty } from "../infra/kit/data-table"
 import {
 	type CheckRow,
@@ -23,8 +23,12 @@ import { activeRepos, githubReach } from "./flow-github"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { githubStatusOf } from "./update-github"
-import { githubDeactivated } from "./view-github"
+import { githubDeactivated, githubInstallationPicker, githubReconnectButton } from "./view-github"
 import { SYNC_PRESENTATION } from "./view-github-repos"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack } from "@maple/views/ui/stack"
+import { stripClass } from "@maple/views/ui/rule"
+import { columnClass } from "@maple/views/ui/column"
 
 // GitHub in the connect flow: install the Maple GitHub App, then watch the repositories sync.
 
@@ -74,23 +78,29 @@ const showsUpRail = (h: H): Html =>
 				detail: "Deploys to the tracked branch as markers",
 			},
 			{ icon: "LayersIcon", title: "Traces", detail: "Spans with a commit SHA link to GitHub" },
-			{ icon: "PullRequestIcon", title: "Code Review", detail: "Rules, models and analytics" },
+			{ icon: "PullRequestIcon", title: "Code review", detail: "Rules, models and analytics" },
 			{ icon: "GearIcon", title: "Source page", detail: "Edit data, tracked branches, Disconnect" },
 		],
 		trust: "Large repos can take a few minutes to backfill. Nothing here needs you to stay.",
 		docs: DOCS_HREF === undefined ? null : { label: "Docs", href: DOCS_HREF },
 	})
 
-const installButton = (h: H, model: Model, label: string, variant?: "outline"): Html =>
+const installButton = (
+	h: H,
+	model: Model,
+	label: string,
+	variant?: "outline",
+	onClick: Message = Message.ClickedConnect(),
+): Html =>
 	button(
 		h,
 		{
 			size: variant === undefined ? undefined : "sm",
 			variant,
 			className: "w-fit",
-			isDisabled: model.connect.isStarting,
+			isDisabled: model.connect.isStarting || model.githubCard.selectingInstallation !== null,
 			isLoading: model.connect.isStarting,
-			attributes: [h.OnClick(Message.ClickedConnect())],
+			attributes: [h.OnClick(onClick)],
 		},
 		variant === undefined ? [icon(h, "GithubIcon"), label] : [label],
 	)
@@ -98,54 +108,51 @@ const installButton = (h: H, model: Model, label: string, variant?: "outline"): 
 /** The installation: where it lives, how much it can read, and the way to change it on GitHub. */
 const installation = (h: H, model: Model, status: GithubIntegrationStatus): Html => {
 	const repos = activeRepos(status)
-	return h.div(
-		[h.Class("flex flex-col gap-3")],
-		[
-			h.div(
-				[h.Class("flex flex-wrap items-center gap-3 rounded-md border border-border px-3.5 py-3")],
-				[
-					icon(h, "GithubIcon", { size: 18, className: "shrink-0" }),
-					h.div(
-						[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
+	return vstack(h, { gap: "3" }, [
+		h.div(
+			[h.Class("flex flex-wrap items-center gap-3 rounded-md border border-border p-3")],
+			[
+				icon(h, "GithubIcon", { size: 18, className: "shrink-0" }),
+				vstack(h, { gap: "0.5", shrink: true, grow: true }, [
+					h.span(
+						[h.Class("flex items-center gap-2 text-sm font-medium")],
 						[
-							h.span(
-								[h.Class("flex items-center gap-2 text-sm font-medium")],
-								[
-									status.accountLogin ?? "GitHub App",
-									...(status.accountType === null
-										? []
-										: [
-												badge(h, { variant: "outline", size: "sm" }, [
-													ACCOUNT_TYPE[status.accountType],
-												]),
-											]),
-								],
-							),
-							h.span(
-								[h.Class("text-xs text-muted-foreground")],
-								[
-									status.repositorySelection === "selected"
-										? "Selected repositories"
-										: "All repositories",
-									", ",
-									`${repos.length} granted`,
-								],
-							),
+							status.accountLogin ?? "GitHub App",
+							...(status.accountType === null
+								? []
+								: [
+										badge(h, { variant: "outline", size: "sm" }, [
+											ACCOUNT_TYPE[status.accountType],
+										]),
+									]),
 						],
 					),
-					installButton(h, model, "Change repos on GitHub", "outline"),
-				],
-			),
-			...(repos.length === 0
-				? []
-				: [
-						foundChips(
-							h,
-							repos.map((repo) => ({ label: repo.fullName })),
-						),
+					typography(h, { size: "xs", tone: "muted" }, [
+						status.repositorySelection === "selected"
+							? "Selected repositories"
+							: "All repositories",
+						", ",
+						`${repos.length} granted`,
 					]),
-		],
-	)
+				]),
+				installButton(
+					h,
+					model,
+					"Change repos on GitHub",
+					"outline",
+					Message.ClickedOpenGithubInstallPage(),
+				),
+			],
+		),
+		...(repos.length === 0
+			? []
+			: [
+					foundChips(
+						h,
+						repos.map((repo) => ({ label: repo.fullName })),
+					),
+				]),
+	])
 }
 
 const connectStep = (h: H, model: Model): Html => {
@@ -153,48 +160,81 @@ const connectStep = (h: H, model: Model): Html => {
 	const isConnected = status !== null && status.connected
 	const isDeactivated = status !== null && (status.state === "suspended" || status.state === "disconnected")
 	const isWaiting = model.connect.active !== null && !isConnected
+	const hasSelection = model.githubCard.selection !== null
+	const discovery = status?.repositoryDiscovery
+	const isDiscovering = discovery?._tag === "Pending"
 	return flowColumns(
 		h,
 		[
-			isDeactivated
+			isDeactivated && !hasSelection && !isDiscovering && discovery?._tag !== "Failed"
 				? githubDeactivated(h, model, status)
 				: stepCard(
 						h,
-						{ icon: "GithubIcon", title: "Install the Maple GitHub App" },
-						isConnected
-							? [installation(h, model, status)]
-							: [
-									h.p(
-										[h.Class("text-sm text-muted-foreground")],
-										[
-											"GitHub opens in a new window. Pick the organization or account, then choose All repositories or Selected repositories. Maple reads code metadata, deployments and checks, and writes pull request comments.",
-										],
-									),
-									installButton(h, model, "Install on GitHub"),
-								],
+						{ icon: "GithubIcon", title: "Connect the Maple GitHub App" },
+						hasSelection
+							? githubInstallationPicker(h, model)
+							: isDiscovering
+								? [
+										typography(h, { size: "sm", tone: "muted", as: "p" }, [
+											"Maple is reading the repositories granted to this installation.",
+										]),
+									]
+								: isConnected
+									? [installation(h, model, status)]
+									: discovery?._tag === "Failed"
+										? [
+												typography(h, { size: "sm", tone: "muted", as: "p" }, [
+													"Reconnect to retry repository discovery.",
+												]),
+											]
+										: [
+												typography(h, { size: "sm", tone: "muted", as: "p" }, [
+													"GitHub opens in a new window. Approve Maple, then pick an account where the app is installed, or install it and choose All repositories or Selected repositories. Maple reads code metadata, deployments and checks, and writes pull request comments.",
+												]),
+												installButton(h, model, "Connect GitHub"),
+											],
 					),
-			isWaiting
-				? statusRow(h, { tone: "working", text: "Waiting for GitHub to send you back…" })
-				: isConnected
-					? statusRow(h, {
-							tone: "ok",
-							text: `${githubReach(status)} with ${countLabel(activeRepos(status).length, "repository", "repositories")}.`,
-						})
-					: isDeactivated
-						? statusRow(h, {
-								tone: "error",
-								text: "The app lost access on GitHub. Reconnect to pick up where sync stopped.",
-							})
-						: statusRow(h, {
-								tone: "idle",
-								text: "Not installed yet. This step completes on its own when GitHub sends you back.",
-							}),
+			hasSelection
+				? statusRow(h, { tone: "idle", text: "Choose an account to finish connecting." })
+				: isDiscovering
+					? statusRow(h, { tone: "working", text: "Discovering repositories…" })
+					: discovery?._tag === "Failed" && !hasSelection
+						? statusRow(h, { tone: "error", text: discovery.message })
+						: isWaiting
+							? statusRow(h, { tone: "working", text: "Waiting for GitHub to send you back…" })
+							: isConnected
+								? statusRow(h, {
+										tone: "ok",
+										text: `${githubReach(status)} with ${countLabel(activeRepos(status).length, "repository", "repositories")}.`,
+									})
+								: isDeactivated
+									? statusRow(h, {
+											tone: "error",
+											text: "The app lost access on GitHub. Reconnect to pick up where sync stopped.",
+										})
+									: statusRow(h, {
+											tone: "idle",
+											text: "Not connected yet. This step completes on its own when GitHub sends you back.",
+										}),
+			...(discovery?._tag === "Failed" && !hasSelection ? [githubReconnectButton(h, model)] : []),
 		],
 		readsRail(h),
 	)
 }
 
-const syncRow = (h: H, repos: ReadonlyArray<GithubRepoSummary>): CheckRow => {
+const syncRow = (
+	h: H,
+	repos: ReadonlyArray<GithubRepoSummary>,
+	discovery: GithubIntegrationStatus["repositoryDiscovery"],
+): CheckRow => {
+	if (discovery?._tag === "Pending")
+		return {
+			state: "working",
+			title: "Discovering repositories",
+			detail: "Maple is reading the repositories granted to this installation.",
+		}
+	if (discovery?._tag === "Failed")
+		return { state: "failed", title: "Repository discovery failed", detail: discovery.message }
 	const total = repos.length
 	const synced = repos.filter((repo) => repo.syncStatus === "ready").length
 	const failed = repos.filter((repo) => repo.syncStatus === "error")
@@ -247,20 +287,23 @@ const repoTable = (h: H, repos: ReadonlyArray<GithubRepoSummary>): Html =>
 		h,
 		{ ariaLabel: "GitHub repositories" },
 		[
-			columnHead(h, { label: "Repository", width: "w-0 min-w-48 flex-1" }),
+			columnHead(h, { label: "Repository", width: columnClass({ min: "48" }) }),
 			columnHead(h, { label: "Tracked branch", width: "w-36" }),
 			columnHead(h, { label: "Status", width: "w-28", align: "right" }),
 		],
 		repos.length === 0
-			? [dataTableEmpty(h, ["No repositories granted yet."])]
+			? [dataTableEmpty(h, ["No repositories granted yet"])]
 			: repos.map((repo) => {
 					const presentation = SYNC_PRESENTATION[repo.syncStatus]
-					return h.div(
-						[
-							h.Class(
-								"flex items-center gap-4 border-b border-border/40 px-4 py-2.5 text-sm last:border-0",
-							),
-						],
+					return hstack(
+						h,
+						{
+							gap: "4",
+							className: typographyClass({
+								size: "sm",
+								className: stripClass("row"),
+							}),
+						},
 						[
 							h.span([h.Class("w-0 min-w-48 flex-1 truncate")], [repo.fullName]),
 							h.span(
@@ -292,9 +335,14 @@ const repoTable = (h: H, repos: ReadonlyArray<GithubRepoSummary>): Html =>
 const liveStep = (h: H, model: Model): Html => {
 	const status = githubStatusOf(model)
 	const repos = status === null ? [] : activeRepos(status)
+	const discovery = status?.repositoryDiscovery
+	const isDiscovering = discovery?._tag === "Pending"
+	const discoveryFailed = discovery?._tag === "Failed"
 	const isLive =
 		status !== null &&
 		status.connected &&
+		!isDiscovering &&
+		!discoveryFailed &&
 		repos.length > 0 &&
 		repos.every((repo) => repo.syncStatus === "ready")
 	return flowColumns(
@@ -310,10 +358,19 @@ const liveStep = (h: H, model: Model): Html => {
 				rows:
 					status === null
 						? [{ state: "waiting", title: "Waiting for GitHub's status" }]
-						: [accessRow(status, repos.length), syncRow(h, repos)],
+						: isDiscovering || discoveryFailed
+							? [syncRow(h, repos, status.repositoryDiscovery)]
+							: [
+									accessRow(status, repos.length),
+									syncRow(h, repos, status.repositoryDiscovery),
+								],
 			}),
-			...(status !== null && !status.connected ? [installButton(h, model, "Reconnect GitHub")] : []),
-			repoTable(h, repos),
+			...(discoveryFailed
+				? [githubReconnectButton(h, model)]
+				: status !== null && !status.connected && !isDiscovering
+					? [installButton(h, model, "Reconnect GitHub")]
+					: []),
+			...(repos.length > 0 || (!isDiscovering && !discoveryFailed) ? [repoTable(h, repos)] : []),
 		],
 		showsUpRail(h),
 	)

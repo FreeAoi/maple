@@ -6,13 +6,15 @@ import { readFileSync } from "node:fs"
 import { Mode } from "../core/mode"
 import { parseTimestampMs, sinceToMs } from "../core/time"
 import { CliUsageError } from "../lib/errors"
+import { encodeJsonEffect } from "@maple/local-server/json"
 import { bold, dim, green } from "../lib/style"
-import { isLoopbackHostname } from "../lib/local-address"
-import { maintenanceTokenPath } from "../server/archives/retention"
-import { hasSubject, ScopedDeleteReport, ScopedDeleteRequest } from "../server/scoped-delete"
+import { isLoopbackHostname } from "@maple/local-server/local-address"
+import { maintenanceTokenPath } from "@maple/local-server/archives/retention"
+import { hasSubject, ScopedDeleteReport, ScopedDeleteRequest } from "@maple/local-server/scoped-delete"
 import { jsonFormatRequested, writeJson } from "./json-output"
-import { serverDiscoveryPath } from "../server/store-version"
-import { isProcessAlive, LocalStatus, prettyPath, ServerDiscovery } from "./server-args"
+import { serverDiscoveryPath } from "@maple/local-server/store-version"
+import { isProcessAlive } from "@maple/local-server/store-claim"
+import { LocalStatus, prettyPath, ServerDiscovery } from "./server-args"
 
 const LOCAL_ONLY = "maple delete removes data from a local store only"
 
@@ -133,11 +135,14 @@ const postDelete = (baseUrl: string, body: ScopedDeleteRequest & { readonly dryR
 					"run maple delete as the same user, on the machine that runs `maple start`",
 				),
 		})
+		const bodyJson = yield* encodeJsonEffect(body).pipe(
+			Effect.mapError(() => failure("cannot encode the delete request")),
+		)
 		const response = yield* client
 			.execute(
 				HttpClientRequest.post(`${baseUrl}/local/maintenance/delete`).pipe(
 					HttpClientRequest.setHeader("x-maple-maintenance-token", token),
-					HttpClientRequest.bodyText(JSON.stringify(body), "application/json"),
+					HttpClientRequest.bodyText(bodyJson, "application/json"),
 				),
 			)
 			.pipe(Effect.mapError((error) => failure(`delete request failed: ${error.message}`)))
@@ -218,7 +223,11 @@ export const deleteCommand = Command.make("delete", {
 			const baseUrl = yield* resolveDeleteBaseUrl
 			const rawBefore = Option.getOrUndefined(a.before)
 			const beforeMs =
-				rawBefore === undefined ? undefined : parseBefore(rawBefore, yield* Clock.currentTimeMillis)
+				rawBefore === undefined
+					? undefined
+					: yield* Clock.currentTimeMillis.pipe(
+							Effect.map((nowMs) => parseBefore(rawBefore, nowMs)),
+						)
 			if (beforeMs === null)
 				return yield* failure(
 					`invalid --before: ${rawBefore}`,

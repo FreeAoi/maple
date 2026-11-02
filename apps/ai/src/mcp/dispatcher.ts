@@ -28,11 +28,17 @@ import { RailwayMetricsService } from "@maple/backend/services/integrations/Rail
 import { ScrapeTargetsService } from "@maple/backend/services/integrations/ScrapeTargetsService"
 import { UptimeMonitorsService } from "@maple/backend/services/uptime/UptimeMonitorsService"
 import { IngestRuleService } from "@maple/backend/services/org/IngestRuleService"
+import { StatusPagesService } from "@maple/backend/services/status-pages/StatusPagesService"
+import { StatusPageSnapshotBuilder } from "@maple/backend/services/status-pages/StatusPageSnapshotBuilder"
 import { VcsCommitService } from "@maple/backend/services/integrations/vcs/VcsCommitService"
 import { IntegrationInventoryService } from "@maple/backend/services/integrations/IntegrationInventoryService"
 import { SourcesService } from "@maple/backend/services/org/SourcesService"
 import { AgentFeedbackService } from "@maple/backend/services/feedback/AgentFeedbackService"
 import { QueryEngineService } from "@maple/backend/services/warehouse/QueryEngineService"
+import { SecurityAuditStore } from "@maple/backend/services/security-audit/SecurityAuditStore"
+import { DependencyScanReader } from "@maple/backend/services/dependency-scan/DependencyScanService"
+import { RuntimeReleaseCatalog } from "@maple/backend/services/security/RuntimeReleaseCatalog"
+import { RuntimeAdvisoryCatalog } from "@maple/backend/services/security/RuntimeAdvisoryCatalog"
 import { withoutInvocationContext } from "@maple/backend/platform/invocation-context"
 import * as Cloudflare from "@alchemy.run/cloudflare"
 
@@ -260,6 +266,7 @@ const McpRuntimeServicesLive = Layer.mergeAll(
 	AlertsService.layer,
 	AuditLogService.layer,
 	DashboardPersistenceService.layer,
+	DependencyScanReader.layer,
 	ErrorActorsService.layer,
 	ErrorIssueReadModelsService.layer,
 	ErrorIssueWorkflowService.layer,
@@ -272,8 +279,13 @@ const McpRuntimeServicesLive = Layer.mergeAll(
 	RailwayMetricsService.layer,
 	RecommendationIssueService.layer,
 	RepoSandboxService.layer,
+	RuntimeAdvisoryCatalog.layer,
+	RuntimeReleaseCatalog.layer,
 	ScrapeTargetsService.layer,
+	SecurityAuditStore.layer,
 	SetupAuditService.layer,
+	StatusPageSnapshotBuilder.layer,
+	StatusPagesService.layer,
 	UptimeMonitorsService.layer,
 	IngestRuleService.layer,
 	VcsCommitService.layer,
@@ -295,11 +307,12 @@ export class McpToolExecutor extends Context.Service<McpToolExecutor, McpToolExe
 		make: Effect.gen(function* () {
 			// Provided on every later call, so it must not carry this build's request (its Postgres
 			// scope, Scope, span or tenant): those would override the calling request's own.
+			const buildContext = yield* Effect.context<McpToolRuntimeRequirements>()
 			const runtimeServices = Context.omit(
 				CurrentMcpRequestTenant,
 				CurrentMcpTenant,
 				Cloudflare.WorkerExecutionContext,
-			)(withoutInvocationContext(yield* Effect.context<McpToolRuntimeRequirements>()))
+			)(withoutInvocationContext(buildContext))
 			const sandbox = yield* RepoSandboxService
 			const source = yield* VcsSourceService
 

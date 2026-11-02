@@ -3,27 +3,27 @@ import { SEVERITY_COLORS } from "@maple/ui/lib/severity"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { isSameFailure, type LoadFailure } from "../../../data/load-failure"
-import { kbd } from "../../../ui/display"
-import { errorState } from "../../../ui/error-state"
-import { eyebrow } from "../../../ui/eyebrow"
-import * as FilterSections from "../../../ui/filters/filter-sections"
-import { type FilterOption, filterSection } from "../../../ui/filters/filter-section"
+import { isSameFailure, type LoadFailure } from "@maple/views/data/load-failure"
+import { kbd } from "@maple/views/ui/display"
+import { errorState } from "@maple/views/ui/error-state"
+import * as FilterSections from "@maple/views/ui/filters/filter-sections"
+import { type FilterOption, filterSection } from "@maple/views/ui/filters/filter-section"
 import {
 	filterSidebarBody,
 	filterSidebarEmpty,
 	filterSidebarFrame,
 	filterSidebarHeader,
 	filterSidebarLoading,
-} from "../../../ui/filters/filter-sidebar"
-import type * as Popover from "../../../ui/popover"
+	filterSidebarGroupLabel,
+} from "@maple/views/ui/filters/filter-sidebar"
+import type * as Popover from "@maple/views/ui/popover"
 import { MountFilterRail } from "./command"
 import { searchHelp } from "./view-search-help"
 import { pinnedNamespaceNotice } from "../../kit/pinned-namespace-notice"
 import type { Search } from "./derive"
 import { type Facet, Message } from "./message"
 import type { LogsFacets, Model } from "./model"
-import { searchInput } from "../../../ui/search-input"
+import { searchInput } from "@maple/views/ui/search-input"
 
 const toSections = (message: FilterSections.Message) => Message.GotFilterSectionsMessage({ message })
 
@@ -76,15 +76,11 @@ const logSearchInput = (h: HtmlBuilder<Message>, value: string, help: Popover.Mo
 	h.div(
 		[h.Class("pb-3")],
 		[
-			h.div(
-				[h.Class("flex items-center gap-1")],
-				[eyebrow(h, { variant: "label" }, ["Search"]), searchHelp(h, help)],
-			),
+			filterSidebarGroupLabel(h, "Search", [searchHelp(h, help)]),
 			searchInput(h, {
 				id: "logs-search-input",
 				size: "sm",
-				className: "mt-2",
-				placeholder: "Text or trace id",
+				placeholder: "Text or trace ID…",
 				value,
 				onInput: (text) => Message.ChangedSearchText({ text }),
 				onClear: Message.ChangedSearchText({ text: "" }),

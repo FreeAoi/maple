@@ -7,7 +7,6 @@ vi.hoisted(() => {
 	vi.stubEnv("VITE_MAPLE_AUTH_MODE", "clerk")
 	Object.assign(globalThis, { window: new EventTarget() })
 })
-import * as ChatSheet from "./page/chat/sheet"
 import { Message } from "./message"
 import { ClerkPhase, type Model, Session } from "./model"
 import { initCustomer } from "./page/onboarding/plan-gate"
@@ -16,7 +15,7 @@ import * as SignIn from "./page/sign-in"
 import type { ClerkSnapshot, PendingSessionTask } from "./platform/clerk"
 import { AppRoute } from "./route"
 import * as Shell from "./shell"
-import * as Toast from "./ui/toast"
+import * as Toast from "@maple/views/ui/toast"
 import { update } from "./update"
 
 const orgId = Schema.decodeSync(OrgId)("org_acme")
@@ -30,7 +29,6 @@ const base = (route: AppRoute): Model => ({
 	toasts: Toast.init("toasts"),
 	toastActions: {},
 	toastRootActions: {},
-	chatSheet: ChatSheet.init(),
 	page: null,
 	pageInstances: 0,
 	parkedPages: [],

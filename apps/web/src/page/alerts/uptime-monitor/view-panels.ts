@@ -1,30 +1,33 @@
 import { MAPLE_SERVICES_NAMESPACE } from "@maple/domain/uptime"
 import { bucketTimeScale } from "@maple/ui/components/plot/plot-scales"
-import { formatBucketLabel } from "@maple/ui/lib/format"
+import { countLabel, formatBucketLabel, formatNumber } from "@maple/ui/lib/format"
+import { TONE_COLOR, TONE_TEXT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
 import { formatAlertDateTime, formatAlertTime } from "@maple/web-data/alerts/form-utils"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import { createLazy, type Html, type HtmlBuilder } from "foldkit/html"
 import { refreshingClass } from "@maple/ui/lib/refreshing"
-import * as Chart from "../../../charts/chart"
-import { ChartSpec } from "../../../charts/chart-spec"
-import * as FixedMetricChart from "../../../charts/fixed-metric-chart"
-import { fixedMetricLegend } from "../../../charts/fixed-metric-legend"
-import { LATENCY_SERIES } from "../../../charts/fixed-metric-series"
-import { bucketTooltipBody } from "../../../charts/bucket-tooltip"
-import { plotFrame } from "../../../charts/plot-frame"
-import { stackedBreakdown } from "../../../charts/stacked-breakdown-chart"
-import { resolveColor, type ThemeColors } from "../../../charts/theme-colors"
-import { chartSkeleton } from "../../../ui/chart-skeleton"
-import { errorState } from "../../../ui/error-state"
-import { segmentedSelect } from "../../../ui/segmented-select"
+import * as Chart from "@maple/views/charts/chart"
+import { ChartSpec } from "@maple/views/charts/chart-spec"
+import * as FixedMetricChart from "@maple/views/charts/fixed-metric-chart"
+import { fixedMetricLegend } from "@maple/views/charts/fixed-metric-legend"
+import { LATENCY_SERIES } from "@maple/views/charts/fixed-metric-series"
+import { bucketTooltipBody } from "@maple/views/charts/bucket-tooltip"
+import { plotFrame } from "@maple/views/charts/plot-frame"
+import { stackedBreakdown } from "@maple/views/charts/stacked-breakdown-chart"
+import { resolveColor, type ThemeColors } from "@maple/views/charts/theme-colors"
+import { chartSkeleton } from "@maple/views/ui/chart-skeleton"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
+import { relativeTime } from "../../kit/relative-time"
 import { statRail, statRailItem } from "../../kit/stat-rail"
 import { isoMs } from "../shared/time"
-import * as CopyButton from "../../../ui/copy-button"
-import { copyableField } from "../../../ui/copyable-field"
-import { eyebrow } from "../../../ui/eyebrow"
-import { panel, panelHeader } from "../../../ui/panel"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import { copyableField } from "@maple/views/ui/copyable-field"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { panel, panelHeader } from "@maple/views/ui/panel"
 import { traceHref, uptimeTracesHref, UPTIME_SERVICE } from "../shared/uptime-commands"
 import {
 	displayStatus,
@@ -32,14 +35,19 @@ import {
 	formatMs,
 	formatShare,
 	formatSpan,
+	checkHealth,
 	latencyPercentiles,
+	medianOf,
 	STATUS_TONE,
 	type UptimeMonitor,
 	uptimeShare,
 } from "../shared/uptime-derive"
 import { Message } from "./message"
 import type { CheckPoint, CheckSample, CheckStats, Model, PhasePoint, UptimeWindow } from "./model"
-import { uptimePanelBody } from "../shared/uptime-view"
+import { CHECK_HEALTH_FILL, uptimePanelBody } from "../shared/uptime-view"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack, vstackClass } from "@maple/views/ui/stack"
+import { chartFrameClass } from "@maple/views/ui/chart-frame"
 
 // The monitor page's panels: response time, the checks list and the side panels.
 
@@ -100,8 +108,9 @@ const isStatsRefreshing = (model: Model): boolean => AsyncData.isRefreshing(mode
 const timeLabel = (window: UptimeWindow, iso: string, timeZone: string): string =>
 	window === "1h" ? formatAlertTime(iso, timeZone) : formatAlertDateTime(iso, timeZone)
 
-/** `3m ago`. */
-const ago = (nowMs: number, atMs: number): string => `${formatSpan(nowMs - atMs)} ago`
+/** `3m ago`, the absolute time on hover. */
+const ago = (h: H, nowMs: number, timeZone: string, iso: string): Html =>
+	relativeTime(h, { value: isoMs(iso), nowMs, timeZone, tooltip: "title" })
 
 /** The figures over the page: status, the last check, uptime and the window's percentiles. */
 export const kpiRail = (
@@ -131,7 +140,7 @@ export const kpiRail = (
 				value:
 					monitor.state.last_ping_at === null
 						? "None yet"
-						: ago(nowMs, isoMs(monitor.state.last_ping_at)),
+						: ago(h, nowMs, timeZone, monitor.state.last_ping_at),
 				compact: true,
 				subline:
 					monitor.state.last_ping_at === null
@@ -140,7 +149,7 @@ export const kpiRail = (
 			})
 		: statRailItem(h, {
 				eyebrow: "Last checked",
-				value: last === null ? "Not yet" : ago(nowMs, isoMs(last.at)),
+				value: last === null ? "Not yet" : ago(h, nowMs, timeZone, last.at),
 				tone: last !== null && !last.ok ? "crit" : "neutral",
 				compact: true,
 				subline:
@@ -190,7 +199,7 @@ export const kpiRail = (
 			subline:
 				data.checks === 0
 					? `No checks in the ${WINDOW_LABEL[data.window]}`
-					: `${data.checks.toLocaleString()} checks, ${data.failures.toLocaleString()} failed`,
+					: `${formatNumber(data.checks)} checks, ${formatNumber(data.failures)} failed`,
 		}),
 	})
 	const percentile = (label: string, value: number | null) =>
@@ -333,7 +342,7 @@ const latencyChart = (h: H, model: Model, stats: CheckStats, context: ChartConte
 				gradientPrefix: "uptime-latency",
 				showTooltip: true,
 			}),
-			className: "h-full w-full aspect-auto",
+			className: chartFrameClass("fill"),
 			legend: fixedMetricLegend(
 				h,
 				series.map((entry) => ({
@@ -360,11 +369,14 @@ const bucketStepMs = (points: ReadonlyArray<CheckPoint>, endMs: number): number 
 /**
  * One segment per bucket under the chart, placed by its time on the same window as the chart: the
  * warehouse trims empty leading buckets, so counting segments would stretch them across the window.
- * Green when every check passed, red with any failure.
+ * Filled by `checkHealth` against the window's median p95.
  */
 const availabilityStrip = (h: H, stats: CheckStats, window: UptimeWindow, timeZone: string): Html => {
 	const domain: Domain = { startMs: stats.windowStartMs, endMs: stats.windowEndMs }
 	const stepMs = bucketStepMs(stats.points, domain.endMs)
+	const medianMs = medianOf(
+		stats.points.flatMap((point) => (point.totalCount === 0 ? [] : [point.p95LatencyMs])),
+	)
 	return h.div(
 		[h.Class("h-2 pr-3 pl-16"), h.AriaHidden(true)],
 		[
@@ -375,24 +387,19 @@ const availabilityStrip = (h: H, stats: CheckStats, window: UptimeWindow, timeZo
 					const left = Math.max(0, xShare(startMs, domain))
 					const right = Math.min(1, xShare(startMs + stepMs, domain))
 					const failed = Math.round(point.errorRate * point.totalCount)
+					const health = checkHealth(
+						{ total: point.totalCount, failed, latencyMs: point.p95LatencyMs },
+						medianMs,
+					)
 					const label =
 						point.totalCount === 0
 							? `${timeLabel(window, point.bucket, timeZone)}: no checks`
-							: `${timeLabel(window, point.bucket, timeZone)}: ${point.totalCount} checks, ${failed} failed`
+							: `${timeLabel(window, point.bucket, timeZone)}: ${point.totalCount} checks, ${failed} failed${health === "slow" ? ", slow" : ""}`
 					return h.span(
 						[
 							h.Key(point.bucket),
 							h.Title(label),
-							h.Class(
-								cn(
-									"absolute inset-y-0 rounded-[1px]",
-									point.totalCount === 0
-										? "bg-muted"
-										: failed > 0
-											? "bg-destructive"
-											: "bg-success/70",
-								),
-							),
+							h.Class(cn("absolute inset-y-0 rounded-2xs", CHECK_HEALTH_FILL[health])),
 							h.Style({
 								left: `${left * 100}%`,
 								width: `max(1px, calc(${((right - left) * 100).toFixed(4)}% - 1px))`,
@@ -433,7 +440,7 @@ export const responseTimePanel = (h: H, model: Model, context: ChartContext | nu
 											...(isStatsRefreshing(model) ? [h.AriaBusy(true)] : []),
 											h.Class(
 												cn(
-													"flex flex-col gap-2",
+													vstackClass({ gap: "2" }),
 													refreshingClass(isStatsRefreshing(model)),
 												),
 											),
@@ -527,7 +534,7 @@ const checkBars = (
 				h.Href(traceHref(sample.traceId)),
 				h.Attribute("tabindex", "-1"),
 				h.OnMouseEnter(Message.HoveredCheck({ index })),
-				h.Class("group absolute inset-y-0 -translate-x-1/2 hover:bg-foreground/5"),
+				h.Class("group absolute inset-y-0 -translate-x-1/2 hover:bg-surface-sunken active:bg-surface-sunken"),
 				h.Style({ left: `${xShare(isoMs(sample.at), domain) * 100}%`, width }),
 			],
 			[
@@ -535,8 +542,8 @@ const checkBars = (
 					[
 						h.Class(
 							cn(
-								"absolute inset-x-0 bottom-0 flex flex-col-reverse overflow-hidden rounded-t-[1px] group-hover:brightness-125",
-								!sample.ok && "bg-destructive",
+								"absolute inset-x-0 bottom-0 flex flex-col-reverse overflow-hidden rounded-t-2xs group-hover:brightness-125",
+								!sample.ok && CHECK_HEALTH_FILL.mostlyFailed,
 							),
 						),
 						h.Style({ height: `${yShare(sample.durationMs, yMax) * 100}%` }),
@@ -561,7 +568,7 @@ const checkBars = (
 									h.Class(
 										cn(
 											"absolute -top-1.5 left-1/2 size-0 -translate-x-1/2 border-x-[3px] border-t-[5px] border-x-transparent",
-											sample.ok ? "border-t-foreground/60" : "border-t-destructive",
+											sample.ok ? "border-t-foreground/60" : "border-t-severity-error",
 										),
 									),
 								],
@@ -585,20 +592,18 @@ const checkBars = (
 const barsSlot = createLazy()
 
 const cardRow = (h: H, key: string, color: string, label: string, value: string): Html =>
-	h.span(
-		[h.Key(key), h.Class("flex items-center justify-between gap-4")],
+	hstack(h, { gap: "4", justify: "between", as: "span", attributes: [h.Key(key)] },
 		[
-			h.span(
-				[h.Class("flex items-center gap-1.5 text-muted-foreground")],
+			hstack(h, { gap: "1.5", as: "span", className: typographyClass({ tone: "muted" }) },
 				[
 					h.span(
-						[h.Class("inline-block size-2 rounded-[2px]"), h.Style({ background: color })],
+						[h.Class("inline-block size-2 rounded-xs"), h.Style({ background: color })],
 						[],
 					),
 					label,
 				],
 			),
-			h.span([h.Class("font-mono tabular-nums")], [value]),
+			typography(h, { mono: true, numeric: true }, [value]),
 		],
 	)
 
@@ -610,7 +615,7 @@ const hoverCard = (h: H, sample: CheckSample, domain: Domain, timeZone: string):
 		[
 			h.Class(
 				cn(
-					"pointer-events-none absolute top-1 z-30 flex w-48 flex-col gap-1 rounded-md border bg-popover px-2.5 py-2 text-xs shadow-md",
+					"pointer-events-none absolute top-1 z-30 flex w-48 flex-col gap-1 rounded-md border bg-popover px-2.5 py-2 text-xs shadow-popup",
 					left > 60 ? "-translate-x-full -ml-2" : "ml-2",
 				),
 			),
@@ -621,8 +626,8 @@ const hoverCard = (h: H, sample: CheckSample, domain: Domain, timeZone: string):
 			h.span(
 				[h.Class("flex items-center justify-between gap-4 font-medium")],
 				[
-					h.span([h.Class(sample.ok ? "text-success" : "text-destructive")], [result]),
-					h.span([h.Class("font-mono tabular-nums")], [formatMs(sample.durationMs)]),
+					h.span([h.Class(sample.ok ? TONE_TEXT.info : TONE_TEXT.crit)], [result]),
+					typography(h, { mono: true, numeric: true }, [formatMs(sample.durationMs)]),
 				],
 			),
 			...(sample.phases === null
@@ -645,10 +650,10 @@ const hoverCard = (h: H, sample: CheckSample, domain: Domain, timeZone: string):
 const formatPhaseMs = (ms: number): string => (ms < 10 ? `${ms.toFixed(1)} ms` : formatMs(ms))
 
 const legendItem = (h: H, key: string, swatch: Html, label: string): Html =>
-	h.span([h.Key(key), h.Class("flex items-center gap-1.5")], [swatch, label])
+	hstack(h, { gap: "1.5", as: "span", attributes: [h.Key(key)] }, [swatch, label])
 
 const swatch = (h: H, color: string): Html =>
-	h.span([h.Class("inline-block size-2 rounded-[2px]"), h.Style({ background: color })], [])
+	h.span([h.Class("inline-block size-2 rounded-xs"), h.Style({ background: color })], [])
 
 const barsLegend = (h: H, samples: ReadonlyArray<CheckSample>, yMax: number): Html => {
 	const timed = samples.some((sample) => sample.ok && sample.phases !== null)
@@ -673,7 +678,7 @@ const barsLegend = (h: H, samples: ReadonlyArray<CheckSample>, yMax: number): Ht
 						),
 					]
 				: []),
-			...(failed ? [legendItem(h, "failed", swatch(h, "var(--destructive)"), "Failed")] : []),
+			...(failed ? [legendItem(h, "failed", swatch(h, TONE_COLOR.crit), "Failed")] : []),
 			...(clipped
 				? [
 						legendItem(
@@ -724,13 +729,12 @@ export const checksScatterPanel = (h: H, model: Model, timeZone: string): Html |
 			return panel(h, {}, [
 				panelHeader(h, {
 					title: "Every check",
-					action: h.span(
-						[h.Class("text-xs text-muted-foreground tabular-nums")],
+					action: typography(h, { size: "xs", tone: "muted", numeric: true },
 						[
 							stats.samplesTruncated
-								? `Newest ${stats.samples.length.toLocaleString()} checks`
-								: `${stats.samples.length.toLocaleString()} checks`,
-							failed === 0 ? "" : `, ${failed} failed`,
+								? `Newest ${formatNumber(stats.samples.length)} checks`
+								: `${formatNumber(stats.samples.length)} checks`,
+							failed === 0 ? "" : `, ${formatNumber(failed)} failed`,
 						],
 					),
 				}),
@@ -738,7 +742,7 @@ export const checksScatterPanel = (h: H, model: Model, timeZone: string): Html |
 					h.div(
 						[
 							...(isStatsRefreshing(model) ? [h.AriaBusy(true)] : []),
-							h.Class(cn("flex flex-col gap-2", refreshingClass(isStatsRefreshing(model)))),
+							h.Class(cn(vstackClass({ gap: "2" }), refreshingClass(isStatsRefreshing(model)))),
 						],
 						[
 							h.div(
@@ -748,7 +752,7 @@ export const checksScatterPanel = (h: H, model: Model, timeZone: string): Html |
 										[
 											h.AriaHidden(true),
 											h.Class(
-												"relative w-16 shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums",
+												"relative w-16 shrink-0 font-mono text-2xs text-muted-foreground tabular-nums",
 											),
 										],
 										yTicks.map((share) =>
@@ -781,7 +785,7 @@ export const checksScatterPanel = (h: H, model: Model, timeZone: string): Html |
 																"pointer-events-none absolute inset-x-0 border-t",
 																share === 0
 																	? "border-border"
-																	: "border-dashed border-border/60",
+																	: "border-dashed border-border-subtle",
 															),
 														),
 														h.Style({ bottom: `${share * 100}%` }),
@@ -808,7 +812,7 @@ export const checksScatterPanel = (h: H, model: Model, timeZone: string): Html |
 								[
 									h.AriaHidden(true),
 									h.Class(
-										"relative mr-3 ml-16 h-4 font-mono text-[11px] text-muted-foreground",
+										"relative mr-3 ml-16 h-4 font-mono text-2xs text-muted-foreground",
 									),
 								],
 								scatterTimeTicks(domain, stats.window, timeZone).map((tick) =>
@@ -906,7 +910,7 @@ const PhaseChartView = Submodel.defineView<
 		chartId: "uptime-phases",
 		spec: inputs.spec,
 		ariaLabel: "Response time breakdown by phase",
-		className: "h-full w-full aspect-auto",
+		className: chartFrameClass("fill"),
 		legend: inputs.legend,
 		tooltipBody: (portal) =>
 			Option.flatMap(model.tooltip, (tooltip) =>
@@ -999,7 +1003,7 @@ export const checksPanel = (h: H, monitor: UptimeMonitor, timeZone: string): Htm
 					h.Title(
 						`Each check is a span in the ${UPTIME_SERVICE} service, namespace ${MAPLE_SERVICES_NAMESPACE}.`,
 					),
-					h.Class("text-xs text-primary hover:underline"),
+					h.Class(typographyClass({ size: "xs", tone: "primary", className: "hover:underline active:underline" })),
 				],
 				["View all checks in Traces"],
 			),
@@ -1015,24 +1019,20 @@ export const checksPanel = (h: H, monitor: UptimeMonitor, timeZone: string): Htm
 			],
 		),
 		rows.length === 0
-			? h.p([h.Class("px-4 py-6 text-sm text-muted-foreground")], ["No checks yet."])
+			? emptyMessage(h, {}, ["No checks yet"])
 			: h.ul(
 					[h.Class("divide-y")],
 					rows.map((row, index) =>
 						h.li(
 							[h.Key(`${row.at}-${index}`), h.Class(cn(CHECK_GRID, "px-4 py-2 text-sm"))],
 							[
-								h.span(
-									[h.Class("font-mono text-xs text-muted-foreground")],
+								typography(h, { size: "xs", tone: "muted", mono: true },
 									[formatAlertTime(row.at, timeZone)],
 								),
 								h.span(
 									[
 										h.Class(
-											cn(
-												"font-mono text-xs",
-												row.ok ? "text-success" : "text-destructive",
-											),
+											cn(typographyClass({ size: "xs", mono: true }), row.ok ? TONE_TEXT.info : TONE_TEXT.crit),
 										),
 									],
 									[
@@ -1043,21 +1043,20 @@ export const checksPanel = (h: H, monitor: UptimeMonitor, timeZone: string): Htm
 											: String(row.statusCode),
 									],
 								),
-								h.span(
-									[h.Class("font-mono text-xs tabular-nums")],
+								typography(h, { size: "xs", mono: true, numeric: true },
 									[formatMs(row.durationMs)],
 								),
 								h.span(
-									[h.Class("truncate text-xs text-destructive"), h.Title(row.result)],
+									[h.Class(cn(typographyClass({ size: "xs", truncate: true }), TONE_TEXT.crit)), h.Title(row.result)],
 									[row.result],
 								),
 								row.traceId === null
-									? h.span([h.Class("text-right text-xs text-muted-foreground")], ["–"])
+									? typography(h, { size: "xs", tone: "muted", className: "text-right" }, ["–"])
 									: h.a(
 											[
 												h.Href(traceHref(row.traceId)),
 												h.Class(
-													"text-right font-mono text-xs text-primary hover:underline",
+													"text-right font-mono text-xs text-primary hover:underline active:underline",
 												),
 											],
 											[`${row.traceId.slice(0, 4)}…${row.traceId.slice(-4)}`],
@@ -1092,7 +1091,7 @@ export const lastCheckPanel = (h: H, monitor: UptimeMonitor): Html => {
 	const isHeartbeat = config.type === "heartbeat"
 	return panel(h, { className: "divide-y" }, [
 		panelHeader(h, { title: "Last check" }),
-		fact(h, "Result", result, last !== null && !last.ok ? "text-destructive" : undefined),
+		fact(h, "Result", result, last !== null && !last.ok ? TONE_TEXT.crit : undefined),
 		...(isHeartbeat ? [] : [fact(h, "Duration", formatMs(last?.duration_ms ?? null))]),
 		fact(h, "Probe", isHeartbeat ? "Your job" : "Ashburn, US"),
 		config.type === "heartbeat"
@@ -1106,7 +1105,7 @@ export const lastCheckPanel = (h: H, monitor: UptimeMonitor): Html => {
 				),
 		...(last === null || last.ok || last.error === null
 			? []
-			: [h.p([h.Class("px-4 py-2.5 text-sm text-destructive")], [last.error])]),
+			: [h.p([h.Class(cn("px-4 py-2.5 text-sm", TONE_TEXT.crit))], [last.error])]),
 	])
 }
 
@@ -1118,7 +1117,7 @@ export const setupPanel = (h: H, model: Model, monitor: UptimeMonitor, serviceHr
 		count === 0
 			? "Nobody yet"
 			: destinations === null
-				? `${count} ${count === 1 ? "destination" : "destinations"}`
+				? countLabel(count, "destination")
 				: monitor.destination_ids
 						.map(
 							(id) =>
@@ -1134,7 +1133,7 @@ export const setupPanel = (h: H, model: Model, monitor: UptimeMonitor, serviceHr
 					h,
 					"Service",
 					h.a(
-						[h.Href(serviceHref), h.Class("text-primary hover:underline")],
+						[h.Href(serviceHref), h.Class(typographyClass({ tone: "primary", className: "hover:underline active:underline" }))],
 						[monitor.service_name],
 					),
 				),
@@ -1159,8 +1158,7 @@ export const heartbeatPanel = (h: H, model: Model, pingUrl: string): Html =>
 				[h.Class("mb-3 text-sm text-muted-foreground")],
 				["Send a GET or POST here when the job succeeds. Add /fail to report a failure right away."],
 			),
-			h.div(
-				[h.Class("flex flex-col gap-3")],
+			vstack(h, { gap: "3" },
 				[
 					snippet(h, model, "url", "Ping URL", pingUrl),
 					snippet(

@@ -3,10 +3,10 @@ import {
 	CPU_HEAVY_P99_MS,
 	MIN_RATED_REQUESTS,
 	SLOW_P99_MS,
-	type WorkerHealth,
 	workerHealth,
 	type WorkerListRow,
 	workerRowKey,
+	WORKER_HEALTH_TONE,
 } from "../../../../components/infra/cloudflare/list-model"
 import { ERROR_RATE_WARN, errorRateClass } from "@maple/ui/lib/error-rate"
 import {
@@ -19,12 +19,13 @@ import {
 } from "@maple/ui/lib/format"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as Chart from "../../../../charts/chart"
-import * as Sparkline from "../../../../charts/sparkline"
-import { resolveColor, type ThemeColors } from "../../../../charts/theme-colors"
+import * as Chart from "@maple/views/charts/chart"
+import * as Sparkline from "@maple/views/charts/sparkline"
+import { resolveColor, type ThemeColors } from "@maple/views/charts/theme-colors"
 import { AppRoute, hrefOf } from "../../../../route"
-import { segmentedBar } from "../../../../ui/meter"
-import { skeleton } from "../../../../ui/skeleton"
+import { segmentedBar } from "@maple/views/ui/meter"
+import { skeleton, skeletonLine } from "@maple/views/ui/skeleton"
+import { statusDot } from "@maple/views/ui/status-dot"
 import {
 	columnHead,
 	dataTable,
@@ -36,6 +37,10 @@ import { metaLine } from "../../../infra/kit/meta-line"
 import { type Sort, sortRowsByField } from "../../../kit/table-sort"
 import type { QueueRow, ZoneRow } from "../data"
 import { Message, type QueueSortKey, type ZoneSortKey } from "./model"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstackClass } from "@maple/views/ui/stack"
+import { stripClass } from "@maple/views/ui/rule"
+import { columnClass } from "@maple/views/ui/column"
 
 // `CloudflareZoneTable`, `CloudflareWorkerTable`, `CloudflareQueueTable`.
 
@@ -43,8 +48,8 @@ type H = HtmlBuilder<Message>
 
 // The server caps the list at 500 rows, so the row area scrolls rather than growing the page.
 // Capped: a short zone name on a wide page otherwise opens a gulf before its numbers.
-const NAME = "w-0 flex-1 min-w-[200px] max-w-[360px]"
-const NUMBER = "text-right font-mono text-xs tabular-nums"
+const NAME = "w-0 flex-1 min-w-52 max-w-90"
+const NUMBER = typographyClass({ size: "xs", mono: true, numeric: true, className: "text-right" })
 
 export type SparkContext = Readonly<{ theme: ThemeColors | null; isChartReady: boolean }>
 
@@ -82,11 +87,11 @@ const zoneColumns = (
 	showLatency: boolean,
 ): ReadonlyArray<Html> => [
 	zoneHead(h, "Zone", NAME, { key: "zoneName", sort }),
-	...(showAccount ? [zoneHead(h, "Account", "w-[120px]", { hidden: "hidden lg:flex" })] : []),
-	zoneHead(h, "Requests", "w-[190px]", { key: "requests", sort }),
-	zoneHead(h, "Status mix", "w-[200px]", { key: "clientErrorRate", sort, hidden: "hidden md:flex" }),
-	zoneHead(h, "5xx", "w-[80px]", { key: "errorRate", sort, align: "right" }),
-	zoneHead(h, "Cache hit", "w-[120px]", {
+	...(showAccount ? [zoneHead(h, "Account", "w-32", { hidden: "hidden lg:flex" })] : []),
+	zoneHead(h, "Requests", "w-48", { key: "requests", sort }),
+	zoneHead(h, "Status mix", "w-52", { key: "clientErrorRate", sort, hidden: "hidden md:flex" }),
+	zoneHead(h, "5xx", "w-20", { key: "errorRate", sort, align: "right" }),
+	zoneHead(h, "Cache hit", "w-32", {
 		key: "cacheHitRate",
 		sort,
 		align: "right",
@@ -94,7 +99,7 @@ const zoneColumns = (
 	}),
 	...(showLatency
 		? [
-				zoneHead(h, "TTFB p99", "w-[80px]", {
+				zoneHead(h, "TTFB p99", "w-20", {
 					key: "ttfbP99Ms",
 					sort,
 					align: "right",
@@ -102,7 +107,7 @@ const zoneColumns = (
 				}),
 			]
 		: []),
-	zoneHead(h, "Bandwidth", "w-[100px]", { key: "bytes", sort, align: "right", hidden: "hidden md:flex" }),
+	zoneHead(h, "Bandwidth", "w-24", { key: "bytes", sort, align: "right", hidden: "hidden md:flex" }),
 ]
 
 export const zoneTableLoading = (h: H): Html =>
@@ -112,11 +117,11 @@ export const zoneTableLoading = (h: H): Html =>
 		zoneColumns(h, undefined, false, false),
 		skeletonRows(h, 4, () => [
 			h.div([h.Class(cn(NAME, "space-y-1.5"))], [skeleton(h, "h-3.5 w-40"), skeleton(h, "h-2.5 w-24")]),
-			skeleton(h, "h-4 w-[190px]"),
-			skeleton(h, "hidden h-1.5 w-[200px] md:block"),
-			skeleton(h, "h-3 w-[80px]"),
-			skeleton(h, "hidden h-3 w-[120px] lg:block"),
-			skeleton(h, "hidden h-3 w-[100px] md:block"),
+			skeleton(h, "h-4 w-48"),
+			skeleton(h, "hidden h-1.5 w-52 md:block"),
+			skeleton(h, "h-3 w-20"),
+			skeletonLine(h, { width: "32", visibleFrom: "lg" }),
+			skeleton(h, "hidden h-3 w-24 md:block"),
 		]),
 	)
 
@@ -175,10 +180,10 @@ const statusMix = (h: H, zone: ZoneRow, rated: boolean): Html => {
 						title: undefined,
 					}
 	return h.div(
-		[h.Class("hidden w-[200px] items-center gap-2.5 md:flex")],
+		[h.Class("hidden w-52 items-center gap-2.5 md:flex")],
 		[
 			segmentedBar(h, {
-				className: "w-[100px] shrink-0 gap-px bg-transparent",
+				className: "w-24 shrink-0 gap-px bg-transparent",
 				minVisible: 2,
 				label: `2xx ${zone.requests2xx}, 3xx ${zone.requests3xx}, 4xx ${zone.errors4xx}, 5xx ${zone.errors5xx}`,
 				segments: [
@@ -229,13 +234,18 @@ const zoneRow = (
 			h.div(
 				[h.Class(cn(NAME, "space-y-0.5"))],
 				[
-					h.div(
-						[
-							h.Class(
-								"truncate font-mono text-xs font-medium text-foreground transition-colors group-hover:text-primary",
-							),
-							h.Title(zone.zoneName),
-						],
+					typography(
+						h,
+						{
+							size: "xs",
+							tone: "foreground",
+							weight: "medium",
+							mono: true,
+							truncate: true,
+							as: "div",
+							className: "transition-colors group-hover:text-primary",
+							attributes: [h.Title(zone.zoneName)],
+						},
 						[zone.zoneName],
 					),
 					...(meta === null ? [] : [meta]),
@@ -247,17 +257,17 @@ const zoneRow = (
 						h.div(
 							[
 								h.Class(
-									"hidden w-[120px] truncate font-mono text-2xs text-muted-foreground lg:block",
+									"hidden w-32 truncate font-mono text-2xs text-muted-foreground lg:block",
 								),
 							],
 							[options.accounts.get(zone.serviceName) ?? EMPTY_VALUE],
 						),
 					]),
 			h.div(
-				[h.Class("flex w-[190px] items-center gap-3")],
+				[h.Class("flex w-48 items-center gap-3")],
 				[
 					h.span(
-						[h.Class("w-[56px] shrink-0 font-mono text-xs tabular-nums text-foreground/80")],
+						[h.Class("w-[56px] shrink-0 font-mono text-xs tabular-nums text-foreground-soft")],
 						[formatNumber(zone.requests)],
 					),
 					requestSpark(h, options.spark, zone, options.sparks?.get(zone.serviceName)),
@@ -267,42 +277,34 @@ const zoneRow = (
 			h.div(
 				[
 					h.Class(
-						cn(
-							"w-[80px]",
-							NUMBER,
-							rated ? errorRateClass(zone.errorRate) : "text-muted-foreground",
-						),
+						cn("w-20", NUMBER, rated ? errorRateClass(zone.errorRate) : "text-muted-foreground"),
 					),
 				],
 				[rated ? formatErrorRate(zone.errorRate) : EMPTY_VALUE],
 			),
 			h.div(
-				[h.Class("hidden w-[120px] flex-col items-end gap-0.5 lg:flex")],
+				[h.Class("hidden w-32 flex-col items-end gap-0.5 lg:flex")],
 				[
-					h.span(
-						[h.Class("font-mono text-xs tabular-nums text-foreground/80")],
-						[zone.cacheHitRate === null ? EMPTY_VALUE : formatPercentColumn(zone.cacheHitRate)],
-					),
-					h.span(
-						[h.Class("font-mono text-3xs text-muted-foreground")],
-						[
-							zone.cacheHitRate === null
-								? "nothing cacheable"
-								: `of ${formatPercentColumn(zone.requests > 0 ? zone.cacheableRequests / zone.requests : 0)} cacheable`,
-						],
-					),
+					typography(h, { size: "xs", tone: "soft", mono: true, numeric: true }, [
+						zone.cacheHitRate === null ? EMPTY_VALUE : formatPercentColumn(zone.cacheHitRate),
+					]),
+					typography(h, { size: "3xs", tone: "muted", mono: true }, [
+						zone.cacheHitRate === null
+							? "nothing cacheable"
+							: `of ${formatPercentColumn(zone.requests > 0 ? zone.cacheableRequests / zone.requests : 0)} cacheable`,
+					]),
 				],
 			),
 			...(options.showLatency
 				? [
 						h.div(
-							[h.Class(cn("hidden w-[80px] text-foreground/80 lg:block", NUMBER))],
+							[h.Class(cn("hidden w-20 text-foreground-soft lg:block", NUMBER))],
 							[zone.ttfbP99Ms > 0 ? formatLatency(zone.ttfbP99Ms) : EMPTY_VALUE],
 						),
 					]
 				: []),
 			h.div(
-				[h.Class(cn("hidden w-[100px] text-foreground/80 md:block", NUMBER))],
+				[h.Class(cn("hidden w-24 text-foreground-soft md:block", NUMBER))],
 				[formatBytes(zone.bytes)],
 			),
 		],
@@ -328,7 +330,7 @@ export const zoneTable = (
 		{ ariaLabel: "Cloudflare zones" },
 		zoneColumns(h, options.sort, options.accounts !== undefined, showLatency),
 		sorted.length === 0
-			? [dataTableEmpty(h, [options.emptyMessage ?? "No zone traffic in the selected window."])]
+			? [dataTableEmpty(h, [options.emptyMessage ?? "No zone traffic in this window"])]
 			: sorted.map((zone) =>
 					zoneRow(h, zone, {
 						sparks: options.sparks,
@@ -341,12 +343,6 @@ export const zoneTable = (
 }
 
 // WORKERS
-
-const HEALTH_DOT = {
-	erroring: "bg-severity-error",
-	slow: "bg-severity-warn",
-	ok: "bg-severity-info",
-} as const satisfies Record<WorkerHealth, string>
 
 const workerMeta = (h: H, row: WorkerListRow) => [
 	row.nameInOtherAccounts ? "name shared with another account" : "",
@@ -387,17 +383,22 @@ const workerRow = (h: H, row: WorkerListRow, accounts: ReadonlyMap<string, strin
 			),
 		],
 		[
-			h.span([h.AriaHidden(true), h.Class(cn("size-2 shrink-0 rounded-full", HEALTH_DOT[health]))]),
+			statusDot(h, { tone: WORKER_HEALTH_TONE[health], size: "lg" }),
 			h.div(
-				[h.Class("w-0 min-w-[220px] flex-1 space-y-0.5")],
+				[h.Class("w-0 min-w-56 flex-1 space-y-0.5")],
 				[
-					h.div(
-						[
-							h.Class(
-								"truncate font-mono text-xs font-medium text-foreground transition-colors group-hover:text-primary",
-							),
-							h.Title(row.scriptName),
-						],
+					typography(
+						h,
+						{
+							size: "xs",
+							tone: "foreground",
+							weight: "medium",
+							mono: true,
+							truncate: true,
+							as: "div",
+							className: "transition-colors group-hover:text-primary",
+							attributes: [h.Title(row.scriptName)],
+						},
 						[row.scriptName],
 					),
 					...(meta === null ? [] : [meta]),
@@ -409,21 +410,21 @@ const workerRow = (h: H, row: WorkerListRow, accounts: ReadonlyMap<string, strin
 						h.div(
 							[
 								h.Class(
-									"hidden w-[110px] truncate font-mono text-2xs text-muted-foreground lg:block",
+									"hidden w-28 truncate font-mono text-2xs text-muted-foreground lg:block",
 								),
 							],
 							[accounts.get(row.accountId) ?? EMPTY_VALUE],
 						),
 					]),
 			h.div(
-				[h.Class(cn("w-[90px] text-foreground/80", NUMBER))],
+				[h.Class(cn("w-24 text-foreground-soft", NUMBER))],
 				[invocationsOnly ? formatNumber(row.requests) : EMPTY_VALUE],
 			),
 			h.div(
 				[
 					h.Class(
 						cn(
-							"w-[80px]",
+							"w-20",
 							NUMBER,
 							invocationsOnly ? errorRateClass(row.errorRate) : "text-muted-foreground",
 						),
@@ -435,9 +436,9 @@ const workerRow = (h: H, row: WorkerListRow, accounts: ReadonlyMap<string, strin
 				[
 					h.Class(
 						cn(
-							"hidden w-[80px] md:block",
+							"hidden w-20 md:block",
 							NUMBER,
-							row.cpuP99Ms >= CPU_HEAVY_P99_MS ? "text-severity-warn" : "text-foreground/80",
+							row.cpuP99Ms >= CPU_HEAVY_P99_MS ? "text-severity-warn" : "text-foreground-soft",
 						),
 					),
 				],
@@ -447,9 +448,9 @@ const workerRow = (h: H, row: WorkerListRow, accounts: ReadonlyMap<string, strin
 				[
 					h.Class(
 						cn(
-							"w-[100px]",
+							"w-24",
 							NUMBER,
-							row.durationP99Ms >= SLOW_P99_MS ? "text-severity-warn" : "text-foreground/80",
+							row.durationP99Ms >= SLOW_P99_MS ? "text-severity-warn" : "text-foreground-soft",
 						),
 					),
 				],
@@ -473,30 +474,32 @@ export const workerTable = (
 		{ ariaLabel: "Cloudflare Workers" },
 		[
 			h.div([h.Class("w-2 shrink-0")]),
-			columnHead(h, { label: "Worker", width: "w-0 flex-1 min-w-[220px]" }),
+			columnHead(h, { label: "Worker", width: columnClass({ min: "56" }) }),
 			...(options.accounts === undefined
 				? []
-				: [columnHead(h, { label: "Account", width: "w-[110px]", hidden: "hidden lg:flex" })]),
-			columnHead(h, { label: "Invocations", align: "right", width: "w-[90px]" }),
-			columnHead(h, { label: "Errors", align: "right", width: "w-[80px]" }),
-			columnHead(h, { label: "CPU p99", align: "right", width: "w-[80px]", hidden: "hidden md:flex" }),
-			columnHead(h, { label: "Duration p99", align: "right", width: "w-[100px]" }),
+				: [columnHead(h, { label: "Account", width: "w-28", hidden: "hidden lg:flex" })]),
+			columnHead(h, { label: "Invocations", align: "right", width: "w-24" }),
+			columnHead(h, { label: "Errors", align: "right", width: "w-20" }),
+			columnHead(h, { label: "CPU p99", align: "right", width: "w-20", hidden: "hidden md:flex" }),
+			columnHead(h, { label: "Duration p99", align: "right", width: "w-24" }),
 		],
 		options.rows.length === 0
-			? [dataTableEmpty(h, [options.emptyMessage ?? "No Worker invocations in the selected window."])]
+			? [dataTableEmpty(h, [options.emptyMessage ?? "No Worker invocations in this window"])]
 			: options.rows.map((row) => workerRow(h, row, options.accounts)),
 	)
 
 // QUEUES
 
-const QUEUE_ROW =
-	"flex items-center gap-4 border-b border-border/40 px-4 py-3 last:border-0 hover:bg-muted/40"
+const QUEUE_ROW = hstackClass({
+	gap: "4",
+	className: stripClass("hoverRow"),
+})
 
 const numCell = (h: H, value: string, hidden?: boolean): Html =>
 	h.div(
 		[
 			h.Class(
-				`w-[110px] text-right font-mono text-xs tabular-nums text-foreground/80 ${hidden === true ? "hidden md:block" : ""}`,
+				`w-28 text-right font-mono text-xs tabular-nums text-foreground-soft ${hidden === true ? "hidden md:block" : ""}`,
 			),
 		],
 		[value],
@@ -528,19 +531,19 @@ export const queueTable = (
 		h,
 		{ ariaLabel: "Cloudflare queues", isWaiting: options.isWaiting },
 		[
-			queueHead(h, "Queue", "queueName", sort, "w-0 flex-1 min-w-[220px]"),
-			queueHead(h, "Backlog avg", "backlogMessages", sort, "w-[110px]", "right"),
-			queueHead(h, "Backlog peak", "backlogMessagesMax", sort, "w-[110px]", "right"),
+			queueHead(h, "Queue", "queueName", sort, columnClass({ min: "56" })),
+			queueHead(h, "Backlog avg", "backlogMessages", sort, "w-28", "right"),
+			queueHead(h, "Backlog peak", "backlogMessagesMax", sort, "w-28", "right"),
 			columnHead(h, {
 				label: "Backlog size",
 				align: "right",
-				width: "w-[110px]",
+				width: "w-28",
 				hidden: "hidden md:flex",
 			}),
-			queueHead(h, "Consumers", "consumerConcurrency", sort, "w-[110px]", "right"),
+			queueHead(h, "Consumers", "consumerConcurrency", sort, "w-28", "right"),
 		],
 		sorted.length === 0
-			? [dataTableEmpty(h, ["No queue activity in the selected window."])]
+			? [dataTableEmpty(h, ["No queue activity in this window"])]
 			: sorted.map((queue) =>
 					h.div(
 						[h.Key(queue.serviceName), h.Class(QUEUE_ROW)],
@@ -548,7 +551,7 @@ export const queueTable = (
 							h.div(
 								[
 									h.Class(
-										"w-0 min-w-[220px] flex-1 truncate font-mono text-xs font-medium text-foreground",
+										"w-0 min-w-56 flex-1 truncate font-mono text-xs font-medium text-foreground",
 									),
 								],
 								[queue.queueName],

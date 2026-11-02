@@ -2,11 +2,11 @@ import { OrgId } from "@maple/domain"
 import { Schema } from "effect"
 import { expect as expectView, given, Mount, role, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { LinkedCursorMessage, MountLinkedCursor } from "../../charts/linked-cursor"
-import { ResolveThemeColors, ThemeMessage } from "../../charts/theme-colors"
-import { toLoadFailure } from "../../data/load-failure"
-import { failureSentence } from "../../ui/error-state"
-import * as Tabs from "../../ui/tabs"
+import { LinkedCursorMessage, MountLinkedCursor } from "@maple/views/charts/linked-cursor"
+import { ResolveThemeColors, ThemeMessage } from "@maple/views/charts/theme-colors"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import { failureSentence } from "@maple/views/ui/error-state"
+import * as Tabs from "@maple/views/ui/tabs"
 import { PageOutMessage, type PageContext } from "../contract"
 import { DEFAULT_QUICK_START_STATE } from "../onboarding/quick-start-state"
 import { Message } from "./message"
@@ -102,7 +102,7 @@ describe("overview setup checklist", () => {
 			...pageMounts,
 			...tabMounts,
 			expectView(text("Connect your app to see real data")).toExist(),
-			expectView(text("Watching for your first trace…")).toExist(),
+			expectView(text("Listening for your first trace")).toExist(),
 			expectView(role("button", { name: "Dismiss setup checklist" })).toExist(),
 		)
 	})
@@ -112,7 +112,7 @@ describe("overview setup checklist", () => {
 			{ update: pageUpdate, view },
 			given(withServices(entered(true).read.model, ["checkout"])),
 			...pageMounts,
-			expectView(text("We're seeing telemetry from checkout. Open it to explore.")).toExist(),
+			expectView(text("checkout is sending telemetry.")).toExist(),
 			expectView(text("Connect your app to see real data")).not.toExist(),
 		)
 	})
@@ -174,7 +174,7 @@ describe("overview setup checklist", () => {
 			given(entered(true).read.model),
 			...pageMounts,
 			expectView(text("Connect your app to see real data")).not.toExist(),
-			expectView(text(/We're seeing telemetry/)).not.toExist(),
+			expectView(text(/is sending telemetry/)).not.toExist(),
 		)
 	})
 
@@ -184,7 +184,7 @@ describe("overview setup checklist", () => {
 			given(failOverview(entered(true).read.model)),
 			...pageMounts,
 			expectView(text(failureSentence(toLoadFailure("boom")), { exact: false })).toExist(),
-			expectView(text("Watching for your first trace…")).not.toExist(),
+			expectView(text("Listening for your first trace")).not.toExist(),
 		)
 	})
 

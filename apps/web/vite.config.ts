@@ -1,10 +1,13 @@
 import path from "node:path"
 import { foldkit } from "@foldkit/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
+import { Schema } from "effect"
 import { defineConfig, loadEnv, type Plugin } from "vite"
 import { siblingUrl } from "../../packages/infra/src/dev-urls.ts"
-import { clerkJsUrl } from "./src/platform/clerk-js-url.ts"
+import { clerkJsUrl } from "../../packages/domain/src/clerk-js-url.ts"
 import { versionManifest } from "./vite-plugin-version-manifest.ts"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.String))
 
 const envDir = path.resolve(import.meta.dirname, "../..")
 
@@ -15,6 +18,8 @@ const overrideKeys = [
 	"VITE_INGEST_URL",
 	"VITE_MAPLE_SELF_INGEST_URL",
 	"VITE_ELECTRIC_SYNC_URL",
+	"VITE_ELECTRIC_SYNC_DISABLED",
+	"VITE_STATUS_PAGE_BASE_URL",
 	"VITE_MAPLE_REGION",
 	"VITE_MAPLE_REGION_APP_URLS",
 	"VITE_MAPLE_AUTH_MODE",
@@ -107,6 +112,7 @@ export default defineConfig(({ mode, command }) => {
 		process.env.VITE_API_BASE_URL ??= siblingUrl("api")
 		process.env.VITE_INGEST_URL ??= siblingUrl("ingest")
 		process.env.VITE_ELECTRIC_SYNC_URL ??= siblingUrl("electric-sync")
+		process.env.VITE_STATUS_PAGE_BASE_URL ??= siblingUrl("status")
 	}
 	process.env.VITE_MAPLE_AUTH_MODE ||= env.MAPLE_AUTH_MODE?.trim() || "self_hosted"
 	process.env.VITE_CLERK_PUBLISHABLE_KEY ||= env.CLERK_PUBLISHABLE_KEY?.trim() || ""
@@ -119,7 +125,7 @@ export default defineConfig(({ mode, command }) => {
 	const define: Record<string, string> = {}
 	for (const key of overrideKeys) {
 		const value = process.env[key]?.trim()
-		if (value) define[`import.meta.env.${key}`] = JSON.stringify(value)
+		if (value) define[`import.meta.env.${key}`] = encodeJson(value)
 	}
 
 	return {

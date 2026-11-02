@@ -9,17 +9,19 @@ import {
 } from "@maple/web-data/alerts/form-utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import { button } from "../../../ui/button"
-import { card, cardPanel } from "../../../ui/card"
-import { badge } from "../../../ui/display"
-import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../ui/empty"
-import { icon } from "../../../ui/icon"
-import * as Menu from "../../../ui/menu"
-import { meter } from "../../../ui/meter"
-import { rowActionsMenu } from "../../../ui/row-actions-menu"
-import { segmentedSelect } from "../../../ui/segmented-select"
-import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "../../../ui/table"
-import { docsLink, emptyActions } from "../../kit/signal-empty-state"
+import { button } from "@maple/views/ui/button"
+import { card, cardPanel } from "@maple/views/ui/card"
+import { badge } from "@maple/views/ui/display"
+import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "@maple/views/ui/empty"
+import { heading } from "@maple/views/ui/heading"
+import { icon } from "@maple/views/ui/icon"
+import * as Menu from "@maple/views/ui/menu"
+import { meter } from "@maple/views/ui/meter"
+import { rowActionsMenu } from "@maple/views/ui/row-actions-menu"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
+import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
+import { docsLink } from "../../kit/signal-empty-state"
+import { emptyActions } from "@maple/views/ui/signal-empty-state"
 import { statRail, statRailItem } from "../../kit/stat-rail"
 import { alertStatusBadge } from "../shared/badges"
 import { msIso } from "../shared/time"
@@ -27,6 +29,8 @@ import { Message } from "./message"
 import type { Model, StateFilter } from "./model"
 import { incidentMenuId } from "./update"
 import { sectionHeading } from "../../kit/section-heading"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // The rule detail's History tab.
 
@@ -55,14 +59,13 @@ export const historyTab = (
 	return h.div(
 		[h.Class("space-y-6")],
 		[
-			h.div(
-				[h.Class("flex items-center justify-between")],
+			hstack(h, { justify: "between" },
 				[
 					h.div(
 						[],
 						[
 							sectionHeading(h, { title: "History" }),
-							h.p([h.Class("text-muted-foreground text-sm")], [String(stats.totalTriggered), " total triggers"]),
+							typography(h, { size: "sm", tone: "muted", as: "p" }, [String(stats.totalTriggered), " total triggers"]),
 						],
 					),
 					segmentedSelect(h, {
@@ -87,13 +90,12 @@ export const historyTab = (
 						h.div(
 							[h.Class("space-y-2")],
 							[
-								h.h3([h.Class("text-sm font-semibold")], ["Top contributors"]),
+								heading(h, { level: 3, variant: "section" }, ["Top contributors"]),
 								card(h, [
 									cardPanel(
 										h,
 										stats.topContributors.map(([groupKey, count]) =>
-											h.div(
-												[h.Key(groupKey), h.Class("flex items-center gap-2")],
+											hstack(h, { gap: "2", attributes: [h.Key(groupKey)] },
 												[
 													badge(
 														h,
@@ -110,8 +112,7 @@ export const historyTab = (
 														className: "h-2 flex-1 bg-muted",
 														fillClassName: count === maxContributorCount ? "bg-severity-error" : "bg-severity-warn",
 													}),
-													h.span(
-														[h.Class("text-xs text-muted-foreground tabular-nums shrink-0")],
+													typography(h, { size: "xs", tone: "muted", numeric: true, className: "shrink-0" },
 														[String(count), "/", String(stats.totalTriggered)],
 													),
 												],
@@ -159,12 +160,12 @@ export const historyTab = (
 				: table(h, {}, [
 						tableHeader(h, [
 							tableRow(h, [
-								tableHead(h, ["State"], "w-[100px]"),
-								tableHead(h, ["Group"], "w-[180px]"),
+								tableHead(h, ["State"], "w-24"),
+								tableHead(h, ["Group"], "w-44"),
 								tableHead(h, ["Labels"]),
-								tableHead(h, ["Triggered at"], "w-[180px]"),
-								tableHead(h, ["Duration"], "w-[110px]"),
-								tableHead(h, ["Issue"], "w-[70px]"),
+								tableHead(h, ["Triggered at"], "w-44"),
+								tableHead(h, ["Duration"], "w-28"),
+								tableHead(h, ["Issue"], "w-16"),
 								tableHead(h, [], "w-[50px]"),
 							]),
 						]),
@@ -207,16 +208,15 @@ const incidentRow = (
 			),
 		]),
 		tableCell(h, [
-			h.div(
-				[h.Class("flex flex-wrap gap-1")],
+			hstack(h, { gap: "1", align: "stretch", wrap: true },
 				[
-					badge(h, { variant: "secondary", className: "text-xs font-mono" }, [
+					badge(h, { variant: "secondary", className: typographyClass({ size: "xs", mono: true }) }, [
 						rule.signalType.replace("_", " "),
 						":",
 						" ",
 						formatSignalValue(rule.signalType, incident.lastObservedValue),
 					]),
-					badge(h, { variant: "secondary", className: "text-xs font-mono" }, [
+					badge(h, { variant: "secondary", className: typographyClass({ size: "xs", mono: true }) }, [
 						"threshold:",
 						" ",
 						formatSignalValue(rule.signalType, incident.threshold),
@@ -227,7 +227,7 @@ const incidentRow = (
 		tableCell(h, [formatAlertDateTimeFull(incident.firstTriggeredAt, timeZone)], "text-xs"),
 		tableCell(h, [
 			h.span(
-				[h.Class(cn("text-xs tabular-nums", isOpen && "text-severity-error font-medium"))],
+				[h.Class(cn(typographyClass({ size: "xs", numeric: true }), isOpen && "text-severity-error font-medium"))],
 				[formatAlertDuration(incident.firstTriggeredAt, incident.resolvedAt ?? msIso(nowMs))],
 			),
 		]),
@@ -236,11 +236,11 @@ const incidentRow = (
 				? h.a(
 						[
 							h.Href(hrefOf(AppRoute.ErrorIssue({ issueId: incident.errorIssueId, search: {} }))),
-							h.Class("text-xs text-primary underline-offset-4 hover:underline"),
+							h.Class("text-xs text-primary underline-offset-4 hover:underline active:underline"),
 						],
 						["View"],
 					)
-				: h.span([h.Class("text-xs text-muted-foreground/60")], [EMPTY_VALUE]),
+				: typography(h, { size: "xs", tone: "subtle" }, [EMPTY_VALUE]),
 		]),
 		tableCell(h, [
 			h.div(

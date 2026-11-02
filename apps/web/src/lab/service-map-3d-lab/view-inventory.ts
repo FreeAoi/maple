@@ -3,8 +3,8 @@ import { health, HEALTH_COLOR } from "../../components/service-map/three/spatial
 import type { Node3D } from "../../components/service-map/three/types"
 import { SERVICE_MAP_3D_TOPOLOGY } from "../service-map-3d/fixture"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { input } from "../../ui/input"
-import { statusDot } from "../../ui/status-dot"
+import { input } from "@maple/views/ui/input"
+import { statusDot } from "@maple/views/ui/status-dot"
 import { Message, type Model } from "./update"
 
 // `ServiceInventory` with nothing selected: the searchable list sorted by error rate.
@@ -19,7 +19,7 @@ export const healthDot = (h: H, node: Node3D): Html =>
 	})
 
 const ROW_CLASS =
-	"group flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
+	"group flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-surface-strong active:bg-surface-strong focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
 
 const row = (h: H, node: Node3D): Html =>
 	h.button(

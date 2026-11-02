@@ -2,18 +2,22 @@ import { EMPTY_VALUE, formatPercent } from "@maple/ui/lib/format"
 import type { ServiceWorkload } from "@maple/web-data/warehouse/service-infra"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../route"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon } from "../../ui/icon"
-import { inlineCode } from "../../ui/inline-code"
-import { keyValue, keyValueList } from "../../ui/key-value"
-import { panel } from "../../ui/panel"
-import { scrollArea } from "../../ui/scroll-area"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import { inlineCode } from "@maple/views/ui/inline-code"
+import { keyValue, keyValueList } from "@maple/views/ui/key-value"
+import { panel } from "@maple/views/ui/panel"
+import { scrollArea } from "@maple/views/ui/scroll-area"
+import { textLinkClass } from "@maple/views/ui/text-link"
 import { docsLink } from "../kit/signal-empty-state"
+import { type RuntimeLink, runtimeLink, type ServiceRuntime, workloadLink } from "../kit/service-runtimes"
+import type { TimeSearch } from "../kit/time-controls"
 import type { Message } from "./message"
+import { typography } from "@maple/views/ui/typography"
+import { hstack, hstackClass } from "@maple/views/ui/stack"
 
-// The service panel's Infrastructure tab: `ServiceWorkloadRow` and `ServiceInfraEmptyState`.
-// TODO(gcp): `GcpServiceWorkloads` renders only while a GCP connection collects metrics; the page
-// has no GCP status yet, so the tab shows what it shows without one (the Kubernetes rows).
+// The service panel's Infrastructure tab: the platform resources the service runs as, its
+// Kubernetes workloads, and how to link either when neither matched.
 
 type H = HtmlBuilder<Message>
 
@@ -21,9 +25,9 @@ type KnownKind = "deployment" | "statefulset" | "daemonset"
 const knownKindOf = (kind: string): KnownKind | null =>
 	kind === "deployment" || kind === "statefulset" || kind === "daemonset" ? kind : null
 
-const LINK = "inline-flex items-center gap-1 text-3xs text-primary hover:text-primary/80 transition-colors"
+const LINK = textLinkClass("primary", false, "text-3xs")
 
-const podsHref = (workload: ServiceWorkload, kind: KnownKind | null): string => {
+const podsHref = (workload: ServiceWorkload, kind: KnownKind | null, time: TimeSearch): string => {
 	const namespaces = workload.namespace ? [workload.namespace] : undefined
 	const byKind =
 		kind === "deployment"
@@ -33,7 +37,7 @@ const podsHref = (workload: ServiceWorkload, kind: KnownKind | null): string => 
 				: kind === "daemonset"
 					? { daemonsets: [workload.workloadName] }
 					: {}
-	const href = hrefOf(AppRoute.InfraKubernetesPods({ search: { ...byKind, namespaces } }))
+	const href = hrefOf(AppRoute.InfraKubernetesPods({ search: { ...time, ...byKind, namespaces } }))
 	// Orders the search keys: the kind filter, then namespaces.
 	const [path, query] = href.split("?")
 	if (query === undefined) return href
@@ -44,17 +48,16 @@ const podsHref = (workload: ServiceWorkload, kind: KnownKind | null): string => 
 
 const utilization = (value: number | null): string => (value == null ? EMPTY_VALUE : formatPercent(value))
 
-const workloadRow = (h: H, workload: ServiceWorkload): Html => {
+const workloadRow = (h: H, workload: ServiceWorkload, time: TimeSearch): Html => {
 	const kind = knownKindOf(workload.workloadKind)
 	return panel(h, { padded: "sm", className: "space-y-2.5" }, [
-		h.div(
-			[h.Class("flex items-start justify-between gap-2")],
+		hstack(h, { gap: "2", align: "start", justify: "between" },
 			[
 				h.div(
 					[h.Class("min-w-0 flex-1")],
 					[
-						eyebrow(h, { as: "div", className: "flex items-center gap-1.5" }, [
-							icon(h, "CubeIcon", { size: 11 }),
+						eyebrow(h, { as: "div", className: hstackClass({ gap: "1.5" }) }, [
+							icon(h, "CubeIcon", { size: 12 }),
 							h.span([], [workload.workloadKind]),
 						]),
 						h.p(
@@ -74,8 +77,7 @@ const workloadRow = (h: H, workload: ServiceWorkload): Html => {
 					[h.Class("flex flex-col items-end gap-px shrink-0")],
 					[
 						eyebrow(h, {}, ["pods"]),
-						h.span(
-							[h.Class("text-sm font-semibold text-foreground tabular-nums font-mono")],
+						typography(h, { size: "sm", tone: "foreground", weight: "semibold", mono: true, numeric: true },
 							[String(workload.podCount)],
 						),
 					],
@@ -83,10 +85,10 @@ const workloadRow = (h: H, workload: ServiceWorkload): Html => {
 			],
 		),
 		keyValueList(h, { className: "grid grid-cols-2 gap-2 text-3xs" }, [
-			keyValue(h, { label: "CPU", mono: true, className: "rounded bg-muted/30 px-2 py-1" }, [
+			keyValue(h, { label: "CPU", mono: true, className: "rounded-sm bg-surface-sunken px-2 py-1" }, [
 				utilization(workload.avgCpuLimitUtilization),
 			]),
-			keyValue(h, { label: "Memory", mono: true, className: "rounded bg-muted/30 px-2 py-1" }, [
+			keyValue(h, { label: "Memory", mono: true, className: "rounded-sm bg-surface-sunken px-2 py-1" }, [
 				utilization(workload.avgMemoryLimitUtilization),
 			]),
 		]),
@@ -97,75 +99,127 @@ const workloadRow = (h: H, workload: ServiceWorkload): Html => {
 					? []
 					: [
 							h.a(
-								[
-									h.Class(LINK),
-									h.Href(
-										hrefOf(
-											AppRoute.InfraKubernetesWorkload({
-												kind,
-												workloadName: workload.workloadName,
-												search: {},
-											}),
-										),
-									),
-								],
-								["View workload ", icon(h, "ArrowRightIcon", { size: 10 })],
+								[h.Class(LINK), h.Href(workloadLink(workload, time).href)],
+								["View workload →"],
 							),
 						]),
 				h.a(
-					[h.Class(LINK), h.Href(podsHref(workload, kind))],
-					["View pods ", icon(h, "ArrowRightIcon", { size: 10 })],
+					[h.Class(LINK), h.Href(podsHref(workload, kind, time))],
+					["View pods →"],
 				),
 			],
 		),
 	])
 }
 
-/** `ServiceInfraEmptyState`: how to get Kubernetes context onto the service. */
+/** A platform resource the service runs as, linked to its infra page. */
+const runtimeRow = (h: H, link: RuntimeLink): Html =>
+	h.a(
+		[
+			h.Key(link.key),
+			h.Href(link.href),
+			h.Class(
+				"group block rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+			),
+		],
+		[
+			panel(h, { padded: "sm", className: "space-y-1 transition-colors group-hover:bg-surface-sunken" }, [
+				eyebrow(h, { as: "div", className: hstackClass({ gap: "1.5" }) }, [
+					icon(h, link.icon, { size: 12 }),
+					h.span([], [link.label]),
+				]),
+				hstack(h, { gap: "2", justify: "between" },
+					[
+						h.p(
+							[h.Class("min-w-0 truncate font-mono text-xs font-medium text-foreground")],
+							[link.name],
+						),
+						icon(h, "ArrowRightIcon", {
+							size: 12,
+							className: "shrink-0 text-muted-foreground group-hover:text-primary",
+						}),
+					],
+				),
+				...(link.location.length === 0
+					? []
+					: [
+							h.p(
+								[h.Class("truncate text-3xs text-muted-foreground")],
+								[link.location.join(" · ")],
+							),
+						]),
+			]),
+		],
+	)
+
+/** No platform resource and no Kubernetes workload matched: how each one gets linked. */
 const infraEmptyState = (h: H): Html =>
 	h.div(
-		[h.Class("rounded-md border border-dashed bg-muted/20 p-4 space-y-3")],
+		[h.Class("rounded-md border border-dashed bg-surface-faint p-4 space-y-3")],
 		[
-			h.div(
-				[h.Class("flex items-center gap-2")],
+			hstack(h, { gap: "2" },
 				[
-					icon(h, "CubeIcon", { size: 14, className: "text-muted-foreground/50" }),
-					h.p([h.Class("text-xs font-medium text-foreground")], ["No Kubernetes workloads found"]),
+					icon(h, "CubeIcon", { size: 14, className: "text-foreground-faint" }),
+					typography(h, { size: "xs", tone: "foreground", weight: "medium", as: "p" },
+						["Not linked to any infrastructure"],
+					),
 				],
 			),
-			h.p(
-				[h.Class("text-2xs text-muted-foreground leading-relaxed")],
+			typography(h, { size: "2xs", tone: "muted", as: "p", className: "leading-relaxed" },
 				[
-					"This service has no spans tagged with ",
+					"Set ",
+					inlineCode(h, {}, ["OTEL_SERVICE_NAME"]),
+					" to the name of its Cloud Run service, Lambda function, ECS service, Railway service or Cloudflare Worker, and connect that platform under Infrastructure.",
+				],
+			),
+			typography(h, { size: "2xs", tone: "muted", as: "p", className: "leading-relaxed" },
+				[
+					"On Kubernetes, install the maple-k8s-infra Helm chart and label the namespace so spans carry ",
 					inlineCode(h, {}, ["k8s.deployment.name"]),
-					" in the selected window. Install the maple-k8s-infra Helm chart and label your namespace to enable infrastructure context:",
+					":",
 				],
 			),
 			h.pre(
-				[h.Class("text-3xs bg-muted px-2 py-1.5 rounded font-mono text-foreground overflow-x-auto")],
+				[h.Class("text-3xs bg-muted px-2 py-1.5 rounded-sm font-mono text-foreground overflow-x-auto")],
 				["kubectl label namespace <ns> maple.io/instrument=true"],
 			),
 			docsLink(h, "kubernetes"),
 		],
 	)
 
-export const infrastructureTab = (h: H, workloads: ReadonlyArray<ServiceWorkload>): ReadonlyArray<Html> => [
+const section = (h: H, title: string, rows: ReadonlyArray<Html>): Html =>
+	h.div([h.Class("space-y-2")], [eyebrow(h, { as: "h4" }, [title]), h.div([h.Class("space-y-2")], rows)])
+
+export const infrastructureTab = (
+	h: H,
+	workloads: ReadonlyArray<ServiceWorkload>,
+	runtimes: ReadonlyArray<ServiceRuntime>,
+	time: TimeSearch,
+): ReadonlyArray<Html> => [
 	scrollArea(h, { idPrefix: "service-map-infra-scroll", className: "h-full" }, [
 		h.div(
 			[h.Class("p-4 space-y-4")],
-			workloads.length === 0
+			workloads.length === 0 && runtimes.length === 0
 				? [infraEmptyState(h)]
 				: [
-						h.div(
-							[h.Class("space-y-2")],
-							[
-								eyebrow(h, { as: "h4" }, ["Kubernetes workloads"]),
-								h.div(
-									[h.Class("space-y-2")],
-									workloads.map((workload) => workloadRow(h, workload)),
-								),
-							],
-						),
+						...(runtimes.length === 0
+							? []
+							: [
+									section(
+										h,
+										"Runs on",
+										runtimes.map((runtime) => runtimeRow(h, runtimeLink(runtime, time))),
+									),
+								]),
+						...(workloads.length === 0
+							? []
+							: [
+									section(
+										h,
+										"Kubernetes workloads",
+										workloads.map((workload) => workloadRow(h, workload, time)),
+									),
+								]),
 					],
 		),
 	]),

@@ -1,19 +1,18 @@
 import type { AlertsOverviewReady } from "@maple/web-data/alerts/overview"
-import { cn } from "@maple/ui/lib/utils"
 import { makeClientErrorBody } from "@maple/web-data/lib/error-messages"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button, linkButton } from "../../../ui/button"
-import { confirmDialog } from "../../../ui/confirm-dialog"
-import { errorState } from "../../../ui/error-state"
-import { icon, type IconName } from "../../../ui/icon"
-import type { MenuEntry } from "../../../ui/menu-view"
-import * as MenuView from "../../../ui/menu-view"
-import { skeleton, skeletonList } from "../../../ui/skeleton"
+import { button, linkButton } from "@maple/views/ui/button"
+import { confirmDialog } from "@maple/views/ui/confirm-dialog"
+import { errorState } from "@maple/views/ui/error-state"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import type { MenuEntry } from "@maple/views/ui/menu-view"
+import * as MenuView from "@maple/views/ui/menu-view"
+import { skeleton, skeletonList } from "@maple/views/ui/skeleton"
 import type { PageViewInputs } from "../../contract"
 import { dashboardPage } from "../../kit/dashboard-page"
-import { underlineTabClass, underlineTabStrip } from "../../kit/underline-tabs"
+import { linkTabStrip } from "../../kit/underline-tabs"
 import { alertsHref, createHref } from "../shared/links"
 import { type AlertsTab, destinationsOf, overviewOf, resolveStatus, resolveTab } from "./derive"
 import { Message } from "./message"
@@ -24,6 +23,7 @@ import { routingTab } from "./view-routing"
 import * as DestinationDialogView from "../destination/view"
 import { rulesTab } from "./view-rules"
 import { deleteMonitorDialog, uptimeTab } from "./view-uptime"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 // `AlertsPage` and `AlertsHub`: the `/alerts` page and its tabs.
 
@@ -45,9 +45,9 @@ const tabBar = (
 	active: AlertsTab,
 ): Html => {
 	const monitorCount = Option.map(AsyncData.getData(model.monitors.data), (monitors) => monitors.length)
-	return underlineTabStrip(
+	return linkTabStrip(
 		h,
-		{ label: "Alerts sections", navigation: true },
+		"Alerts sections",
 		ALERTS_TABS.map((tab) => {
 			const count =
 				tab.value === "uptime"
@@ -61,34 +61,15 @@ const tabBar = (
 										? data.rules.length
 										: undefined,
 						})
-			return h.a(
-				[
-					h.Key(tab.value),
-					h.Href(alertsHref({ ...model.search, tab: tab.value })),
-					...(tab.value === active ? [h.AriaCurrent("page")] : []),
-					h.Class(underlineTabClass(tab.value === active)),
-				],
-				[
-					tab.label,
-					...(count !== undefined && count > 0
-						? [
-								h.span(
-									[
-										h.Class(
-											cn(
-												"font-mono text-xs tabular-nums",
-												tab.value === "inbox"
-													? "text-severity-error"
-													: "text-muted-foreground",
-											),
-										),
-									],
-									[String(count)],
-								),
-							]
-						: []),
-				],
-			)
+			return {
+				key: tab.value,
+				href: alertsHref({ ...model.search, tab: tab.value }),
+				label: tab.label,
+				count: count !== undefined && count > 0 ? count : undefined,
+				countTone: tab.value === "inbox" ? "error" : "muted",
+				isCurrent: tab.value === active,
+				isRouteActive: tab.value === active,
+			}
 		}),
 	)
 }
@@ -106,13 +87,10 @@ const newRuleItem = (
 	label,
 	content: [
 		icon(h, iconName, { className: "mt-0.5 self-start" }),
-		h.span(
-			[h.Class("flex min-w-0 flex-col gap-0.5")],
-			[
-				h.span([h.Class("text-sm")], [label]),
-				h.span([h.Class("whitespace-normal text-xs text-muted-foreground")], [description]),
-			],
-		),
+		vstack(h, { gap: "0.5", shrink: true, as: "span" }, [
+			h.span([h.Class("text-sm")], [label]),
+			h.span([h.Class("whitespace-normal text-xs text-muted-foreground")], [description]),
+		]),
 	],
 })
 
@@ -182,25 +160,22 @@ const newRuleButton = (h: H, model: Model): Html =>
 
 // Destinations are a Routing concern, so "New destination" only shows on that tab.
 const headerActions = (h: H, model: Model, tab: AlertsTab): Html =>
-	h.div(
-		[h.Class("flex items-center gap-2")],
-		[
-			...(model.isAdmin && tab === "routing"
-				? [
-						button(
-							h,
-							{
-								size: "sm",
-								variant: "outline",
-								attributes: [h.OnClick(Message.ClickedNewDestination())],
-							},
-							[icon(h, "PlusIcon"), "New destination"],
-						),
-					]
-				: []),
-			newRuleButton(h, model),
-		],
-	)
+	hstack(h, { gap: "2" }, [
+		...(model.isAdmin && tab === "routing"
+			? [
+					button(
+						h,
+						{
+							size: "sm",
+							variant: "outline",
+							attributes: [h.OnClick(Message.ClickedNewDestination())],
+						},
+						[icon(h, "PlusIcon"), "New destination"],
+					),
+				]
+			: []),
+		newRuleButton(h, model),
+	])
 
 /** `SyncUnavailable`: the rules or incidents stream stopped before its first answer. */
 const SYNC_UNAVAILABLE = makeClientErrorBody({

@@ -1,17 +1,18 @@
+import { chartUnitFromOtel } from "@maple/views/lib/otel-units"
+import { errorState } from "@maple/views/ui/error-state"
 import { parseClickHouseDateTime, type TimeBounds } from "../../lib/time"
-import { chartUnitFromOtel, humanizeUnit, isCounter } from "../../lib/units"
 import { EMPTY_VALUE, formatNumber, formatValueByUnit } from "@maple/ui/lib/format"
 import { formatRelativeFrom } from "@maple/ui/lib/time-format"
-import { isChartRuntimeReady } from "@maple/web/charts/chart-runtime"
-import { spinner } from "@maple/web/ui/spinner"
-import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/web/ui/table"
-import { serviceDot } from "@maple/web/ui/values"
+import { isChartRuntimeReady } from "@maple/views/charts/chart-runtime"
+import { spinner } from "@maple/views/ui/spinner"
+import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
+import { serviceDot } from "@maple/views/ui/values"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
+import { humanizeUnit, isCounter } from "../../lib/units"
 import { seriesChart } from "../kit/series-chart"
-import { errorState } from "../kit/view-states"
 import type { MetricEntry } from "../metrics/catalog"
 import type { BreakdownRow } from "./fetch"
 import { chartOf } from "./load"
@@ -57,13 +58,16 @@ const chartSection = (h: H, model: Model, entry: MetricEntry, bounds: TimeBounds
 				],
 			),
 			Option.isSome(failure)
-				? errorState(h, { label: "timeseries", failure: failure.value, onRetry: Message.ClickedRefresh() })
+				? errorState(h, {
+					failure: failure.value, title: "Couldn’t load timeseries",
+					onRetry: Message.ClickedRefresh(),
+				})
 				: seriesChart(h, {
 						chartId: "local-metric-detail",
 						points: Option.getOrUndefined(AsyncData.getData(model.timeseries.data)),
 						window: chartOf(model, bounds),
 						fill: counter ? "zero" : "sparse",
-						isPending: isPending(model.timeseries),
+						isPending: isAwaitingFirstData(model.timeseries),
 						heightClassName: "h-64",
 						unit: chartUnit,
 						fitYAxisToData: !counter,
@@ -99,10 +103,13 @@ const breakdownSection = (h: H, model: Model, entry: MetricEntry): Html => {
 	const showSum = entry.metricType === "histogram" || entry.metricType === "exponential_histogram"
 	const failure = failureWithoutData(model.breakdown)
 	const body = (): Html => {
-		if (isPending(model.breakdown))
+		if (isAwaitingFirstData(model.breakdown))
 			return h.div([h.Class("flex h-24 items-center justify-center rounded-md border")], [spinner(h)])
 		if (Option.isSome(failure))
-			return errorState(h, { label: "breakdown", failure: failure.value, onRetry: Message.ClickedRefresh() })
+			return errorState(h, {
+				failure: failure.value, title: "Couldn’t load breakdown",
+				onRetry: Message.ClickedRefresh(),
+			})
 		const rows = Option.getOrElse(AsyncData.getData(model.breakdown.data), () => [])
 		return h.div(
 			[h.Class("rounded-md border")],

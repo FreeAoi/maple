@@ -1,6 +1,6 @@
 import { type LiftedRail, splitPageRails } from "@maple/web/shell/page-rails"
-import * as Dialog from "@maple/web/ui/dialog"
-import * as DialogView from "@maple/web/ui/dialog-view"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as DialogView from "@maple/views/ui/dialog-view"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message"
@@ -23,6 +23,7 @@ const cloneNode = (node: VNode): VNode => ({
 export const filterRailOf = (model: Model, page: Html): Option.Option<LiftedRail> =>
 	model.filterDrawer.isOpen
 		? Option.map(splitPageRails(page).maybeFilters, (rail) => ({
+				...rail,
 				children: rail.children.map((child) => (child === null ? child : cloneNode(child))),
 			}))
 		: Option.none()

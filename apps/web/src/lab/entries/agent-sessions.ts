@@ -20,8 +20,8 @@ import { init as listInit } from "../../page/agent-sessions/list/update"
 import { sessionsTable } from "../../page/agent-sessions/list/view-table"
 import { toolbar } from "../../page/agent-sessions/list/view-toolbar"
 import type { Resources } from "../../platform/resources"
-import * as Toast from "../../ui/toast"
-import { ViewerFlags, viewerFlags } from "../../ui/logs/viewer"
+import * as Toast from "@maple/views/ui/toast"
+import { ViewerFlags, viewerFlags } from "@maple/views/ui/logs/viewer"
 import { buildToolAnalyticsFixture, buildToolCells } from "../agent-tools-fixture"
 import { defineLabWithFlags } from "../define"
 import { foldLabToasts, initLabToasts, labRoot } from "../toasts"
@@ -168,7 +168,6 @@ const listPage = Submodel.defineView<ListModel, ListMessage, ListInputs>((list, 
 									agentSessionsTabs(h, {
 										active: "sessions",
 										counts: inputs.tabCounts,
-										className: "border-b border-border",
 										isOnRoute: false,
 									}),
 									toolbar(h, list, {
@@ -212,8 +211,8 @@ const labButton = (h: HtmlBuilder<Message>, label: string, isActive: boolean, on
 		[
 			h.Class(
 				isActive
-					? "rounded border border-border bg-accent px-2 py-1 text-xs"
-					: "rounded border border-border px-2 py-1 text-xs text-muted-foreground",
+					? "rounded-sm border border-border bg-accent px-2 py-1 text-xs"
+					: "rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground",
 			),
 			h.Type("button"),
 			h.OnClick(onClick),

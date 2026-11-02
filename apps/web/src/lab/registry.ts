@@ -53,6 +53,14 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		session: "none",
 	},
 	{
+		path: "/lab/billing-orgs",
+		title: "Billing orgs",
+		description:
+			"The Billing tab for a member org, a billing org with members, and a standalone org linking to another (`?state=`).",
+		kind: "lab",
+		session: "none",
+	},
+	{
 		path: "/lab/gcp",
 		title: "Google Cloud log filter",
 		description:
@@ -101,10 +109,34 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		session: "none",
 	},
 	{
+		path: "/lab/onboarding-checklist",
+		title: "Onboarding checklist",
+		description:
+			"The top bar's credits pill and its checklist panel in progress, claimable and claimed, over fixtures.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/empty-states",
+		title: "Empty states",
+		description:
+			"Empty, load-more and inline-failure states one at a time (`?item=`), over static fixtures.",
+		kind: "lab",
+		session: "none",
+	},
+	{
 		path: "/lab/loaders",
 		title: "Chat loaders",
 		description:
 			"Every dot-matrix loader in the chat's pool, inline at both sizes it is used at, against real text.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/crash",
+		title: "Crash page",
+		description:
+			"A button that crashes a real Foldkit program, so the crash page renders the way it does when the app dies.",
 		kind: "lab",
 		session: "none",
 	},
@@ -196,10 +228,10 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		session: "none",
 	},
 	{
-		path: "/lab/chat",
-		title: "Chat transcript",
+		path: "/lab/mcp",
+		title: "MCP hub",
 		description:
-			"The chat transcript over a fixture thread: a merged tool run, prose carrying every inline reference card, an approval prompt, and two-character turns that expose the vertical rhythm.",
+			"The MCP hub over maple-ai's spec spans from Nov 1, 2026: the server list, a server's overview, the run_sql tool page, the service page's MCP tab, and the empty, loading, error and quiet states (?view=list|server|tool|service|empty|loading|error|quiet).",
 		kind: "lab",
 		session: "none",
 	},
@@ -219,10 +251,42 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		session: "none",
 	},
 	{
+		path: "/lab/code-review-team",
+		title: "Code review team",
+		description:
+			"The Code Review Team tab over a month of a seven-person fixture team: KPIs, highlights, the scorecard against the team median and the Ranked view.",
+		kind: "lab",
+		session: "none",
+	},
+	{
 		path: "/lab/service-api",
 		title: "Service API tab",
 		description:
-			"The service page's API tab over 12 hours of the ingest service: KPI strip, responses by status, the non-2xx breakdown, the endpoint table and its drawer (?endpoint=POST%20/v1/traces).",
+			"The service page's API tab over 12 hours of the ingest service: KPI strip, responses by status, the non-2xx breakdown, the endpoint table and its drawer (?endpoint=POST%20/v1/traces); ?failed=1 fails the first endpoints read.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/service-runtimes",
+		title: "Service runtimes",
+		description:
+			"The service page for fleet-api, a Google Cloud Run service with no Kubernetes workloads, over one hour; ?tab=operations or ?tab=dependencies opens that tab.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/service-map-runtimes",
+		title: "Service map runtimes",
+		description:
+			"The service map over a small fleet topology with fleet-api (Cloud Run) selected; ?tab=infrastructure opens the panel's Infrastructure tab.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/settings-dialogs",
+		title: "Settings dialogs",
+		description:
+			"The integration disconnect, dashboard delete, key create and alert destination dialogs, open, and the settings danger zones and save bars (General, Profile, a source's Settings) over fixtures. Pick one with ?item=.",
 		kind: "lab",
 		session: "none",
 	},
@@ -238,7 +302,7 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		path: "/lab/security",
 		title: "Security Center",
 		description:
-			"Every Security Center page over fixtures: overview, empty, not enabled, Add target and its errors, findings, runs, a live, incomplete, failed and cancelled run, a finding and its triage, and the admins-only states. Pick one with ?state=.",
+			"Every Security Center page over fixtures: overview, empty, not enabled, Add target and its errors, findings, runs, a live, incomplete, failed and cancelled run, a finding and its triage, the admins-only states, and the telemetry tabs (exposure, exposure-empty, runtimes). Pick one with ?state=.",
 		kind: "lab",
 		session: "none",
 	},
@@ -247,6 +311,14 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		title: "Errors list",
 		description:
 			"The `/errors` list over a fixture holding every row state at once: surging critical with an open incident, live and diagnosed investigations, a truncating message, a fingerprint gone quiet, an unset severity.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/error-issue",
+		title: "Error issue",
+		description:
+			"The error issue page over one surging, regressed high-severity TypeError: the occurrence chart and its tooltip, the Get it fixed panel, the stat rail and the rail.",
 		kind: "lab",
 		session: "none",
 	},
@@ -263,6 +335,14 @@ export const LAB_ENTRIES: ReadonlyArray<LabEntry> = [
 		title: "Worst case",
 		description:
 			"Existing components over worst-case fixture data (long names, extreme numbers, unbroken URLs, 8KB messages) behind a Demo data / Worst case toggle, for before and after screenshots.",
+		kind: "lab",
+		session: "none",
+	},
+	{
+		path: "/lab/status-pages",
+		title: "Status pages",
+		description:
+			"The status pages list, the look picker and the form fields (hint and error) over fixture pages.",
 		kind: "lab",
 		session: "none",
 	},

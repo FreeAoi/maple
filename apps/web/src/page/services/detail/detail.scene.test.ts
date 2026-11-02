@@ -1,4 +1,5 @@
 import { OrgId } from "@maple/domain"
+import { ServiceName } from "@maple/domain/http"
 import { Result, Schema } from "effect"
 import { AsyncData } from "foldkit"
 import {
@@ -13,8 +14,8 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { ResolveThemeColors, ThemeMessage } from "../../../charts/theme-colors"
-import { toLoadFailure } from "../../../data/load-failure"
+import { ResolveThemeColors, ThemeMessage } from "@maple/views/charts/theme-colors"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { PageOutMessage, type PageContext } from "../../contract"
 import {
 	FetchCommit,
@@ -25,10 +26,11 @@ import {
 	FetchOverview,
 	FetchUptimeMonitors,
 	FetchUsage,
+	FetchRuntimes,
 	FetchWorkloads,
 } from "./command"
-import { LinkedCursorMessage, MountLinkedCursor } from "../../../charts/linked-cursor"
-import * as Dialog from "../../../ui/dialog"
+import { LinkedCursorMessage, MountLinkedCursor } from "@maple/views/charts/linked-cursor"
+import * as Dialog from "@maple/views/ui/dialog"
 import * as PeekMessage from "./endpoint-peek/message"
 import { Message } from "./message"
 import type { Model, OverviewData } from "./model"
@@ -89,6 +91,7 @@ describe("service detail", () => {
 			FetchIssues.name,
 			FetchUsage.name,
 			FetchWorkloads.name,
+			FetchRuntimes.name,
 			FetchDependencies.name,
 			FetchUptimeMonitors.name,
 		]))
@@ -302,6 +305,112 @@ describe("service detail view", () => {
 		)
 	})
 
+	test("Try again on a failed Operations or Dependencies tab asks for that read again", () => {
+		const operations = entered({ tab: "operations" })
+		const failedOperations = pageUpdate(
+			operations,
+			Message.CompletedFetchOperations({
+				key: operations.operations.key ?? "",
+				result: Result.fail(toLoadFailure("boom")),
+			}),
+		).model
+		const retriedOperations = pageUpdate(failedOperations, Message.ClickedRetry({ target: "Operations" }))
+		expect(names(retriedOperations.commands)).toEqual([FetchOperations.name])
+
+		const dependencies = entered({ tab: "dependencies" })
+		const failedDependencies = pageUpdate(
+			dependencies,
+			Message.CompletedFetchDependencies({
+				key: dependencies.dependencies.key ?? "",
+				result: Result.fail(toLoadFailure("boom")),
+			}),
+		).model
+		const retriedDependencies = pageUpdate(failedDependencies, Message.ClickedRetry({ target: "Dependencies" }))
+		expect(names(retriedDependencies.commands)).toEqual([FetchDependencies.name])
+	})
+
+	test("the Dependencies tab shows a skeleton, not an empty table, until its read answers", () => {
+		const model = entered({ tab: "dependencies" })
+		scene(
+			{ update: pageUpdate, view },
+			given(model),
+			themeResolved(),
+			expectView(text("No downstream dependencies in this window.")).toBeAbsent(),
+		)
+		const empty = pageUpdate(
+			model,
+			Message.CompletedFetchDependencies({
+				key: model.dependencies.key ?? "",
+				result: Result.succeed({ serviceEdges: [], dbEdges: [], externalEdges: [] }),
+			}),
+		).model
+		scene(
+			{ update: pageUpdate, view },
+			given(empty),
+			themeResolved(),
+			expectView(text("No downstream dependencies in this window.")).toExist(),
+		)
+	})
+
+	test("a failed dependencies read shows its error instead of an empty table", () => {
+		const model = entered({ tab: "dependencies" })
+		const failed = pageUpdate(
+			model,
+			Message.CompletedFetchDependencies({
+				key: model.dependencies.key ?? "",
+				result: Result.fail(toLoadFailure("boom")),
+			}),
+		).model
+		scene(
+			{ update: pageUpdate, view },
+			given(failed),
+			themeResolved(),
+			expectView(text("Couldn't load dependencies")).toExist(),
+			expectView(text("No downstream dependencies in this window.")).toBeAbsent(),
+		)
+	})
+
+	test("a failed dependencies reload keeps the last rows on screen", () => {
+		const model = entered({ tab: "dependencies" })
+		const edge = {
+			callCount: 10,
+			estimatedCallCount: 10,
+			errorCount: 0,
+			errorRate: 0,
+			avgDurationMs: 2,
+			maxDurationMs: 4,
+			hasSampling: false,
+			samplingWeight: 1,
+		}
+		const loaded = pageUpdate(
+			model,
+			Message.CompletedFetchDependencies({
+				key: model.dependencies.key ?? "",
+				result: Result.succeed({
+					serviceEdges: [{ sourceService: "payment-svc", targetService: "ledger-svc", ...edge }],
+					dbEdges: [],
+					externalEdges: [],
+				}),
+			}),
+		).model
+		const reloading = pageUpdate(loaded, Message.ClickedReload()).model
+		const stale = pageUpdate(
+			reloading,
+			Message.CompletedFetchDependencies({
+				key: reloading.dependencies.key ?? "",
+				result: Result.fail(toLoadFailure("boom")),
+			}),
+		).model
+		expect(stale.dependencies.data._tag).toBe("Stale")
+		scene(
+			{ update: pageUpdate, view },
+			given(stale),
+			themeResolved(),
+			expectView(text("ledger-svc")).toExist(),
+			expectView(text("Couldn't load dependencies")).toBeAbsent(),
+		)
+	})
+
 	test("more than eight deploys list eight until Show all", () => {
 		const model = entered()
 		const releases = Array.from({ length: 10 }, (_, index) =>
@@ -347,6 +456,65 @@ describe("service detail view", () => {
 			expectView(text("Unrouted paths")).toExist(),
 			click(role("button", { name: "Show anyway" })),
 			expectView(role("button", { name: "Hide" })).toExist(),
+		)
+	})
+})
+
+describe("where the service runs", () => {
+	const CLOUD_RUN = {
+		serviceName: Schema.decodeSync(ServiceName)("payment-svc"),
+		kind: "cloudRun" as const,
+		account: "acme-prod",
+		region: "europe-west1",
+		cluster: "",
+		railwayServiceId: "",
+		railwayEnvironmentId: "",
+		railwayEnvironmentName: "",
+	}
+	const withRuntimes = (runtimes: ReadonlyArray<typeof CLOUD_RUN>) => {
+		const model = entered()
+		const answered = pageUpdate(
+			model,
+			Message.CompletedFetchRuntimes({ key: model.runtimes.key ?? "", result: Result.succeed(runtimes) }),
+		).model
+		return pageUpdate(
+			answered,
+			Message.CompletedFetchWorkloads({ key: answered.workloads.key ?? "", result: Result.succeed([]) }),
+		).model
+	}
+	const RUN_HREF = "/infra/gcp/cloudRun/payment-svc?project=acme-prod&region=europe-west1"
+	const settled = [
+		themeResolved(),
+		Mount.resolve(MountLinkedCursor, LinkedCursorMessage.CompletedMountLinkedCursor()),
+	]
+
+	test("a service on Cloud Run lists it under Runs on, linked to its Google Cloud page", () => {
+		scene(
+			{ update: pageUpdate, view },
+			given(withRuntimes([CLOUD_RUN])),
+			...settled,
+			expectView(text("Runs on")).toExist(),
+			expectView(role("link", { name: /payment-svc/ })).toHaveAttr("href", RUN_HREF),
+			expectView(text("Cloud Run service · acme-prod · europe-west1")).toExist(),
+		)
+	})
+
+	test("the header links the first place it runs", () => {
+		scene(
+			{ update: pageUpdate, view },
+			given(withRuntimes([CLOUD_RUN])),
+			...settled,
+			expectView(role("link", { name: "Runs on Cloud Run service payment-svc" })).toHaveAttr("href", RUN_HREF),
+		)
+	})
+
+	test("a service on no platform shows neither the card nor the header link", () => {
+		scene(
+			{ update: pageUpdate, view },
+			given(withRuntimes([])),
+			...settled,
+			expectView(text("Runs on")).not.toExist(),
+			expectView(role("link", { name: /^Runs on/ })).not.toExist(),
 		)
 	})
 })
@@ -511,7 +679,7 @@ describe("the API tab's endpoint drawer", () => {
 			themeResolved(),
 			expectView(text("/a")).toExist(),
 			click(role("button", { name: "Rejecting > 5%" })),
-			expectView(text("No endpoint matches this filter.")).toExist(),
+			expectView(text("No endpoint matches this filter")).toExist(),
 		)
 	})
 })

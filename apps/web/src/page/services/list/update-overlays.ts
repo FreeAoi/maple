@@ -1,7 +1,7 @@
 import type { Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as HoverCard from "../../../ui/hover-card"
-import * as Tooltip from "../../../ui/tooltip"
+import * as HoverCard from "@maple/views/ui/hover-card"
+import * as Tooltip from "@maple/views/ui/tooltip"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { type CommitDetail, type CommitFailure, commitDetailKey, OPEN_DELAY_MS } from "../../kit/commit-card"
 import { ArmCommitLookup, CopyCommitSha, FetchCommitDetail } from "./command"
@@ -110,6 +110,6 @@ export const copiedSha = (model: Model, rowUrl: string, isCopied: boolean): Retu
 		isReplace: false,
 		toast: isCopied
 			? { type: "success", title: "commit SHA copied", description: "" }
-			: { type: "error", title: "Failed to copy commit sha", description: "" },
+			: { type: "error", title: "Couldn't copy commit sha", description: "" },
 	}),
 })

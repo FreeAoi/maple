@@ -1,4 +1,5 @@
-import type { InkPalette } from "../../../components/service-map/three/appearance"
+import { Schema } from "effect"
+import { type InkPalette, sceneryPalette } from "../../../components/service-map/three/appearance"
 import {
 	decorateRoutes,
 	type FactoryLink,
@@ -20,6 +21,8 @@ import { meadowMat, stoneTerrace, terraceSteps, wornPaths } from "./ground"
 import { type Child, group, type Scope } from "./kit"
 import { factoryMachine } from "./machines"
 import { factoryTransport } from "./transport"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 // The 3D viewport's derived layout, then the scene graph in draw order.
 
@@ -49,7 +52,7 @@ export interface WorldInput {
 
 /** `<Scenery key={view}>` and the forest's own geometry key: rebuilt only when either changes. */
 export const sceneryKey = ({ view, layout, palette }: Pick<WorldInput, "view" | "layout" | "palette">) =>
-	JSON.stringify([
+	encodeJson([
 		view,
 		palette.paper,
 		palette.ink,
@@ -61,7 +64,7 @@ export const sceneryOf = (scope: Scope, input: WorldInput): Child =>
 	scenery(scope, {
 		layout: input.layout.layout,
 		belts: input.layout.links,
-		palette: input.palette,
+		palette: sceneryPalette(input.palette),
 		running: input.flowing,
 	})
 

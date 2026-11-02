@@ -4,15 +4,16 @@ import {
 	type LogAttributeFilter,
 	decodeLogAttributeFilters,
 	matchesLogAttributeFilters,
-} from "../../lib/logs/log-attribute-filters"
+} from "@maple/views/lib/log-attribute-filters"
 import { Duration, Effect, Option, Schema } from "effect"
 import { Command, Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
-import { logTimeFormat, toLogRowView } from "../../ui/logs/log-row-view"
-import * as LogsStream from "../../ui/logs/logs-stream"
-import * as Menu from "../../ui/menu"
+import { FIXTURE_LOG_LINKS } from "@maple/views/fixtures/logs-table-bench-fixture"
+import { logTimeFormat, toLogRowView } from "@maple/views/ui/logs/log-row-view"
+import * as LogsStream from "@maple/views/ui/logs/logs-stream"
+import * as Menu from "@maple/views/ui/menu"
 import type { Resources } from "../../platform/resources"
-import { listFooterText, type ViewerFlags } from "../../ui/logs/viewer"
+import { listFooterText, type ViewerFlags } from "@maple/views/ui/logs/viewer"
 import { foldLabShell, initLabShell, type LabShellFlags } from "../app-shell"
 import { foldLabToasts, initLabToasts } from "../toasts"
 import { Message, type Model, type Toggle } from "./model"
@@ -41,7 +42,7 @@ const visibleLogs = (model: Model) => {
 /** The stream's rows, rebuilt whenever the data, pins or emptiness change. */
 const rowsOf = (model: Model) => {
 	const time = logTimeFormat(model.timeZone)
-	return (model.isEmpty ? [] : visibleLogs(model)).map((log) => toLogRowView(log, model.pinned, time))
+	return (model.isEmpty ? [] : visibleLogs(model)).map((log) => toLogRowView(log, model.pinned, time, FIXTURE_LOG_LINKS))
 }
 
 const footerOf = (model: Model, shown: number) => {

@@ -2,7 +2,7 @@ import { OrgId } from "@maple/domain"
 import { Result, Schema } from "effect"
 import { expect as expectView, given, Mount, role, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import * as Menu from "../../../ui/menu"
+import * as Menu from "@maple/views/ui/menu"
 import { PageOutMessage, type PageContext } from "../../contract"
 import { CreateDashboard, FetchDashboardsFallback } from "./command"
 import { Message } from "./message"
@@ -113,9 +113,9 @@ describe("dashboards list write feedback", () => {
 		expect(names(creating.commands)).toEqual([CreateDashboard.name])
 		const failed = pageUpdate(
 			creating.model,
-			Message.CompletedCreateDashboard({ result: Result.fail("Failed to create dashboard") }),
+			Message.CompletedCreateDashboard({ result: Result.fail("Couldn't create dashboard") }),
 		)
-		expect(failed.model.persistenceError).toBe("Failed to create dashboard")
+		expect(failed.model.persistenceError).toBe("Couldn't create dashboard")
 		expect(failed.outMessage).toBeUndefined()
 	})
 

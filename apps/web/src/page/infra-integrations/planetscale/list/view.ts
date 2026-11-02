@@ -2,24 +2,32 @@ import {
 	derivePlanetScaleSetup,
 	metricsCollectionFailing,
 } from "../../../../components/integrations/planetscale-setup-steps"
-import { EMPTY_VALUE, formatNumber } from "@maple/ui/lib/format"
+import { EMPTY_VALUE, formatNumber, pluralize } from "@maple/ui/lib/format"
+import type { Tone } from "@maple/ui/lib/tone"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { LoadFailure } from "../../../../data/load-failure"
+import type { LoadFailure } from "@maple/views/data/load-failure"
 import { AppRoute, hrefOf } from "../../../../route"
-import { linkButton } from "../../../../ui/button"
-import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../../ui/empty"
-import { errorState } from "../../../../ui/error-state"
-import { icon } from "../../../../ui/icon"
+import { linkButton } from "@maple/views/ui/button"
+import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { icon } from "@maple/views/ui/icon"
+import { skeleton } from "@maple/views/ui/skeleton"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
-import { docsLink, emptyActions } from "../../../kit/signal-empty-state"
+import { docsLink } from "../../../kit/signal-empty-state"
+import { emptyActions } from "@maple/views/ui/signal-empty-state"
 import { pageHeroParts } from "../../../infra/kit/page-parts"
 import { pageTime } from "../../kit/page-time"
-import { statRail, statRailItem, statRailLoading } from "../../../kit/stat-rail"
+import { listToolbar, toolbarStat } from "../../../kit/list-toolbar"
 import type { DatabaseList, DatabaseStat, PlanetscaleStatus } from "../data"
-import { formatLag, formatStoragePercent, lagTone, utilizationTone } from "../metrics"
+import {
+	formatLag,
+	formatStoragePercent,
+	lagTone,
+	utilizationTone,
+} from "../../../../components/infra/planetscale/metrics"
 import {
 	inventoryIsStale,
 	inventoryNotice,
@@ -39,7 +47,11 @@ type Clock = Readonly<{ nowMs: number; timeZone: string }>
 
 const NO_STATS: ReadonlyArray<DatabaseStat> = []
 
-const loading = (h: H): Html => h.div([h.Class("space-y-4")], [statRailLoading(h), databaseTableLoading(h)])
+const loading = (h: H): Html =>
+	h.div(
+		[h.Class("space-y-4")],
+		[listToolbar(h, { trailing: [skeleton(h, "h-4 w-72")] }), databaseTableLoading(h)],
+	)
 
 interface Totals {
 	readonly connections: number
@@ -93,6 +105,62 @@ const noDatabases = (h: H): Html =>
 		"py-16",
 	)
 
+/** The fleet's figures as toolbar readouts; the worst storage and lag name their database. */
+const summaryToolbar = (
+	h: H,
+	options: Readonly<{ databases: number; branchTotal: number; never: boolean; totals: Totals }>,
+): Html => {
+	const { totals } = options
+	// A neutral reading needs no dot.
+	const dotOf = (tone: Tone): Tone | undefined => (tone === "neutral" ? undefined : tone)
+	const lagHasOwner = totals.lagOwner !== null && totals.lagMax > 0
+	return listToolbar(h, {
+		trailing: [
+			toolbarStat(h, {
+				value: String(options.databases),
+				label: pluralize(options.databases, "database"),
+			}),
+			toolbarStat(h, {
+				value: String(options.branchTotal),
+				label: pluralize(options.branchTotal, "branch", "branches"),
+			}),
+			...(options.never
+				? []
+				: [
+						toolbarStat(h, {
+							value:
+								totals.storageMax === null
+									? EMPTY_VALUE
+									: formatStoragePercent(totals.storageMax),
+							label:
+								totals.storageOwner === null
+									? "worst storage"
+									: `worst storage (${totals.storageOwner})`,
+							dot:
+								totals.storageMax === null
+									? undefined
+									: dotOf(utilizationTone(totals.storageMax)),
+						}),
+						toolbarStat(h, {
+							value: formatLag(totals.lagMax),
+							label: lagHasOwner
+								? `worst replica lag (${totals.lagOwner})`
+								: "worst replica lag",
+							dot: dotOf(lagTone(totals.lagMax)),
+						}),
+						...(lagHasOwner
+							? []
+							: [
+									toolbarStat(h, {
+										value: formatNumber(totals.connections),
+										label: "connections",
+									}),
+								]),
+					]),
+		],
+	})
+}
+
 const content = (
 	h: H,
 	model: Model,
@@ -145,41 +213,7 @@ const content = (
 						),
 					]
 				: []),
-			statRail(h, {}, [
-				statRailItem(h, {
-					compact: true,
-					eyebrow: "Databases",
-					value: String(inventory.databases.length),
-				}),
-				statRailItem(h, { compact: true, eyebrow: "Branches", value: String(branchTotal) }),
-				...(never
-					? []
-					: [
-							statRailItem(h, {
-								compact: true,
-								eyebrow: "Worst storage",
-								value:
-									totals.storageMax === null
-										? EMPTY_VALUE
-										: formatStoragePercent(totals.storageMax),
-								tone:
-									totals.storageMax === null
-										? "neutral"
-										: utilizationTone(totals.storageMax),
-								subline: totals.storageOwner ?? undefined,
-							}),
-							statRailItem(h, {
-								compact: true,
-								eyebrow: "Worst replica lag",
-								value: formatLag(totals.lagMax),
-								tone: lagTone(totals.lagMax),
-								subline:
-									totals.lagOwner !== null && totals.lagMax > 0
-										? totals.lagOwner
-										: `${formatNumber(totals.connections)} connections`,
-							}),
-						]),
-			]),
+			summaryToolbar(h, { databases: inventory.databases.length, branchTotal, never, totals }),
 			inventory.databases.length === 0
 				? noDatabases(h)
 				: databaseTable(h, {
@@ -188,7 +222,7 @@ const content = (
 						sort: sortOf(model),
 						isWaiting: AsyncData.isRefreshing(statsData) || AsyncData.isLoading(statsData),
 						metricsPaused: never,
-						emptyMessage: "No databases in the inventory.",
+						emptyMessage: "No databases in the inventory",
 					}),
 		],
 	)
@@ -218,7 +252,7 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	return dashboardPage(
 		h,
 		{
-			scrollClassName: "gap-6",
+			gap: "lg",
 			titleContent: hero.title,
 			actions: pageTime(h, {
 				search: model.search,

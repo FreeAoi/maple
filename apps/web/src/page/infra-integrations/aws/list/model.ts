@@ -1,10 +1,11 @@
 import { Schema } from "effect"
-import { KeyedSchema } from "../../../../data/keyed"
-import { LoadFailure } from "../../../../data/load-failure"
+import { KeyedSchema } from "@maple/views/data/keyed"
+import { LoadFailure } from "@maple/views/data/load-failure"
 import { TimeWindow } from "../../../../data/time-range"
 import { InfraAwsSearch } from "../../../../route/search"
 import * as TimeRangePicker from "../../../kit/time-range-picker"
-import { AwsStatus, FleetRead, SparkRead, TracedService } from "../data"
+import { TracedService } from "../../kit/traced"
+import { AwsStatus, FleetRead, SparkRead } from "../data"
 
 // `/infra/aws`.
 

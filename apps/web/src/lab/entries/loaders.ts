@@ -1,8 +1,8 @@
 import { Schema } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { dotLoader } from "../../page/chat/kit/dot-loader"
-import { statusMarker } from "../../page/chat/kit/view-transcript"
-import { eyebrow } from "../../ui/eyebrow"
+import { dotLoader } from "../../page/investigations/conversation/kit/dot-loader"
+import { statusMarker } from "../../page/investigations/conversation/kit/view-transcript"
+import { eyebrow } from "@maple/views/ui/eyebrow"
 import { defineLab } from "../define"
 
 // `/lab/loaders`: the chat's loader on the lines it sits on.

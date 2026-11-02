@@ -1,11 +1,15 @@
+// oxlint-disable effecttsgo/strict-effect-provide -- This module owns the HTTP and scheduler entry points.
 const main = Effect.gen(function* () {
 	const env = {
 		...process.env,
 		MAPLE_AUTH_MODE: "self_hosted",
+		MAPLE_STATUS_PAGES_DISABLED: "1",
 		AI_WORKER: { fetch: (request: Request) => ai.handler(request) },
 	}
-	const publicUrl = new URL(yield* Config.String("MAPLE_API_BASE_URL"))
-	const sessions = openSessions(yield* Config.String("CHAT_DATA_DIR"), env)
+	const publicOrigin = yield* Config.String("MAPLE_API_BASE_URL")
+	const publicUrl = new URL(publicOrigin)
+	const chatDirectory = yield* Config.String("CHAT_DATA_DIR")
+	const sessions = openSessions(chatDirectory, env)
 	yield* Effect.addFinalizer(() => Effect.promise(() => sessions.close()))
 	const unavailableQueue = {
 		sendBatch: () =>
@@ -28,6 +32,8 @@ const main = Effect.gen(function* () {
 		Layer.succeed(McpOAuthRateLimit, rateLimiter(60, 60)),
 		Layer.succeed(VcsSyncQueueProducer, unavailableQueue),
 		Layer.succeed(PlanetScaleWebhookQueueProducer, unavailableQueue),
+		Layer.succeed(CancellationReviewQueueProducer, unavailableQueue),
+		unavailableStatusPageStore,
 		Layer.succeed(SecurityAuditWorkflowStarter, {
 			create: () =>
 				Effect.fail(
@@ -61,7 +67,7 @@ const main = Effect.gen(function* () {
 		{ middleware: (effect) => withPgConnectionScope(effect).pipe(Effect.provide(ports)) },
 	)
 	const ai = HttpRouter.toWebHandler(
-		AiRoutes.pipe(
+		Layer.mergeAll(AiRoutes, McpRoutes).pipe(
 			Layer.provideMerge(McpToolExecutorLoader.layer),
 			Layer.provideMerge(AiAuthLive),
 			Layer.provideMerge(layerDecisionModelFromConfig()),
@@ -139,6 +145,7 @@ import {
 	McpToolsRateLimit,
 	EmailSender,
 	PlanetScaleWebhookQueueProducer,
+	CancellationReviewQueueProducer,
 	QueueSendError,
 	VcsSyncQueueProducer,
 	SecurityAuditWorkflowStarter,
@@ -148,7 +155,9 @@ import {
 import { AllRoutes as ApiRoutes, ApiAuthLive } from "../../api/src/runtime/http-graph"
 import { HttpServicesLive } from "../../api/src/runtime/service-graph"
 import { forwardsToAi } from "../../api/src/worker/ai-forward"
-import { AllRoutes as AiRoutes, AiAuthLive } from "../../ai/src/runtime/http-graph"
+import { AllRoutes as AiRoutes } from "../../ai/src/runtime/http-graph"
+import { AiAuthLive } from "../../ai/src/runtime/auth-graph"
+import { McpRoutes } from "../../ai/src/runtime/mcp-http-graph"
 import { McpToolExecutorLoader } from "../../ai/src/mcp/executor-loader"
 import { layerDecisionModelFromConfig } from "../../ai/src/platform/Llm"
 import { WorkersAiGateway } from "../../ai/src/platform/WorkersAiHttpClient"
@@ -157,6 +166,7 @@ import { catchTickFailure, layerTick, scheduledTicks, selectLaneProgram } from "
 import { eventsHandler } from "./events"
 import { rateLimiter } from "./rate-limit"
 import { openSessions } from "./sessions"
+import { unavailableStatusPageStore } from "./status-pages"
 import { ElectricSyncRouter } from "../../electric-sync/src/routes/shape.http"
 import { ElectricClient } from "../../electric-sync/src/electric/ElectricClient"
 import { TenantResolver } from "../../electric-sync/src/auth/TenantResolver"

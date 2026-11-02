@@ -13,9 +13,9 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
-import * as Menu from "../../../ui/menu"
-import { MountMenu } from "../../../ui/menu"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import * as Menu from "@maple/views/ui/menu"
+import { MountMenu } from "@maple/views/ui/menu"
 import { PageOutMessage, type PageContext } from "../../contract"
 import { incidentRow, NOW, ORG } from "../shared/test-rows"
 import { monitorHref } from "../shared/uptime-commands"
@@ -165,8 +165,8 @@ describe("alerts hub, Uptime tab", () => {
 		scene(
 			{ update: pageUpdate, view },
 			given(withMonitors(THREE)),
-			expectView(text("1 up · 1 down · 1 paused")).toExist(),
-			expectView(text("payments-api for 6m")).toExist(),
+			expectView(text(/^3\s*monitors$/)).toExist(),
+			expectView(text(/^1\s*down$/)).toExist(),
 			expectView(text("Down 6m")).toExist(),
 			expectView(text("Paused")).toExist(),
 			expectView(role("link", { name: "payments-api" })).toHaveAttr(

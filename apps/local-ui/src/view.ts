@@ -1,9 +1,9 @@
-import { sidebarInset, sidebarTrigger, sidebarWrapper } from "@maple/web/ui/sidebar"
-import * as ToastView from "@maple/web/ui/toast-view"
+import { sidebarInset, sidebarTrigger, sidebarWrapper } from "@maple/views/ui/sidebar"
+import * as ToastView from "@maple/views/ui/toast-view"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
-import { presenceOf } from "./data/signal-presence"
+import { presenceOf } from "@maple/views/data/signal-presence"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { rangeOf } from "./page/contract"
@@ -35,7 +35,7 @@ const pageView = (h: HtmlBuilder<Message>, model: Model): Html => {
 		model.page,
 		{
 			context: pageContextOf(model),
-			presenceOf: (signal) => presenceOf(presence, signal),
+			presenceOf: (signal) => presenceOf(AsyncData.map(model.presence, (result) => result.signals), signal),
 			presenceNowMs: Option.match(presence, { onNone: () => 0, onSome: (result) => result.nowMs }),
 			clockMs: Option.match(model.maybeServer, { onNone: () => 0, onSome: (server) => server.checkedAtMs }),
 			hasNewDataSince: (sinceMs) => sinceMs > 0 && Option.exists(lastIngest, (last) => last > sinceMs),

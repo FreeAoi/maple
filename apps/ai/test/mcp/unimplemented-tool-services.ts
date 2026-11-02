@@ -1,5 +1,5 @@
 // Every MCP tool runtime service a test does not exercise: unimplemented mocks that die when
-// used, plus the real layers of the three services whose sync members a mock cannot stub.
+// used, plus the real layers of the four services whose sync members a mock cannot stub.
 import { Layer } from "effect"
 import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
 import { AgentFeedbackService } from "@maple/backend/services/feedback/AgentFeedbackService"
@@ -23,9 +23,16 @@ import { VcsSourceService } from "@maple/backend/services/integrations/vcs/VcsSo
 import { SetupAuditService } from "@maple/backend/services/org/SetupAuditService"
 import { UptimeMonitorsService } from "@maple/backend/services/uptime/UptimeMonitorsService"
 import { IngestRuleService } from "@maple/backend/services/org/IngestRuleService"
+import { OrganizationFeatureFlagsService } from "@maple/backend/services/org/OrganizationFeatureFlagsService"
+import { StatusPagesService } from "@maple/backend/services/status-pages/StatusPagesService"
+import { StatusPageSnapshotBuilder } from "@maple/backend/services/status-pages/StatusPageSnapshotBuilder"
 import { RepoSandboxService } from "@maple/backend/services/sandbox/RepoSandboxService"
 import { QueryEngineService } from "@maple/backend/services/warehouse/QueryEngineService"
 import { WarehouseQueryService } from "@maple/backend/services/warehouse/WarehouseQueryService"
+import { SecurityAuditStore } from "@maple/backend/services/security-audit/SecurityAuditStore"
+import { DependencyScanReader } from "@maple/backend/services/dependency-scan/DependencyScanService"
+import { RuntimeReleaseCatalog } from "@maple/backend/services/security/RuntimeReleaseCatalog"
+import { RuntimeAdvisoryCatalog } from "@maple/backend/services/security/RuntimeAdvisoryCatalog"
 
 export const unimplementedMcpToolServices = Layer.mergeAll(
 	Layer.mock(AuditLogService)({}),
@@ -50,7 +57,14 @@ export const unimplementedMcpToolServices = Layer.mergeAll(
 	Layer.mock(SetupAuditService)({}),
 	Layer.mock(UptimeMonitorsService)({}),
 	Layer.mock(IngestRuleService)({}),
+	Layer.mock(StatusPagesService)({}),
+	Layer.mock(StatusPageSnapshotBuilder)({}),
+	Layer.mock(OrganizationFeatureFlagsService)({}),
 	Layer.mock(RepoSandboxService)({}),
 	Layer.mock(QueryEngineService)({}),
+	SecurityAuditStore.layer,
+	Layer.mock(DependencyScanReader)({}),
+	Layer.mock(RuntimeReleaseCatalog)({}),
+	Layer.mock(RuntimeAdvisoryCatalog)({}),
 	WarehouseQueryService.layer,
 )

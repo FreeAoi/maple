@@ -33,6 +33,7 @@ import {
 	type ProgramCall,
 } from "./events"
 import { makeReviewCoverage, type ReviewCoverage } from "./review-coverage"
+import { type ChildFindings, makeChildFindings } from "./review-child-findings"
 import type { ReviewLedger } from "./review-ledger"
 import { buildReviewFanout } from "./review-fanout"
 import { buildCodeMode, CODE_MODE_GUIDANCE, CODE_MODE_TOOLS } from "./code-mode"
@@ -147,6 +148,8 @@ export interface SettledChild {
 export interface ReviewTurnState {
 	readonly coverage: ReviewCoverage
 	readonly ledger: ReviewLedger
+	/** What the turn's `review_files` children answered, so a continuation still accounts for it. */
+	readonly childFindings?: ChildFindings
 }
 
 export interface ChatRunOutcome {
@@ -182,6 +185,9 @@ const runChatTurnFrom = (input: ChatRunInput, startedAt: number) => {
 	const coverage = isAutonomousReviewTurn(input.sessionId, input.origin)
 		? (input.review?.coverage ?? makeReviewCoverage(input.text))
 		: undefined
+	// What this run's `review_files` children answer; `submit_review` checks the review against it.
+	const childFindings =
+		coverage === undefined ? undefined : (input.review?.childFindings ?? makeChildFindings())
 	// A call's UI payload, held until its result event is written. Never part of what the model reads.
 	const uiByCall = new Map<string, ToolUiPayload>()
 	// The same for a `run_code` program's calls (`<program call id>#<n>`), drawn when it settles.
@@ -226,6 +232,7 @@ const runChatTurnFrom = (input: ChatRunInput, startedAt: number) => {
 					sessionAttributes,
 					coverage,
 					input.review?.ledger,
+					childFindings,
 				)) ??
 		(input.submitReply === undefined || input.stageEdit === undefined
 			? undefined
@@ -269,6 +276,7 @@ const runChatTurnFrom = (input: ChatRunInput, startedAt: number) => {
 					startedAt + Duration.toMillis(Duration.fromInputUnsafe(agent.budget.maxDuration)),
 					codeMode === undefined ? undefined : CODE_MODE_GUIDANCE,
 					Object.keys(codeTools),
+					childFindings,
 				)
 			: undefined
 
@@ -434,8 +442,7 @@ const runChatTurnFrom = (input: ChatRunInput, startedAt: number) => {
 		// which is why the engine's lives only for this provide. A run is an entry point: the Durable Object
 		// invocation owns this scope and nothing outside it composes these layers. The model's own
 		// client stays in the requirements channel, where the Durable Object's runtime answers it.
-		// oxlint-disable-next-line effecttsgo/strict-effect-provide
-		Effect.provide(Layer.mergeAll(handlers, ThreadHistory.layer)),
+		Effect.provide([handlers, ThreadHistory.layer]),
 		// The `review_files` children run on threads of their own; their spans still belong to this
 		// session, so one review is one session.
 		(run) =>

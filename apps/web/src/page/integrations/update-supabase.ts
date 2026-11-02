@@ -1,9 +1,9 @@
 import type { SupabaseProjectRef } from "@maple/domain/primitives"
 import { Option, type Result } from "effect"
 import { AsyncData } from "foldkit"
-import * as Keyed from "../../data/keyed"
-import type { LoadFailure } from "../../data/load-failure"
-import { requestKey } from "../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
 import { resolveWindow } from "../../data/time-range"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import type { SupabaseProjectRow } from "../infra-integrations/supabase/model"
@@ -78,7 +78,7 @@ export const completedSync = (model: Model, context: PageContext, failure: LoadF
 	// A failed sync still re-reads the status: the card stays connected and shows its error.
 	return failure === null
 		? reloaded
-		: { ...reloaded, ...toast(reloaded.model, "error", "Failed to sync Supabase", failure.message) }
+		: { ...reloaded, ...toast(reloaded.model, "error", "Couldn't sync Supabase", failure.message) }
 }
 
 /** One write per project at a time; a second flip while one saves is ignored. */
@@ -145,7 +145,7 @@ export const completedMetrics = (
 		context,
 		ref,
 		failure,
-		enabled ? "Failed to start collecting metrics" : "Failed to stop collecting metrics",
+		enabled ? "Couldn't start collecting metrics" : "Couldn't stop collecting metrics",
 	)
 
 export const toggledLogs = (model: Model, ref: SupabaseProjectRef, enabled: boolean): Return =>
@@ -163,7 +163,7 @@ export const completedLogs = (
 		context,
 		ref,
 		failure,
-		enabled ? "Failed to start collecting logs" : "Failed to stop collecting logs",
+		enabled ? "Couldn't start collecting logs" : "Couldn't stop collecting logs",
 	)
 
 export const toggledLogDrain = (model: Model, ref: SupabaseProjectRef, enabled: boolean): Return =>
@@ -181,5 +181,5 @@ export const completedLogDrain = (
 		context,
 		ref,
 		failure,
-		enabled ? "Failed to create the log drain" : "Failed to remove the log drain",
+		enabled ? "Couldn't create the log drain" : "Couldn't remove the log drain",
 	)

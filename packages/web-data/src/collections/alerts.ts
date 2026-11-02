@@ -36,7 +36,7 @@ const asUserId = Schema.decodeUnknownSync(UserId)
 const asErrorIssueId = Schema.decodeUnknownSync(ErrorIssueId)
 const decodeDestinationId = Schema.decodeUnknownSync(AlertDestinationId)
 
-const asDestinationType = Schema.decodeUnknownSync(AlertDestinationType)
+const decodeDestinationType = Schema.decodeUnknownOption(AlertDestinationType)
 
 const asSeverity = Schema.decodeUnknownSync(AlertSeverity)
 const asSignalType = Schema.decodeUnknownSync(AlertSignalType)
@@ -301,7 +301,7 @@ export const rowToAlertIncidentDocument = (row: AlertIncidentRow): AlertIncident
  * column-restricted server-side (the encrypted `secret_*` columns are dropped —
  * see the proxy whitelist), so this struct intentionally lists only the synced
  * columns. `config_json` carries ONLY public config (summary / channel label /
- * hazel metadata); the webhook secrets live in the excluded encrypted columns.
+ * chat workspace); the webhook secrets live in the excluded encrypted columns.
  */
 export const AlertDestinationRowSchema = Schema.Struct({
 	id: Schema.String,
@@ -321,8 +321,7 @@ export type AlertDestinationRow = typeof AlertDestinationRowSchema.Type
 
 /**
  * The public projection of a destination's `config_json` the browser renders —
- * mirrors the server's `DestinationPublicConfigSchema` (summary + channelLabel;
- * the hazel-* fields are excess and ignored here). The server stringifies the
+ * mirrors the server's `DestinationPublicConfigSchema`. The server stringifies the
  * jsonb before decoding; Electric's default parser already gives us the parsed
  * object, so we decode it directly.
  */
@@ -340,9 +339,24 @@ const decodeDestinationPublicConfig = Schema.decodeUnknownOption(AlertDestinatio
  * Decodes a raw `alert_destinations` row into the domain
  * {@link AlertDestinationDocument}, mirroring `rowToDestinationDocument` +
  * `safeParsePublicConfig` in AlertsService.ts (invalid config → the same
- * "Invalid destination config" fallback the server uses).
+ * "Invalid destination config" fallback the server uses). `None` for a type
+ * this build does not know (a retired provider's leftover row): it is dropped,
+ * never a crash.
  */
-export const rowToAlertDestinationDocument = (row: AlertDestinationRow): AlertDestinationDocument => {
+export const rowToAlertDestinationDocument = (
+	row: AlertDestinationRow,
+): Option.Option<AlertDestinationDocument> =>
+	Option.map(decodeDestinationType(row.type), (type) => destinationDocument(row, type))
+
+/** The live rows as documents, without rows of an unknown type. */
+export const rowsToAlertDestinationDocuments = (
+	rows: ReadonlyArray<AlertDestinationRow>,
+): ReadonlyArray<AlertDestinationDocument> => Arr.getSomes(rows.map(rowToAlertDestinationDocument))
+
+const destinationDocument = (
+	row: AlertDestinationRow,
+	type: AlertDestinationType,
+): AlertDestinationDocument => {
 	const publicConfig = Option.getOrElse(
 		decodeDestinationPublicConfig(row.config_json),
 		(): Schema.Schema.Type<typeof AlertDestinationPublicConfig> => ({
@@ -353,7 +367,7 @@ export const rowToAlertDestinationDocument = (row: AlertDestinationRow): AlertDe
 	return new AlertDestinationDocument({
 		id: decodeDestinationId(row.id),
 		name: row.name,
-		type: asDestinationType(row.type),
+		type,
 		enabled: row.enabled,
 		summary: publicConfig.summary,
 		channelLabel: publicConfig.channelLabel,

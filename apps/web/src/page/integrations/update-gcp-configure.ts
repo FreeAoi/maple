@@ -8,13 +8,13 @@ import {
 import { isUnexpectedError } from "@maple/web-data/lib/error-messages"
 import { AsyncData, Command as FoldkitCommand } from "foldkit"
 import { Option } from "effect"
-import * as Keyed from "../../data/keyed"
-import type { LoadFailure } from "../../data/load-failure"
-import { requestKey } from "../../data/request-key"
-import * as Dialog from "../../ui/dialog"
-import * as Field from "../../ui/field"
-import * as Select from "../../ui/select"
-import * as ToggleGroup from "../../ui/toggle-group"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Field from "@maple/views/ui/field"
+import * as Select from "@maple/views/ui/select"
+import * as ToggleGroup from "@maple/views/ui/toggle-group"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import {
 	ConfirmRemoval,
@@ -418,7 +418,7 @@ export const completedUpdate = (
 			model: settled,
 			outMessage: PageOutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to save the change",
+				title: "Couldn't save the change",
 				description: failure.message,
 			}),
 		}

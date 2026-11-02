@@ -10,7 +10,6 @@ import {
 } from "@maple/ui/lib/format"
 import { formatRelativeTimeOrDate } from "@maple/ui/lib/time-format"
 import { cn } from "@maple/ui/lib/utils"
-import { eyebrowVariants } from "@maple/ui/styles/ui/eyebrow"
 import {
 	ROLLOUT_COMPLETE_SHARE,
 	shortReleaseLabel,
@@ -19,17 +18,19 @@ import {
 } from "../../../components/releases/release-model"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import { badge } from "../../../ui/display"
-import { emptyMessage } from "../../../ui/empty"
-import { listRow } from "../../../ui/list-row"
-import { panel, panelBody, panelHeader } from "../../../ui/panel"
-import { skeleton } from "../../../ui/skeleton"
-import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "../../../ui/table"
-import { truncatedText } from "../../../ui/truncated-text"
-import { serviceDot } from "../../../ui/values"
+import { severityBadge } from "../../errors/kit/severity"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { listRow } from "@maple/views/ui/list-row"
+import { panel, panelBody, panelHeader } from "@maple/views/ui/panel"
+import { skeleton } from "@maple/views/ui/skeleton"
+import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
+import { truncatedText } from "@maple/views/ui/truncated-text"
+import { serviceDot } from "@maple/views/ui/values"
 import { relativeTime } from "../../kit/relative-time"
 import { commitAvatar, firstLine, releaseHealthFigure, releaseHref } from "../kit"
 import { type Overlays, releaseHealthPill } from "../overlays-view"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { vstack } from "@maple/views/ui/stack"
 
 // `ReleaseDeployOverview`'s sections, `ReleaseChangeset` and `IssueList` + `IssueLine`.
 
@@ -71,7 +72,7 @@ export const deploySummary = <M>(h: HtmlBuilder<M>, group: ReleaseGroup, clock: 
 			h.span(
 				[],
 				[
-					h.span([h.Class("font-medium tabular-nums text-foreground")], [String(services)]),
+					typography(h, { tone: "foreground", weight: "medium", numeric: true }, [String(services)]),
 					" ",
 					pluralize(services, "service"),
 				],
@@ -79,8 +80,7 @@ export const deploySummary = <M>(h: HtmlBuilder<M>, group: ReleaseGroup, clock: 
 			h.span(
 				[],
 				[
-					h.span(
-						[h.Class("font-medium tabular-nums text-foreground")],
+					typography(h, { tone: "foreground", weight: "medium", numeric: true },
 						[formatNumber(group.spanCount)],
 					),
 					" ",
@@ -106,7 +106,7 @@ const beforeAfter = <M>(
 		[
 			...(before === undefined
 				? []
-				: [h.span([h.Class("text-3xs text-muted-foreground/70")], [format(before), " →"])]),
+				: [typography(h, { size: "3xs", tone: "subtle" }, [format(before), " →"])]),
 			h.span(
 				[
 					h.Class(
@@ -145,13 +145,13 @@ const serviceRow = <M>(
 										(impact.environment ? [impact.environment] : undefined),
 								}),
 							),
-							h.Class("inline-flex items-center gap-2 hover:underline"),
+							h.Class("inline-flex items-center gap-2 hover:underline active:underline"),
 						],
 						[
 							serviceDot(h, { serviceName: impact.serviceName }),
 							impact.serviceName,
 							...(impact.environment && !environments?.length
-								? [h.span([h.Class("text-muted-foreground/70")], [impact.environment])]
+								? [h.span([h.Class("text-foreground-subtle")], [impact.environment])]
 								: []),
 							...(impact.health === "healthy"
 								? []
@@ -172,9 +172,9 @@ const serviceRow = <M>(
 			tableCell(
 				h,
 				[impact.baseline ? shortReleaseLabel(impact.baseline.commitSha) : EMPTY_VALUE],
-				"font-mono text-2xs text-muted-foreground",
+				typographyClass({ size: "2xs", tone: "muted", mono: true }),
 			),
-			tableCell(h, [formatNumber(impact.spanCount)], "text-right font-mono tabular-nums"),
+			tableCell(h, [formatNumber(impact.spanCount)], typographyClass({ mono: true, numeric: true, className: "text-right" })),
 			tableCell(h, [
 				beforeAfter(
 					h,
@@ -204,7 +204,7 @@ const serviceRow = <M>(
 				),
 			),
 		],
-		"border-border/60",
+		"border-border-subtle",
 		[h.Key(`${impact.serviceName}:${impact.environment}`)],
 	)
 
@@ -223,8 +223,7 @@ export const deployServices = <M>(
 		h,
 		{
 			title: "Services",
-			action: h.span(
-				[h.Class("text-2xs text-muted-foreground/70")],
+			action: typography(h, { size: "2xs", tone: "subtle" },
 				["against the version each replaced"],
 			),
 		},
@@ -241,7 +240,6 @@ export const deployServices = <M>(
 							tableHead(h, ["p95"]),
 							tableHead(h, ["Live share"], "pr-4 text-right"),
 						],
-						eyebrowVariants(),
 					),
 				]),
 				tableBody(
@@ -272,7 +270,7 @@ export type ChangesetState =
 export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, clock: Clock): Html => {
 	if (state._tag === "NoBase")
 		return sectionCard(h, { title: "What shipped" }, [
-			emptyMessage(h, {}, ["No earlier version in this window to compare against."]),
+			emptyMessage(h, {}, ["No earlier version in this window to compare against"]),
 		])
 	if (state._tag === "NotShas")
 		return sectionCard(h, { title: "What shipped" }, [
@@ -280,8 +278,7 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 				"These versions are not commit shas, so the commits between them are unknown.",
 			]),
 		])
-	const action = h.span(
-		[h.Class("text-2xs text-muted-foreground/70")],
+	const action = typography(h, { size: "2xs", tone: "subtle" },
 		["since ", h.span([h.Class("font-mono")], [shortReleaseLabel(state.base)])],
 	)
 	if (state._tag === "Loading")
@@ -314,7 +311,7 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 							[
 								h.Key(commit.sha),
 								h.Class(
-									"flex items-start gap-2.5 border-t border-border/60 px-4 py-2 text-xs first:border-t-0",
+									"flex items-start gap-2.5 border-t border-border-subtle px-4 py-2 text-xs first:border-t-0",
 								),
 							],
 							[
@@ -322,15 +319,14 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 									[h.Class("mt-px shrink-0")],
 									[commitAvatar(h, commit.authorAvatarUrl, author)],
 								),
-								h.div(
-									[h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
+								vstack(h, { gap: "0.5", shrink: true, grow: true },
 									[
 										h.a(
 											[
 												h.Href(pr?.url ?? commit.htmlUrl),
 												h.Target("_blank"),
 												h.Rel("noreferrer"),
-												h.Class("truncate text-foreground hover:underline"),
+												h.Class("truncate text-foreground hover:underline active:underline"),
 												h.Title(subject),
 											],
 											[subject],
@@ -354,7 +350,7 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 								h.span(
 									[
 										h.Class(
-											"shrink-0 font-mono text-2xs tabular-nums text-muted-foreground/70",
+											"shrink-0 font-mono text-2xs tabular-nums text-foreground-subtle",
 										),
 									],
 									[
@@ -373,7 +369,7 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 								h.div(
 									[
 										h.Class(
-											"border-t border-border/60 px-4 py-2 text-2xs text-muted-foreground/70",
+											"border-t border-border-subtle px-4 py-2 text-2xs text-foreground-subtle",
 										),
 									],
 									[String(hidden), " older ", pluralize(hidden, "commit"), " not shown"],
@@ -384,23 +380,6 @@ export const releaseChangeset = <M>(h: HtmlBuilder<M>, state: ChangesetState, cl
 			),
 		],
 	)
-}
-
-// Issue severity tones and labels (as in page/errors/kit/severity.ts).
-const SEVERITY = new Map([
-	["critical", { tone: "bg-severity-fatal/12 text-severity-fatal", label: "Critical" }],
-	["high", { tone: "bg-severity-error/12 text-severity-error", label: "High" }],
-	["medium", { tone: "bg-severity-warn/12 text-severity-warn", label: "Medium" }],
-	["low", { tone: "bg-severity-debug/12 text-severity-debug", label: "Low" }],
-])
-
-const severityBadge = <M>(h: HtmlBuilder<M>, severity: string | null): Html => {
-	const known = severity === null ? undefined : SEVERITY.get(severity)
-	return known === undefined
-		? h.span([h.Class(cn("inline-flex h-5", "w-[60px] justify-center")), h.Title("Severity not set")])
-		: badge(h, { variant: "outline", className: cn(known.tone, "w-[60px] justify-center") }, [
-				known.label,
-			])
 }
 
 const issueLine = <M>(
@@ -419,23 +398,19 @@ const issueLine = <M>(
 			? h.span(
 					[h.Class("contents")],
 					[
-						severityBadge(h, issue.severity),
+						severityBadge(h, issue.severity, "w-[60px] justify-center"),
 						h.span(
 							[h.Class("ml-2.5 inline-flex"), h.Title(issue.serviceName)],
 							[serviceDot(h, { serviceName: issue.serviceName })],
 						),
 					],
 				)
-			: severityBadge(h, issue.severity),
+			: severityBadge(h, issue.severity, "w-[60px] justify-center"),
 		title: truncatedText(h, { text: title, className: "font-normal" }),
 		trailing: h.span(
 			[h.Class("contents")],
 			[
-				h.span(
-					[
-						h.Class("font-mono text-xs tabular-nums text-muted-foreground"),
-						h.Title("Occurrences on this version in the window"),
-					],
+				typography(h, { size: "xs", tone: "muted", mono: true, numeric: true, attributes: [h.Title("Occurrences on this version in the window")] },
 					[formatNumber(occurrences ?? issue.occurrenceCount), "×"],
 				),
 				relativeTime(h, {
@@ -445,7 +420,7 @@ const issueLine = <M>(
 					variant: "orDate",
 					mono: true,
 					tooltip: "title",
-					className: "w-14 text-right text-xs text-muted-foreground/70",
+					className: "w-14 text-right text-xs text-foreground-subtle",
 				}),
 			],
 		),
@@ -474,12 +449,12 @@ export const issueList = <M>(
 				[
 					h.Class(
 						options.issues.length === 0
-							? "text-2xs text-muted-foreground/70"
+							? typographyClass({ size: "2xs", tone: "subtle" })
 							: options.tone === "error"
 								? "text-2xs font-medium text-severity-error"
 								: options.tone === "warn"
 									? "text-2xs font-medium text-severity-warn"
-									: "text-2xs text-muted-foreground",
+									: typographyClass({ size: "2xs", tone: "muted" }),
 					),
 				],
 				[String(options.issues.length)],

@@ -1,14 +1,14 @@
 import { formatNumber } from "@maple/ui/lib/format"
 import { cn } from "@maple/ui/lib/utils"
-import { spinner } from "@maple/web/ui/spinner"
-import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/web/ui/table"
-import { errorRateValue, latencyValue } from "@maple/web/ui/values"
+import { errorState } from "@maple/views/ui/error-state"
+import { spinner } from "@maple/views/ui/spinner"
+import { table, tableBody, tableCell, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
+import { errorRateValue, latencyValue } from "@maple/views/ui/values"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
 import { linkRow, rowLink } from "../kit/row-link"
-import { errorState } from "../kit/view-states"
 import { Message } from "./message"
 import type { Model, OperationRow } from "./model"
 import { tracesHref } from "./view-parts"
@@ -37,11 +37,14 @@ const operationRow = (h: HtmlBuilder<Message>, serviceName: string, range: strin
 	])
 
 const operationsBody = (h: HtmlBuilder<Message>, model: Model, range: string): Html => {
-	if (isPending(model.operations))
+	if (isAwaitingFirstData(model.operations))
 		return h.div([h.Class("flex h-24 items-center justify-center rounded-md border")], [spinner(h)])
 	const failure = failureWithoutData(model.operations)
 	if (Option.isSome(failure))
-		return errorState(h, { label: "operations", failure: failure.value, onRetry: Message.ClickedRetryOperations() })
+		return errorState(h, {
+			failure: failure.value, title: "Couldn’t load operations",
+			onRetry: Message.ClickedRetryOperations(),
+		})
 	const operations = Option.getOrElse(AsyncData.getData(model.operations.data), () => [])
 	if (operations.length === 0)
 		return h.div(

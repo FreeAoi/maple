@@ -9,13 +9,14 @@ import { cn } from "@maple/ui/lib/utils"
 import { Schema } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../route"
-import { button } from "../../../ui/button"
-import { badge } from "../../../ui/display"
-import { icon } from "../../../ui/icon"
-import { panel, panelHeader } from "../../../ui/panel"
-import { segmentedSelect } from "../../../ui/segmented-select"
-import * as Switch from "../../../ui/switch"
-import { searchInput } from "../../../ui/search-input"
+import { button } from "@maple/views/ui/button"
+import { badge } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { panel, panelHeader } from "@maple/views/ui/panel"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
+import * as Switch from "@maple/views/ui/switch"
+import { searchInput } from "@maple/views/ui/search-input"
+import { typography } from "@maple/views/ui/typography"
 
 // `RepositoryList`, `RepositoryRow` and `RepositoryName`, shared with
 // `/lab/code-review-repos`.
@@ -62,13 +63,25 @@ export type RepoListOptions<M> = Readonly<{
 	onConfigure: (repo: GithubRepoSummary) => M
 }>
 
+/** The list header's way to the GitHub App's repository access. */
+export const manageAccessLink = <M>(h: HtmlBuilder<M>): Html =>
+	h.a(
+		[
+			h.Class(
+				"inline-flex items-center gap-1 text-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-foreground active:decoration-foreground",
+			),
+			h.Href(hrefOf(AppRoute.SourcesNew({ search: { integration: "github" } }))),
+		],
+		["Manage GitHub access", icon(h, "ArrowRightIcon", { size: 12, className: "shrink-0" })],
+	)
+
 /** The owner recedes so the part that differs between rows, the repository name, carries it. */
 const repositoryName = <M>(h: HtmlBuilder<M>, fullName: string): Html => {
 	const slash = fullName.indexOf("/")
 	return h.span(
 		[h.Class("truncate")],
 		[
-			h.span([h.Class("font-normal text-muted-foreground")], [fullName.slice(0, slash + 1)]),
+			typography(h, { tone: "muted", weight: "normal" }, [fullName.slice(0, slash + 1)]),
 			fullName.slice(slash + 1),
 		],
 	)
@@ -87,7 +100,7 @@ const repositoryRow = <M>(h: HtmlBuilder<M>, repo: GithubRepoSummary, options: R
 					h.a(
 						[
 							h.Class(
-								"group inline-flex min-w-0 items-center gap-1 text-sm font-medium hover:underline",
+								"group inline-flex min-w-0 items-center gap-1 text-sm font-medium hover:underline active:underline",
 							),
 							h.Href(repo.htmlUrl),
 							h.Attribute("rel", "noreferrer"),
@@ -143,7 +156,7 @@ const searchBox = <M>(h: HtmlBuilder<M>, options: RepoListOptions<M>): Html =>
 		id: "code-review-repo-search",
 		size: "sm",
 		className: "min-w-48 flex-1",
-		placeholder: "Search repositories",
+		placeholder: "Search repositories…",
 		value: options.state.search,
 		onInput: options.onSearch,
 		onClear: options.onSearch(""),
@@ -167,15 +180,7 @@ export const repositoryList = <M>(h: HtmlBuilder<M>, options: RepoListOptions<M>
 	return panel(h, {}, [
 		panelHeader(h, {
 			className: "px-5 py-3 text-xs text-muted-foreground",
-			action: h.a(
-				[
-					h.Class(
-						"inline-flex items-center gap-1 text-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:decoration-foreground",
-					),
-					h.Href(hrefOf(AppRoute.SourcesNew({ search: { integration: "github" } }))),
-				],
-				["Manage GitHub access", icon(h, "ArrowRightIcon", { size: 12, className: "shrink-0" })],
-			),
+			action: manageAccessLink(h),
 			children: [
 				h.span(
 					[],

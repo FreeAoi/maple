@@ -2,13 +2,14 @@ import type { ActorDocument } from "@maple/domain/http"
 import { internalAgentLabel } from "@maple/domain/system-agents"
 import { EMPTY_VALUE } from "@maple/ui/lib/format"
 import { initialsFrom } from "@maple/ui/lib/initials"
-import { gradientFor } from "@maple/ui/lib/replay"
 import { AGENT_ACCENT } from "@maple/ui/lib/tone"
 import { shortId as truncateId } from "@maple/ui/lib/ids"
 import { cn } from "@maple/ui/lib/utils"
-import { avatarFallbackStyles, avatarStyles } from "@maple/ui/styles/ui/avatar"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon } from "../../../ui/icon"
+import { avatarFallback } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { warmAvatarTone } from "@maple/views/ui/avatar-tone"
+import { typography } from "@maple/views/ui/typography"
 
 // Actor avatars and chips.
 // TODO(actor-directory): people should resolve through the Clerk member directory; here every
@@ -83,26 +84,19 @@ export const identityAvatar = <M>(
 			],
 		)
 	}
-	const gradient = cn("bg-gradient-to-br text-white", gradientFor(identity.seed))
+	const gradient = warmAvatarTone(identity.seed)
 	const mark =
 		identity.initials === "" ? icon(h, "UserIcon", { className: "size-[60%]" }) : identity.initials
 	// The initials show until the photo loads; photos are not loaded here yet.
 	if (identity.imageUrl !== undefined && identity.imageUrl !== null && identity.imageUrl !== "")
-		return h.span(
-			[
-				h.AriaHidden(true),
-				h.Class(cn(avatarStyles, cn(base, "ring-1 ring-border/60"))),
-				h.DataAttribute("slot", "avatar"),
-			],
-			[
-				h.span(
-					[
-						h.Class(cn(avatarFallbackStyles, gradient, SIZE_CLASS[size])),
-						h.DataAttribute("slot", "avatar-fallback"),
-					],
-					[mark],
-				),
-			],
+		return avatarFallback(
+			h,
+			{
+				className: cn(base, "ring-1 ring-border-subtle"),
+				fallbackClassName: cn(gradient, SIZE_CLASS[size]),
+				attributes: [h.AriaHidden(true)],
+			},
+			mark,
 		)
 	return h.span([h.AriaHidden(true), h.Class(cn(base, gradient))], [mark])
 }
@@ -115,7 +109,7 @@ export const actorAvatar = <M>(
 
 /** `ActorChip`'s empty form. */
 export const noActor = <M>(h: HtmlBuilder<M>): Html =>
-	h.span([h.Class("text-xs text-muted-foreground")], [EMPTY_VALUE])
+	typography(h, { size: "xs", tone: "muted" }, [EMPTY_VALUE])
 
 /** `ActorChip`: avatar and name; a person outside the directory has no detail, so no tooltip. */
 export const actorChip = <M>(h: HtmlBuilder<M>, actor: ActorDocument | null, className?: string): Html => {
@@ -131,6 +125,6 @@ export const actorChip = <M>(h: HtmlBuilder<M>, actor: ActorDocument | null, cla
 				),
 			),
 		],
-		[identityAvatar(h, identity), h.span([h.Class("truncate font-medium")], [identity.name])],
+		[identityAvatar(h, identity), typography(h, { weight: "medium", truncate: true }, [identity.name])],
 	)
 }

@@ -35,6 +35,7 @@ jobs:
             ingest: ${{ steps.filter.outputs.ingest == 'true' }}
             collector: ${{ steps.filter.outputs.collector == 'true' }}
             terraform: ${{ steps.filter.outputs.terraform == 'true' }}
+            browser-sdk: ${{ steps.filter.outputs.browser-sdk == 'true' }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
@@ -76,9 +77,11 @@ jobs:
                       cli:
                         - *base
                         - 'apps/cli/**'
+                        - 'packages/local-server/**'
                         - 'apps/local-ui/**'
-                        # local-ui renders apps/web's source modules.
+                        # local-ui renders apps/web's source modules and the shared kit.
                         - 'apps/web/src/**'
+                        - 'packages/views/**'
                         - 'packages/effect-sdk/**'
                         - 'packages/domain/**'
                         - 'packages/query-engine/**'
@@ -94,6 +97,7 @@ jobs:
                       archive:
                         - *base
                         - 'apps/cli/**'
+                        - 'packages/local-server/**'
                         - 'apps/local-ui/**'
                         - 'scripts/build-local-binary.sh'
                         - 'scripts/gen-ui-embed.ts'
@@ -105,6 +109,7 @@ jobs:
                         - 'lib/effect-clickhouse-http/**'
                         - 'apps/api/scripts/query-bench/**'
                         - 'packages/backend/src/services/warehouse/**'
+                        - 'packages/backend/src/services/errors/error-tick-*'
                         - 'packages/db/**'
                         - 'packages/query-engine/**'
                         # The sweep analyzes the integration builders too.
@@ -154,6 +159,13 @@ jobs:
                       terraform:
                         - '.github/workflows/ci.yml'
                         - 'packages/terraform-provider-maple/**'
+                      # Everything bundled into @maple-dev/browser's dist.
+                      browser-sdk:
+                        - *base
+                        - 'packages/browser/**'
+                        - 'packages/browser-session/**'
+                        - 'packages/sdk-core/**'
+                        - 'packages/tsconfig.browser.dts.json'
 
             - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
               with:
@@ -249,6 +261,16 @@ jobs:
                   - name: Validate shared design tokens
                     if: ${{ matrix.shard == 'quality' }}
                     run: bun run check:tokens
+
+                  # packages/views/src/ui/INDEX.md is how agents find a kit component before building one.
+                  - name: Validate the dashboard kit index
+                    if: ${{ matrix.shard == 'quality' }}
+                    run: bun run ui:index:check
+
+                  # Class strings copied across 3+ page files belong in the kit; the count only shrinks.
+                  - name: Validate repeated dashboard class strings
+                    if: ${{ matrix.shard == 'quality' }}
+                    run: bun run ui:patterns:check
 
                   # What @maple-dev/browser costs every page load vs replay-sampled
                   # visitors only; budgets live in scripts/size.ts.
@@ -463,6 +485,16 @@ jobs:
                   src/services/warehouse/ci-runs.clickhouse.e2e.test.ts
                   src/services/warehouse/service-api-materialization.clickhouse.e2e.test.ts
                   src/services/warehouse/service-map-parity.clickhouse.e2e.test.ts
+
+            # The fingerprint the error views compute, against the TS mirror every
+            # fingerprint unit test exercises: fixed cases, a seeded differential fuzz
+            # (the seed is in the failure message), and the tick that turns hashes into issues.
+            - name: Verify the error fingerprint against the TS mirror
+              run: >-
+                  bun run --filter=@maple/backend test --
+                  src/services/warehouse/error-fingerprint-v3.clickhouse.e2e.test.ts
+                  src/services/warehouse/error-fingerprint-fuzz.clickhouse.e2e.test.ts
+                  src/services/errors/error-tick-fingerprint.clickhouse.e2e.test.ts
 
             # Every SQL shape the product emits, against the real analyzer: unit tests
             # only compare SQL text, which is how a NO_COMMON_TYPE reached production.
@@ -787,6 +819,41 @@ jobs:
                     exit 1
                   fi
 
+    # The built @maple-dev/browser in a real Chromium against a fake ingest: replay
+    # playback, privacy across every channel, unload delivery and consent.
+    browser-sdk-e2e:
+        name: Browser SDK e2e
+        needs: changes
+        if: ${{ needs.changes.outputs.browser-sdk == 'true' }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+            - uses: ./.github/actions/setup
+              with:
+                  install-filters: "@maple-dev/browser"
+
+            - name: Read Playwright version
+              id: playwright
+              working-directory: packages/browser
+              run: echo "version=$(bun -e 'console.log(require("playwright/package.json").version)')" >> "$GITHUB_OUTPUT"
+
+            - name: Cache Chromium
+              id: browser-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+
+            - name: Install Chromium
+              if: steps.browser-cache.outputs.cache-hit != 'true'
+              working-directory: packages/browser
+              run: bun run playwright install chromium
+
+            - name: Build the SDK and run the e2e suite
+              run: bun run --cwd packages/browser test:e2e
+
     # The single required check, and branch protection must require only this one:
     # skipped path-filtered jobs never report, so requiring them would hang forever.
     ci:
@@ -806,6 +873,7 @@ jobs:
             - ingest-rust
             - otel-collector
             - terraform-provider
+            - browser-sdk-e2e
         steps:
             - name: Fail if any job failed or was cancelled
               if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

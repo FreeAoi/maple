@@ -5,10 +5,13 @@ import { gcpStateLabel } from "../../../../components/infra/gcp/tabs"
 import type { GcpRailFact } from "../../../../components/infra/gcp/workload-signals"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../../route"
-import { detailRailField, detailRailGroup, detailRailMetaRow } from "../../../../ui/detail-rail"
-import { icon, type IconName } from "../../../../ui/icon"
-import { serviceDot } from "../../../../ui/values"
+import { detailRailField, detailRailGroup, detailRailMetaRow } from "@maple/views/ui/detail-rail"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import { inlineCode } from "@maple/views/ui/inline-code"
+import { serviceDot } from "@maple/views/ui/values"
 import type { Message } from "./model"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // `GcpWorkloadRail`.
 
@@ -32,14 +35,15 @@ const FACT_TONE = {
 } as const
 
 const RAIL_LINK =
-	"group -mx-2 flex h-8 items-center gap-2 rounded-md px-2 text-xs text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground"
+	"group -mx-2 flex h-8 items-center gap-2 rounded-md px-2 text-xs text-foreground-soft hover:bg-surface-sunken active:bg-surface-sunken hover:text-foreground active:text-foreground"
 
-const label = (h: H, text: string): Html => h.span([h.Class("min-w-0 flex-1 truncate")], [text])
+const label = (h: H, text: string): Html =>
+	typography(h, { truncate: true, className: "min-w-0 flex-1" }, [text])
 
 const chevron = (h: H): Html =>
 	icon(h, "ChevronRightIcon", {
 		size: 12,
-		className: "shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground",
+		className: "shrink-0 text-foreground-faint transition-colors group-hover:text-foreground",
 	})
 
 const linkBody = (h: H, name: IconName, text: string): ReadonlyArray<Html> => [
@@ -59,7 +63,7 @@ const externalLink = (h: H, href: string, name: IconName, text: string): Html =>
 			label(h, text),
 			icon(h, "ExternalLinkIcon", {
 				size: 12,
-				className: "shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground",
+				className: "shrink-0 text-foreground-faint transition-colors group-hover:text-foreground",
 			}),
 		],
 	)
@@ -123,17 +127,17 @@ export const workloadRail = (h: H, options: RailOptions): Html => {
 					? []
 					: [
 							detailRailField(h, { label: "Labels" }, [
-								h.div(
-									[h.Class("flex flex-wrap gap-1")],
+								hstack(
+									h,
+									{ gap: "1", align: "stretch", wrap: true },
 									labels.map((text) =>
 										h.span(
+											[h.Class("flex min-w-0 max-w-full"), h.Title(text)],
 											[
-												h.Class(
-													"max-w-full truncate rounded-sm bg-muted px-1.5 font-mono text-2xs/[18px]",
-												),
-												h.Title(text),
+												inlineCode(h, { className: "truncate text-2xs/[18px]" }, [
+													text,
+												]),
 											],
-											[text],
 										),
 									),
 								),
@@ -148,8 +152,9 @@ export const workloadRail = (h: H, options: RailOptions): Html => {
 				: [
 						detailRailGroup(h, "Traced as", [
 							options.traced.service === null
-								? h.p(
-										[h.Class("text-2xs leading-relaxed text-muted-foreground")],
+								? typography(
+										h,
+										{ size: "2xs", tone: "muted", as: "p", className: "leading-relaxed" },
 										[
 											`No service named ${options.traced.name} sent spans in this window, so Google Cloud's metrics are all there is.`,
 										],

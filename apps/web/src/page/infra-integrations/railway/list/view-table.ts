@@ -2,7 +2,7 @@ import type { RailwayEnvironmentStatus } from "@maple/domain/http"
 import { formatBytes, pluralize } from "@maple/ui/lib/format"
 import type { ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { AppRoute, hrefOf } from "../../../../route"
-import { skeleton } from "../../../../ui/skeleton"
+import { skeleton } from "@maple/views/ui/skeleton"
 import { columnHead, dataTable, skeletonRows, ROW_LINK_CLASS } from "../../../infra/kit/data-table"
 import { meterRows } from "../../../infra/kit/meter-rows"
 import { avgPeak } from "../../../infra/kit/avg-peak"
@@ -12,6 +12,7 @@ import type { RailwayServiceRow } from "../model"
 import { formatVcpu, groupedRows, type RailwayRowView, type RailwaySync, rowKey } from "./derive"
 import { Message } from "./message"
 import type { SortKey } from "./model"
+import { typography, typographyClass } from "@maple/views/ui/typography"
 
 // `RailwayServiceTable` and `RailwayServiceTableLoading`.
 
@@ -28,12 +29,12 @@ const COLUMNS: ReadonlyArray<{
 	hidden?: string
 	limitsOnly?: boolean
 }> = [
-	{ label: "Service", key: "displayName", width: "w-0 flex-1 min-w-[240px]" },
-	{ label: "Memory", key: "memoryMax", width: "w-[150px]", align: "right" },
-	{ label: "vCPU", key: "cpuMax", width: "w-[140px]", align: "right" },
-	{ label: "Of limit", key: "peakOfLimit", width: "w-[160px]", hidden: "hidden lg:flex", limitsOnly: true },
-	{ label: "Replicas", key: "replicas", width: "w-[80px]", align: "right" },
-	{ label: "Last seen", key: "lastSeen", width: "w-[100px]", align: "right" },
+	{ label: "Service", key: "displayName", width: "w-0 flex-1 min-w-60" },
+	{ label: "Memory", key: "memoryMax", width: "w-36", align: "right" },
+	{ label: "vCPU", key: "cpuMax", width: "w-36", align: "right" },
+	{ label: "Of limit", key: "peakOfLimit", width: "w-40", hidden: "hidden lg:flex", limitsOnly: true },
+	{ label: "Replicas", key: "replicas", width: "w-20", align: "right" },
+	{ label: "Last seen", key: "lastSeen", width: "w-24", align: "right" },
 ]
 
 const columns = (h: H, showLimits: boolean, sort: Sort<SortKey> | undefined): ReadonlyArray<Html> =>
@@ -60,11 +61,11 @@ export const railwayTableLoading = (h: H): Html =>
 		{ ariaLabel: "Railway services" },
 		columns(h, false, undefined),
 		skeletonRows(h, 5, () => [
-			h.div([h.Class("w-0 min-w-[240px] flex-1")], [skeleton(h, "h-4 w-36")]),
-			skeleton(h, "ml-auto h-3 w-[150px]"),
-			skeleton(h, "ml-auto h-3 w-[140px]"),
-			skeleton(h, "ml-auto h-3 w-[80px]"),
-			skeleton(h, "h-3 w-[100px]"),
+			h.div([h.Class("w-0 min-w-60 flex-1")], [skeleton(h, "h-4 w-36")]),
+			skeleton(h, "ml-auto h-3 w-36"),
+			skeleton(h, "ml-auto h-3 w-36"),
+			skeleton(h, "ml-auto h-3 w-20"),
+			skeleton(h, "h-3 w-24"),
 		]),
 	)
 
@@ -82,7 +83,10 @@ const syncNote = (h: H, sync: RailwaySync, clock: Clock): Html => {
 				[
 					"paused",
 					...(sync.lastSyncedAt !== null
-						? [" · last data ", relativeTime(h, { tooltip: "title", value: sync.lastSyncedAt, ...clock })]
+						? [
+								" · last data ",
+								relativeTime(h, { tooltip: "title", value: sync.lastSyncedAt, ...clock }),
+							]
 						: []),
 				],
 			)
@@ -118,21 +122,26 @@ const row = (h: H, view: RailwayRowView, showLimits: boolean, clock: Clock, trig
 		],
 		[
 			h.div(
-				[h.Class("w-0 min-w-[240px] flex-1")],
+				[h.Class("w-0 min-w-60 flex-1")],
 				[
-					h.div(
-						[
-							h.Class(
-								"truncate font-mono text-xs font-medium text-foreground transition-colors group-hover:text-primary",
-							),
-							h.Title(view.displayName),
-						],
+					typography(
+						h,
+						{
+							size: "xs",
+							tone: "foreground",
+							weight: "medium",
+							mono: true,
+							truncate: true,
+							as: "div",
+							className: "transition-colors group-hover:text-primary",
+							attributes: [h.Title(view.displayName)],
+						},
 						[view.displayName],
 					),
 				],
 			),
 			h.div(
-				[h.Class("w-[150px] text-right")],
+				[h.Class("w-36 text-right")],
 				[
 					avgPeak(
 						h,
@@ -142,7 +151,7 @@ const row = (h: H, view: RailwayRowView, showLimits: boolean, clock: Clock, trig
 				],
 			),
 			h.div(
-				[h.Class("w-[140px] text-right")],
+				[h.Class("w-36 text-right")],
 				[
 					avgPeak(
 						h,
@@ -154,7 +163,7 @@ const row = (h: H, view: RailwayRowView, showLimits: boolean, clock: Clock, trig
 			...(showLimits
 				? [
 						h.div(
-							[h.Class("hidden w-[160px] lg:block")],
+							[h.Class("hidden w-40 lg:block")],
 							[
 								meterRows(h, [
 									{ label: "CPU", fraction: view.cpuOfLimit },
@@ -165,17 +174,21 @@ const row = (h: H, view: RailwayRowView, showLimits: boolean, clock: Clock, trig
 					]
 				: []),
 			h.div(
-				[h.Class("w-[80px] text-right font-mono text-xs tabular-nums text-foreground/80")],
+				[h.Class("w-20 text-right font-mono text-xs tabular-nums text-foreground-soft")],
 				[String(view.replicas)],
 			),
 			h.div(
-				[h.Class("w-[100px] text-right")],
+				[h.Class("w-24 text-right")],
 				[
 					relativeTime(h, {
 						value: view.lastSeen,
 						...clock,
 						mono: true,
-						className: "cursor-default text-2xs text-muted-foreground",
+						className: typographyClass({
+							size: "2xs",
+							tone: "muted",
+							className: "cursor-default",
+						}),
 						trigger: trigger(ids.seen),
 					}),
 				],
@@ -203,11 +216,11 @@ export const railwayTable = (h: H, inputs: RailwayTableInputs): Html =>
 			h.div(
 				[
 					h.Class(
-						"flex items-center gap-2.5 border-b border-border/40 bg-muted/30 px-4 py-2 font-mono text-2xs",
+						"flex items-center gap-2.5 border-b border-border-subtle bg-surface-sunken px-4 py-2 font-mono text-2xs",
 					),
 				],
 				[
-					h.span([h.Class("font-medium text-foreground")], [group.projectName]),
+					typography(h, { tone: "foreground", weight: "medium" }, [group.projectName]),
 					h.span([h.Class("text-muted-foreground")], ["/ ", group.environmentName]),
 					h.span(
 						[h.Class("ml-auto flex min-w-0 items-center gap-1.5 text-muted-foreground")],

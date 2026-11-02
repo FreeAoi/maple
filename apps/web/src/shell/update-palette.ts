@@ -1,8 +1,8 @@
 import { Option } from "effect"
 import { AsyncData, Command, type Update } from "foldkit"
-import * as Dialog from "../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import type { Resources } from "../platform/resources"
-import { OpenGlobalChat, SaveTheme } from "./command"
+import { SaveTheme } from "./command"
 import { Message, OutMessage } from "./message"
 import type { Model } from "./model"
 import { DelayClose, ReleasePaletteServices } from "./palette/command"
@@ -76,7 +76,7 @@ export const paletteStep = (model: Model, message: PaletteModel.Message): Update
 	// A closing palette only waits for its delay; nothing else reaches it.
 	if (model.palette.isClosing && message._tag !== "ElapsedCloseDelay") return { model }
 	const next = Palette.update(model.palette, message, paletteContextOf(model))
-	const stepped: Model = { ...model, palette: next.model }
+	const stepped: Model = next.model === model.palette ? model : { ...model, palette: next.model }
 	const commands = (next.commands ?? []).map(toPalette)
 	const out = next.outMessage
 	if (out === undefined) return { model: stepped, commands }
@@ -89,15 +89,6 @@ export const paletteStep = (model: Model, message: PaletteModel.Message): Update
 			return { ...closed, outMessage: OutMessage.RequestedNavigation({ url: out.href }) }
 		case "RanAction":
 			switch (out.action) {
-				case "AskMapleAi":
-					return {
-						model: closing,
-						commands: [
-							...commands,
-							OpenGlobalChat({ isFocusVisible: true }),
-							toPalette(DelayClose()),
-						],
-					}
 				case "ToggleTheme":
 					return withCommands(toggleTheme(closed.model), closed.commands)
 				case "ShowShortcuts":

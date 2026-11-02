@@ -3,7 +3,7 @@ import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { expect as expectView, given, role, scene, text } from "foldkit/scene"
 import { describe, test } from "vitest"
-import type { SignalPresence } from "../kit/signal-presence"
+import type { SignalPresence } from "@maple/views/data/signal-presence"
 import { init, Message, type Model, update as updateWith } from "./quick-start"
 import { DEFAULT_QUICK_START_STATE, type QuickStartState } from "./quick-start-state"
 import { liveStep } from "./quick-start-view"
@@ -40,7 +40,7 @@ describe("you're live step", () => {
 		scene(
 			{ update, view },
 			given(atLive([], {})),
-			expectView(role("heading", { name: "Acme is ready for its first data." })).toExist(),
+			expectView(role("heading", { name: "Acme is ready for its first data" })).toExist(),
 			expectView(text("Connect Cloudflare")).toExist(),
 			expectView(text("Your first span, log or metric")).toExist(),
 		)
@@ -50,7 +50,7 @@ describe("you're live step", () => {
 		scene(
 			{ update, view },
 			given(atLive([], { cloudflare: true })),
-			expectView(role("heading", { name: "Acme is ready for its first data." })).toExist(),
+			expectView(role("heading", { name: "Acme is ready for its first data" })).toExist(),
 			expectView(text("Connect Cloudflare")).not.toExist(),
 			expectView(text("Connect AWS")).toExist(),
 		)
@@ -60,7 +60,7 @@ describe("you're live step", () => {
 		scene(
 			{ update, view },
 			given(atLive(["traces"], {})),
-			expectView(role("heading", { name: "Acme is live." })).toExist(),
+			expectView(role("heading", { name: "Acme is live" })).toExist(),
 			expectView(text("Your first span, log or metric")).not.toExist(),
 		)
 	})
