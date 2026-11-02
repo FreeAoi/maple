@@ -33,6 +33,7 @@ import { PrReviewFindingEmbeddings, PrReviewFindings, PrReviewMergeSteps, PrRevi
 import { fakeChatSessionsLayer } from "@maple/backend/platform/chat-sessions-fake"
 import { envPorts } from "@maple/backend/platform/env-ports"
 import { Effect, Layer, Option, Schema } from "effect"
+import { TestClock } from "effect/testing"
 import { Database } from "@maple/backend/platform/DatabaseLive"
 import { cleanupTestDbs, createTestDb, type TestDb } from "@maple/backend/platform/test-pglite"
 import {
@@ -73,6 +74,8 @@ afterEach(() => cleanupTestDbs(trackedDbs))
 const sha = Schema.decodeUnknownSync(GitCommitSha)
 const HEAD = sha("1111111111111111111111111111111111111111")
 const HEAD_2 = sha("2222222222222222222222222222222222222222")
+const HEAD_3 = sha("3333333333333333333333333333333333333333")
+const HEAD_4 = sha("4444444444444444444444444444444444444444")
 const BASE = sha("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
 const orgId = asOrgId("org_review")
@@ -134,6 +137,8 @@ const layerFor = (
 		readonly filesUnreadable?: { value: boolean }
 		/** The author's permission on the repository; `read` when absent. */
 		readonly permission?: string
+		/** Present: each request to hide earlier comments is recorded as `<number>:<keep marker>`. */
+		readonly hidden?: Array<string>
 	} = {},
 ) => {
 	// Only the one write is reached; every read dies so a test that strays says so loudly.
@@ -159,6 +164,11 @@ const layerFor = (
 		resolveReviewThread: (_installation, _repo, input) =>
 			Effect.sync(() => {
 				options.resolvedThreads?.push(`${input.threadId}:${input.reply}`)
+			}),
+		hideEarlierComments: (_installation, _repo, input) =>
+			Effect.sync(() => {
+				options.hidden?.push(`${input.number}:${input.keep}`)
+				return 0
 			}),
 		fetchChangesSince: () => Effect.succeed({ paths: ["b.ts", "c.ts"], rewritten: false }),
 		fetchPullRequestHead: unused,
@@ -1064,11 +1074,85 @@ describe("PrReviewService.submitReview", () => {
 		}).pipe(Effect.provide(layerFor(testDb, { published, comments })))
 	})
 
+	// A re-review reads only what changed, so a fix holds confidence at 8 until a pass re-reads every file.
+	it.effect("re-reads the whole diff after a fix, and a clean whole-diff pass lifts the cap", () => {
+		const testDb = createTestDb(trackedDbs)
+		const published: Array<PullRequestReviewPublication> = []
+		const begun: Array<Begun> = []
+		const bug = {
+			path: "a.ts",
+			line: 10,
+			category: "correctness" as const,
+			severity: "warn" as const,
+			title: "off by one",
+			body: "b",
+		}
+		return Effect.gen(function* () {
+			yield* seed(true)
+			const reviews = yield* PrReviewService
+			// Each review finishes a minute after the last, so "newest" is well defined.
+			const push = (headSha: GitCommitSha) =>
+				TestClock.adjust("1 minute").pipe(
+					Effect.andThen(
+						reviews.onPullRequestEvent(orgId, job({ action: "synchronize", headSha })),
+					),
+				)
+			const confidenceOf = (reviewId: PrReviewId) =>
+				reviews
+					.getReview(orgId, reviewId)
+					.pipe(Effect.map((stored) => Option.getOrThrow(stored).report?.confidenceReason))
+
+			const first = yield* reviews.onPullRequestEvent(orgId, job())
+			yield* reviews.submitReview(
+				orgId,
+				first.reviewId!,
+				new SubmitPrReviewRequest({
+					report: new PrReviewReport({ ...report([bug]), wholeDiff: true }),
+				}),
+			)
+
+			// Fixed in a pass that read only what changed: held at 8.
+			const fixed = yield* push(HEAD_2)
+			assert.notInclude(begun.at(-1)!.text, "review the whole diff")
+			yield* reviews.submitReview(
+				orgId,
+				fixed.reviewId!,
+				new SubmitPrReviewRequest({ resolved: ["F1"], report: report([]) }),
+			)
+			assert.equal(
+				yield* confidenceOf(fixed.reviewId!),
+				"Held at 8 because a fix has not been re-checked against the whole diff yet.",
+			)
+
+			// The next push re-reads every file; read clean, the cap is gone.
+			const recheck = yield* push(HEAD_3)
+			assert.include(begun.at(-1)!.text, "review the whole diff")
+			assert.notInclude(begun.at(-1)!.text, "Files changed since then")
+			yield* reviews.submitReview(
+				orgId,
+				recheck.reviewId!,
+				new SubmitPrReviewRequest({ report: new PrReviewReport({ ...report([]), wholeDiff: true }) }),
+			)
+			assert.notInclude((yield* confidenceOf(recheck.reviewId!)) ?? "", "Held at")
+
+			// After that, a push is reviewed incrementally again and nothing holds it.
+			const later = yield* push(HEAD_4)
+			assert.include(begun.at(-1)!.text, "Files changed since then")
+			yield* reviews.submitReview(
+				orgId,
+				later.reviewId!,
+				new SubmitPrReviewRequest({ report: report([]) }),
+			)
+			assert.notInclude((yield* confidenceOf(later.reviewId!)) ?? "", "Held at")
+		}).pipe(Effect.provide(layerFor(testDb, { published, begun })))
+	})
+
 	it.effect("follows findings across pushes: resolves fixed ones, never reposts open ones", () => {
 		const testDb = createTestDb(trackedDbs)
 		const published: Array<PullRequestReviewPublication> = []
 		const begun: Array<Begun> = []
 		const resolvedThreads: Array<string> = []
+		const hidden: Array<string> = []
 		const threads: ReadonlyArray<PullRequestReviewThread> = [
 			{
 				id: "T1",
@@ -1133,15 +1217,21 @@ describe("PrReviewService.submitReview", () => {
 			)
 			assert.include(publication.summaryComment.body, "### Still open from earlier reviews")
 			assert.include(publication.summaryComment.body, "~~F1 · off by one~~")
-			// Two warnings and an unobservable route: 10 − 2 − 1.
-			assert.equal(publication.title, "Confidence 7/10 · 2 issues to address")
+			// Two open correctness warnings hold it at "needs attention", and F1, fixed, counts as history.
+			assert.equal(publication.title, "Confidence 6/10 · 2 issues to address")
+			assert.include(publication.summary, "1 fix not yet re-checked against the whole diff")
 			assert.deepEqual(resolvedThreads, ["T1:Fixed in `2222222`."])
+			// Every published review folds away the summaries before it and keeps its own.
+			assert.deepEqual(
+				hidden,
+				published.map((item) => `${item.number}:${item.summaryComment.marker}`),
+			)
 			const stored = Option.getOrThrow(yield* reviews.getReview(orgId, second.reviewId!))
 			assert.deepEqual(
 				stored.report?.findings.map((f) => f.handle),
 				["F3"],
 			)
-		}).pipe(Effect.provide(layerFor(testDb, { published, begun, threads, resolvedThreads })))
+		}).pipe(Effect.provide(layerFor(testDb, { published, begun, threads, resolvedThreads, hidden })))
 	})
 
 	it.effect("drops a submission for a review that was superseded while it ran", () => {
@@ -1696,7 +1786,6 @@ describe("buildPublication", () => {
 		assert.include(comment, `(${REPO_URL}/blob/${HEAD}/src/a%20b.ts#L4-L6)`)
 		assert.include(comment, "🔴 **Confidence 4/10** · risky as written")
 		assert.include(comment, "<sub>1 critical −3 · 0/1 new units observable −1</sub>")
-		assert.include(comment, "Observability coverage: 0 of 1 changes observable")
 		assert.include(comment, "<details><summary>🔴 <b>Critical</b> · gap</summary>")
 	})
 
@@ -1748,27 +1837,29 @@ describe("buildPublication", () => {
 		assert.include(comment, "1 critical −3 · 1 note")
 	})
 
-	it("folds what was checked away, with findings or without", () => {
-		const render = (findings: PrReviewReport["findings"]) =>
-			renderSummaryComment(prReviewCommentMarker(UNKNOWN_REVIEW), {
-				report: new PrReviewReport({
-					...report(findings),
-					checked: ["OrgId is filtered (`q.ts:4`)"],
-				}),
-				partial: false,
-				headSha: HEAD,
-				repositoryUrl: REPO_URL,
-			})
+	// The comment is read on every push; evidence and inventories are one click away on the check.
+	it("keeps what was checked and the coverage table on the check run, and points the comment there", () => {
+		const input = {
+			report: new PrReviewReport({ ...report([]), checked: ["OrgId is filtered (`q.ts:4`)"] }),
+			partial: false,
+			headSha: HEAD,
+			repositoryUrl: REPO_URL,
+		}
+		const check = renderCheckSummary(input)
 		assert.include(
-			render([]),
+			check,
 			"<details><summary>What was checked</summary>\n\n- OrgId is filtered (`q.ts:4`)",
 		)
-		assert.include(
-			render([
-				{ path: "a.ts", line: 1, category: "correctness", severity: "warn", title: "t", body: "b" },
-			]),
-			"<details><summary>What was checked</summary>",
-		)
+		assert.include(check, "Observability coverage: 0 of 1 changes observable")
+		const comment = renderSummaryComment(prReviewCommentMarker(UNKNOWN_REVIEW), input)
+		assert.notInclude(comment, "What was checked</summary>")
+		assert.notInclude(comment, "Observability coverage")
+		assert.include(comment, "coverage and telemetry details are on the Maple / review check")
+		const bare = renderSummaryComment(prReviewCommentMarker(UNKNOWN_REVIEW), {
+			...input,
+			report: new PrReviewReport({ ...report([]), coverage: [] }),
+		})
+		assert.notInclude(bare, "on the Maple / review check")
 	})
 
 	it("shows the confidence and reason, held down by what the findings allow", () => {
@@ -1788,14 +1879,14 @@ describe("buildPublication", () => {
 			})
 		assert.include(
 			render([]),
-			"🟢 **Confidence 10/10** · safe to merge\nSmall change, verified end to end.\n<sub>no findings · tests covered · risk low</sub>",
+			"🟢 **Confidence 10/10** · safe to merge. Small change, verified end to end.\n<sub>no findings · tests covered · risk low</sub>",
 		)
 		const critical = render([
 			{ path: "a.ts", line: 1, category: "correctness", severity: "critical", title: "t", body: "b" },
 		])
 		assert.include(
 			critical,
-			"🔴 **Confidence 4/10** · risky as written\nHeld at 4 because a critical finding is open.",
+			"🔴 **Confidence 4/10** · risky as written. Held at 4 because a critical finding is open.",
 		)
 		assert.notInclude(critical, "verified end to end")
 		const partial = render([], true)

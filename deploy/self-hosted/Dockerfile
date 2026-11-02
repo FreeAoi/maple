@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile && bun run alchemy:build-deps
@@ -12,6 +12,7 @@ CMD ["bun", "run", "--cwd", "apps/self-hosted", "start"]
 FROM build AS web-build
 ENV VITE_API_BASE_URL=/ VITE_ELECTRIC_SYNC_URL=/ VITE_INGEST_URL=/ingest VITE_MAPLE_AUTH_MODE=self_hosted
 ENV VITE_MAPLE_CAPTURE=off VITE_MAPLE_REPLAY=off
+ENV VITE_STATUS_PAGES_DISABLED=1
 RUN bun run --cwd apps/web build
 
 FROM nginx:1.28-alpine AS web

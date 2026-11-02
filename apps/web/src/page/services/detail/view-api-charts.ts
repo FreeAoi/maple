@@ -2,15 +2,15 @@ import { parseBucketMs } from "@maple/ui/lib/format"
 import { Option } from "effect"
 import { Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as Chart from "../../../charts/chart"
-import { bucketTooltipBody } from "../../../charts/bucket-tooltip"
-import { ChartSpec } from "../../../charts/chart-spec"
-import * as FixedMetricChart from "../../../charts/fixed-metric-chart"
-import { LATENCY_SERIES } from "../../../charts/fixed-metric-series"
-import { plotFrame } from "../../../charts/plot-frame"
-import * as Sparkline from "../../../charts/sparkline"
-import { stackedBreakdown } from "../../../charts/stacked-breakdown-chart"
-import { resolveColor, type ThemeColors } from "../../../charts/theme-colors"
+import * as Chart from "@maple/views/charts/chart"
+import { bucketTooltipBody } from "@maple/views/charts/bucket-tooltip"
+import { ChartSpec } from "@maple/views/charts/chart-spec"
+import * as FixedMetricChart from "@maple/views/charts/fixed-metric-chart"
+import { LATENCY_SERIES } from "@maple/views/charts/fixed-metric-series"
+import { plotFrame } from "@maple/views/charts/plot-frame"
+import * as Sparkline from "@maple/views/charts/sparkline"
+import { stackedBreakdown } from "@maple/views/charts/stacked-breakdown-chart"
+import { resolveColor, type ThemeColors } from "@maple/views/charts/theme-colors"
 import { bucketAxis, responseRows, type StatusClass, type WindowMs } from "./derive-api"
 import type { ApiBucket } from "./model-tabs"
 
@@ -18,7 +18,7 @@ import type { ApiBucket } from "./model-tabs"
 
 /** The status classes' colours; 2xx stays calm, 4xx is the warning hue, 5xx the error one. */
 export const STATUS_COLORS = {
-	"2xx": "var(--chart-3)",
+	"2xx": "var(--severity-info)",
 	"4xx": "var(--warning)",
 	"5xx": "var(--severity-error)",
 	unknown: "var(--muted-foreground)",
@@ -27,7 +27,7 @@ export const STATUS_COLORS = {
 const STACK_ORDER = ["5xx", "4xx", "2xx", "unknown"] as const
 
 export const SPARK_TOKENS = {
-	requests: "--chart-p50",
+	requests: "--chart-throughput",
 	client: "--warning",
 	server: "--severity-error",
 	latency: "--chart-p95",
@@ -39,7 +39,7 @@ export const SPARK_TOKENS = {
 /** Every token the API tab paints on canvas; resolved once by the page's theme Mount. */
 export const API_THEME_TOKENS = [
 	...Object.values(SPARK_TOKENS),
-	"--chart-3",
+	"--severity-info",
 	"--muted-foreground",
 	...LATENCY_SERIES.map((series) => series.token),
 	"--border",

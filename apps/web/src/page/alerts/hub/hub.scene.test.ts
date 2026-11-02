@@ -12,8 +12,8 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
-import * as Menu from "../../../ui/menu"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import * as Menu from "@maple/views/ui/menu"
 import { PageOutMessage, type PageContext } from "../../contract"
 import { destinationRow, incidentRow, NOW, ORG, ruleId, ruleRow, stateRow } from "../shared/test-rows"
 import { Message } from "./message"
@@ -182,7 +182,7 @@ describe("alerts hub", () => {
 		scene(
 			{ update: pageUpdate, view },
 			given(failed.model),
-			expectView(text("Failed to update the rule. Try again.")).toExist(),
+			expectView(text("Couldn't update the rule. Try again.")).toExist(),
 		)
 	})
 

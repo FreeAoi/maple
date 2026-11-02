@@ -2,10 +2,10 @@ import type { V2Source } from "@maple/domain/http/v2"
 import type { PushSourcePlatform } from "@maple/domain/primitives"
 import { Option, Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Keyed from "../../../data/keyed"
+import * as Keyed from "@maple/views/data/keyed"
 import type { Resources } from "../../../platform/resources"
 import { type AppRoute, AppRoute as Routes, hrefOf } from "../../../route"
-import * as CopyButton from "../../../ui/copy-button"
+import * as CopyButton from "@maple/views/ui/copy-button"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import { sourceRetrieveKey, sourcesListKey } from "../kit/data"
 import { defaultSourceName } from "../kit/platforms"
@@ -67,13 +67,16 @@ const integrationOf = (route: NewRoute): DataIntegration | null => {
 
 /** The integrations module's step, lifted: its Commands answer as `GotIntegrationsMessage`. */
 const liftIntegrations = (model: Model, step: PageReturn<IntegrationModel, IntegrationMessage>): Return => {
+	const stage =
+		model.integration === "github" && step.model.githubCard.selection !== null ? "connect" : model.stage
 	const lifted: Return = {
-		model: { ...model, integrations: step.model },
+		model: { ...model, integrations: step.model, stage },
 		commands: Command.mapMessages(step.commands ?? [], (message) =>
 			Message.GotIntegrationsMessage({ message }),
 		),
 	}
-	return step.outMessage === undefined ? lifted : { ...lifted, outMessage: step.outMessage }
+	const result = step.outMessage === undefined ? lifted : { ...lifted, outMessage: step.outMessage }
+	return stage !== model.stage ? scrolledToTop(result) : result
 }
 
 /** Both steps' Commands; the second's outMessage wins, else the first's (a connect toast). */
@@ -294,7 +297,7 @@ export const updateFlow = (model: Model, message: Message, context: PageContext)
 					model: { ...model, isSaving: false },
 					outMessage: PageOutMessage.RequestedToast({
 						type: "error",
-						title: "Failed to create source",
+						title: "Couldn't create source",
 						description: failure.message,
 					}),
 				}),

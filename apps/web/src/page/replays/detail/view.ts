@@ -1,24 +1,23 @@
 import { shortId } from "@maple/ui/lib/ids"
 import { initialsFrom } from "@maple/ui/lib/initials"
-import { gradientFor, hostFromUrl } from "@maple/ui/lib/replay"
+import { hostFromUrl } from "@maple/ui/lib/replay"
 import { formatSessionDuration } from "@maple/ui/lib/replay-format"
-import { cn } from "@maple/ui/lib/utils"
 import { parseChTimestampMs } from "../../../components/replays/replay-timeline"
 import { Struct } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import { createLazy, type Html, type HtmlBuilder } from "foldkit/html"
 import type { BreadcrumbEntry } from "../../../shell"
-import { linkButton } from "../../../ui/button"
-import { badge } from "../../../ui/display"
-import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../ui/empty"
-import { errorState } from "../../../ui/error-state"
-import { eyebrow } from "../../../ui/eyebrow"
-import { icon } from "../../../ui/icon"
-import { inlineCode } from "../../../ui/inline-code"
-import { skeleton } from "../../../ui/skeleton"
-import { statusDot } from "../../../ui/status-dot"
+import { badge } from "@maple/views/ui/display"
+import { errorState } from "@maple/views/ui/error-state"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { heading } from "@maple/views/ui/heading"
+import { icon } from "@maple/views/ui/icon"
+import { inlineCode, inlineCodeClassName } from "@maple/views/ui/inline-code"
+import { skeleton, skeletonBlock } from "@maple/views/ui/skeleton"
+import { statusDot } from "@maple/views/ui/status-dot"
 import type { PageViewInputs } from "../../contract"
 import { dashboardPage } from "../../kit/dashboard-page"
+import { resourceNotFound } from "../../kit/resource-not-found"
 import { relativeTime } from "../../kit/relative-time"
 import { stableSlice } from "../../kit/stable-slice"
 import { errorCountPill, livePill } from "../kit/sessions-parts"
@@ -30,6 +29,9 @@ import { replaySurface, replayTransport } from "./view-player"
 import { sessionRail } from "./view-rail"
 import { copy } from "./view-session"
 import { replayTimeline } from "./view-timeline"
+import { warmAvatarTone } from "@maple/views/ui/avatar-tone"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // The replay detail page on `ResultPage`, with the replay studio.
 
@@ -71,8 +73,7 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 	const label = labelOf(session)
 	const startedEpoch = parseChTimestampMs(session.startTime)
 	const sessionActive = isActive(model, session)
-	return h.div(
-		[h.Class("flex flex-wrap items-center gap-x-4 gap-y-2")],
+	return hstack(h, { wrap: true, className: "gap-x-4 gap-y-2" },
 		[
 			h.div(
 				[h.Class("flex min-w-0 flex-1 items-center gap-2.5")],
@@ -80,13 +81,19 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 					h.div(
 						[
 							h.Class(
-								`grid size-8 shrink-0 place-items-center rounded-full bg-gradient-to-br ${gradientFor(model.sessionId)} text-xs font-semibold text-white shadow-sm`,
+								`grid size-8 shrink-0 place-items-center rounded-full ${warmAvatarTone(model.sessionId)} text-xs font-semibold`,
 							),
 						],
 						[initialsFrom(label)],
 					),
-					h.h2(
-						[h.Class("min-w-0 truncate text-sm font-medium leading-tight"), h.Title(label)],
+					heading(
+						h,
+						{
+							level: 2,
+							variant: "subsection",
+							className: "min-w-0 truncate leading-tight",
+							attributes: [h.Title(label)],
+						},
 						[label],
 					),
 					sessionActive
@@ -101,11 +108,11 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 							h.Target("_blank"),
 							h.Rel("noreferrer"),
 							h.Class(
-								"hidden min-w-0 max-w-64 items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground sm:inline-flex",
+								"hidden min-w-0 max-w-64 items-center gap-1.5 font-mono text-xs text-muted-foreground hover:text-foreground active:text-foreground sm:inline-flex",
 							),
 						],
 						[
-							icon(h, "GlobeIcon", { className: "size-3 shrink-0 opacity-70" }),
+							icon(h, "GlobeIcon", { className: "size-3 shrink-0" }),
 							h.span([h.Class("truncate")], [hostFromUrl(session.urlInitial)]),
 						],
 					),
@@ -118,7 +125,7 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 										),
 									],
 									[
-										icon(h, "ClockIcon", { className: "size-3 shrink-0 opacity-70" }),
+										icon(h, "ClockIcon", { className: "size-3 shrink-0" }),
 										relativeTime(h, {
 											value: startedEpoch,
 											nowMs: model.nowMs,
@@ -132,8 +139,12 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 						: []),
 					h.span(
 						[
+							// The id chip holds its copy button, so it borrows the chip's look on a span.
 							h.Class(
-								"hidden shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 font-mono text-2xs text-muted-foreground xl:inline-flex",
+								inlineCodeClassName(
+									"chip",
+									"hidden shrink-0 items-center gap-1 text-2xs text-muted-foreground xl:inline-flex",
+								),
 							),
 						],
 						[
@@ -146,11 +157,9 @@ const identityBar = (h: H, model: IdentityView, session: ReplayDetail, timeZone:
 			h.div(
 				[h.Class("flex shrink-0 items-center gap-3")],
 				[
-					h.span(
-						[h.Class("flex items-baseline gap-1.5")],
+					hstack(h, { gap: "1.5", align: "baseline", as: "span" },
 						[
-							h.span(
-								[h.Class("font-mono text-sm font-semibold tabular-nums")],
+							typography(h, { size: "sm", weight: "semibold", mono: true, numeric: true },
 								[formatSessionDuration(durationOf(session))],
 							),
 							eyebrow(h, {}, ["duration"]),
@@ -201,8 +210,7 @@ const detailSkeleton = (h: H): Html =>
 			h.div(
 				[h.Class("flex min-w-0 flex-1 flex-col gap-3.5")],
 				[
-					h.div(
-						[h.Class("flex items-center gap-3")],
+					hstack(h, { gap: "3" },
 						[
 							skeleton(h, "size-8 shrink-0 rounded-full"),
 							skeleton(h, "h-4 w-44"),
@@ -212,7 +220,7 @@ const detailSkeleton = (h: H): Html =>
 					),
 					skeleton(h, "aspect-video w-full rounded-t-md"),
 					skeleton(h, "-mt-3.5 h-14 w-full rounded-b-md"),
-					skeleton(h, "h-48 w-full rounded-md"),
+					skeletonBlock(h, { height: "48" }),
 				],
 			),
 			skeleton(h, "h-72 w-full rounded-md lg:h-auto lg:w-84 lg:shrink-0"),
@@ -220,22 +228,15 @@ const detailSkeleton = (h: H): Html =>
 	)
 
 const notFound = (h: H, sessionId: string): Html =>
-	empty(
-		h,
-		[
-			emptyHeader(h, [
-				emptyMedia(h, { variant: "icon" }, [icon(h, "CircleWarningIcon", { size: 18 })]),
-				emptyTitle(h, ["Session not found"]),
-				emptyDescription(h, [
-					"No metadata for session ",
-					inlineCode(h, {}, [sessionId]),
-					". It may have expired or not been ingested yet.",
-				]),
-			]),
-			linkButton(h, { variant: "outline", size: "sm", href: "/replays" }, ["Back to replays"]),
+	resourceNotFound(h, {
+		title: "Session not found",
+		description: [
+			"No metadata for session ",
+			inlineCode(h, {}, [sessionId]),
+			". It may have expired or not been ingested yet.",
 		],
-		cn("md:py-12"),
-	)
+		back: { href: "/replays", label: "Back to replays" },
+	})
 
 export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, inputs, h) => {
 	const session = detailOf(model)
@@ -243,7 +244,11 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	return dashboardPage(h, { fill: isLoaded }, [
 		AsyncData.matchData(model.detail.data, {
 			onEmpty: () => detailSkeleton(h),
-			onFailure: (failure) => errorState(h, { failure, title: "Couldn't load session replay" }),
+			onFailure: (failure) => errorState(h, {
+					failure,
+					title: "Couldn't load session replay",
+					onRetry: Message.ClickedRetryDetail(),
+				}),
 			onData: (row) =>
 				row === null ? notFound(h, model.sessionId) : studio(h, model, row, inputs.context.timeZone),
 		}),

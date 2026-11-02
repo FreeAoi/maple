@@ -2,7 +2,7 @@ import type { AlertDestinationId, AlertIncidentId, AlertRuleId } from "@maple/do
 import type { V2AlertDestinationUpdateParams } from "@maple/domain/http/v2"
 import { v2DeliveryToDocument } from "@maple/web-data/alerts/form-utils"
 import { Effect } from "effect"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { SessionTenant } from "../../../data/session-tenant"
 import { MapleApiV2Client } from "../../../platform/api-clients"
 
@@ -47,11 +47,11 @@ export const updateDestination = (
 				return yield* client.alertDestinations.update({ params, payload })
 			case "webhook":
 				return yield* client.alertDestinations.update({ params, payload })
-			case "hazel-oauth":
-				return yield* client.alertDestinations.update({ params, payload })
 			case "discord":
 				return yield* client.alertDestinations.update({ params, payload })
 			case "telegram":
+				return yield* client.alertDestinations.update({ params, payload })
+			case "google-chat":
 				return yield* client.alertDestinations.update({ params, payload })
 			case "email":
 				return yield* client.alertDestinations.update({ params, payload })

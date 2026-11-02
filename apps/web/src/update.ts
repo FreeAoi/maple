@@ -1,5 +1,5 @@
 import { OrgId as OrgIdSchema, type OrgId } from "@maple/domain"
-import { isClerkAuthEnabled } from "./lib/services/common/auth-mode"
+import { isClerkAuthEnabled, selfHostedStatusPagesEnabled } from "./lib/services/common/auth-mode"
 import { validateInternalRedirect } from "@maple/ui/lib/sanitizers"
 import { Option, Schema, Struct } from "effect"
 import { AsyncData, Command, Update } from "foldkit"
@@ -50,7 +50,9 @@ import {
 	parkPages,
 	isBarePageRoute,
 	PageMessage,
+	pageHasSource,
 	pageIdentity,
+	pageSource,
 	preloadRoute,
 	type PageTransition,
 	updatePage,
@@ -59,13 +61,23 @@ import * as SignIn from "./page/sign-in"
 import type { Resources } from "./platform/resources"
 import { ClerkSnapshot } from "./platform/clerk"
 import { identityOf, isSameIdentity } from "./platform/session-identity"
-import { AppRoute, hrefOf, isPublicRoute, type Redirect, routeRedirect, urlToAppRoute } from "./route"
+import {
+	AppRoute,
+	flaggedRouteRedirect,
+	hrefOf,
+	isPublicRoute,
+	type Redirect,
+	routeRedirect,
+	urlToAppRoute,
+} from "./route"
 import { completeRangeOf, isWithin, withSessionRange } from "./route/session-time-range"
 import * as Shell from "./shell"
-import * as ChatSheet from "./page/chat/sheet"
 import * as OrgSwitcher from "./shell/clerk-org-switcher"
 import { presenceOf } from "./shell/view-nav"
-import * as Toast from "./ui/toast"
+import { isResolved } from "./shell/source-link"
+import * as Toast from "@maple/views/ui/toast"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 type UpdateReturn = Update.Return<Model, Message, Resources>
 type Step = Update.Step<Model, Message, Resources>
@@ -194,8 +206,22 @@ const publicContextOf = (model: Model, maybeOrgId: Option.Option<OrgId>): Option
 			)
 		: Option.none()
 
+/**
+ * The last answer for the last Model: the lifted page Subscriptions read the context once each
+ * per Model, and a Model never changes in place.
+ */
+const lastByModel = <A>(compute: (model: Model) => A): ((model: Model) => A) => {
+	let last: { readonly model: Model; readonly value: A } | null = null
+	return (model) => {
+		if (last !== null && last.model === model) return last.value
+		const value = compute(model)
+		last = { model, value }
+		return value
+	}
+}
+
 /** What every page reads from the root: a signed-in org on a shell route, or a bare public page. */
-export const pageContextOf = (model: Model): Option.Option<PageContext> =>
+export const pageContextOf: (model: Model) => Option.Option<PageContext> = lastByModel((model) =>
 	Session.match(model.session, {
 		Resolving: () => Option.none(),
 		SignedOut: () => publicContextOf(model, Option.none()),
@@ -216,29 +242,46 @@ export const pageContextOf = (model: Model): Option.Option<PageContext> =>
 							},
 						})),
 					),
-	})
+	}),
+)
 
-/** A page's request the shell answers: the namespace pin, or its own sidebar trigger (`/chat`). */
+/** A page's request the shell answers: the namespace pin or its infra surfaces. */
 const shellRequestOf = (out: PageOutMessage): Option.Option<Shell.Message> =>
 	out._tag === "RequestedNamespacePin"
 		? Option.some(Shell.Message.ClickedNamespace({ maybeNamespace: out.maybeNamespace }))
-		: out._tag === "RequestedSidebarToggle"
-			? Option.some(Shell.Message.ClickedPageSidebarTrigger())
-			: out._tag === "RequestedInfraSurfaces"
-				? Option.some(Shell.Message.RequestedInfraSurfaces())
-				: Option.none()
+		: out._tag === "RequestedInfraSurfaces"
+			? Option.some(Shell.Message.RequestedInfraSurfaces())
+			: Option.none()
+
+/**
+ * Entering a page that links to its source reads the org's sources once; a source the last read
+ * does not know (just connected) re-reads them.
+ */
+const requestPageSources =
+	(previousIdentity: string): Step =>
+	(model) => {
+		const slot = model.page
+		if (slot === null || !pageHasSource(slot) || pageIdentity(slot) === previousIdentity) return { model }
+		const ref = pageSource(slot)
+		const isRefresh = Option.match(AsyncData.getData(model.shell.sources), {
+			onNone: () => false,
+			onSome: (sources) => ref !== null && !isResolved(ref, sources),
+		})
+		return foldShell(model, Shell.Message.RequestedSources({ isRefresh }))
+	}
 
 /** Writes the page slot, lifts its Commands and follows its navigation and shell requests. */
 const applyPage =
 	(transition: PageTransition): Step =>
 	(model) =>
-		Option.match(Option.flatMap(transition.outMessage, shellRequestOf), {
-			onNone: () => writePage(transition)(model),
-			onSome: (shellMessage) =>
-				Update.combine([writePage(transition), (next: Model) => foldShell(next, shellMessage)])(
-					model,
-				),
-		})
+		Update.combine([
+			Option.match(Option.flatMap(transition.outMessage, shellRequestOf), {
+				onNone: () => writePage(transition),
+				onSome: (shellMessage) =>
+					Update.combine([writePage(transition), (next: Model) => foldShell(next, shellMessage)]),
+			}),
+			requestPageSources(pageIdentity(model.page)),
+		])(model)
 
 const isPageMessage = Schema.is(PageMessage)
 
@@ -328,7 +371,6 @@ const actOnPageOut = (model: Model, outMessage: Option.Option<PageOutMessage>) =
 					: []),
 			],
 			RequestedNamespacePin: () => [],
-			RequestedSidebarToggle: () => [],
 			RequestedInfraSurfaces: () => [],
 			RequestedToast: () => [],
 			RequestedReconnectOrgCollections: () => [ReconnectOrgCollections()],
@@ -344,6 +386,14 @@ const actOnPageOut = (model: Model, outMessage: Option.Option<PageOutMessage>) =
 const writePage =
 	(transition: PageTransition): Step =>
 	(model) => {
+		// The page kept its slot and asked for nothing: same Model, so the frame is skipped.
+		if (
+			transition.slot === model.page &&
+			model.preload.holder === pageIdentity(transition.slot) &&
+			transition.commands.length === 0 &&
+			Option.isNone(transition.outMessage)
+		)
+			return { model }
 		const followed = actOnPageOut(model, transition.outMessage)
 		const held = Preload.held(
 			followed.model.preload,
@@ -371,54 +421,17 @@ const writePage =
 		}
 	}
 
-/** The chat sheet's step: its Commands lifted, its toast shown like a page's. */
-const chatSheetOrgOf = (model: Model): string | null =>
-	Session.match(model.session, {
-		Resolving: () => null,
-		SignedOut: () => null,
-		SignedIn: ({ maybeOrgId }) => Option.getOrNull(maybeOrgId),
-	})
-
-/** An org switch or sign-out under the open sheet moves it to the new org, or closes it. */
-const followChatSheetOrg: Step = (model) => {
-	const step = ChatSheet.sessionChanged(model.chatSheet, chatSheetOrgOf(model))
-	return step.model === model.chatSheet
-		? { model }
-		: {
-				model: modifyFields(model, { chatSheet: () => step.model }),
-				commands: Command.mapMessages(step.commands ?? [], (child) =>
-					Message.GotChatSheetMessage({ message: child }),
-				),
-			}
-}
-
-const foldChatSheet = (model: Model, message: ChatSheet.Message) => {
-	const step = ChatSheet.update(model.chatSheet, message, chatSheetOrgOf(model))
-	const next = modifyFields(model, { chatSheet: () => step.model })
-	const commands = Command.mapMessages(step.commands ?? [], (child) =>
-		Message.GotChatSheetMessage({ message: child }),
-	)
-	if (step.outMessage === undefined) return { model: next, commands }
-	const toasted = showPageToast(
-		next,
-		PageOutMessage.RequestedToast({
-			type: step.outMessage.type,
-			title: step.outMessage.title,
-			description: "",
-			timeoutMs: null,
-			action: null,
-		}),
-	)
-	return { model: toasted.model, commands: [...commands, ...toasted.commands] }
-}
-
 /** Route entry or leave: the route's page is built, kept (same key) or dropped. */
 /** `ClerkReverseRedirects` renders a splash or redirects before the route mounts: no page yet. */
 const isPlanGated = (model: Model) => Option.exists(planGateOf(model), isRouteHeld)
 
 const loadPage: Step = (model) =>
 	Option.match(
-		Option.filter(pageContextOf(model), () => !isPlanGated(model)),
+		// A flag-gated route is on its way home: no page, so nothing it would fetch.
+		Option.filter(
+			pageContextOf(model),
+			() => !isPlanGated(model) && Option.isNone(flagRedirectOf(model)),
+		),
 		{
 			// Leaving every page (signed out) releases what the last one held, like any page change.
 			// Parked pages go too: none may come back in the next session or org.
@@ -536,7 +549,7 @@ const onboardingOut =
 							model,
 							PageOutMessage.RequestedToast({
 								type: "error",
-								title: "Failed to update your plan",
+								title: "Couldn't update your plan",
 								description: message,
 							}),
 						),
@@ -689,7 +702,7 @@ const clerkOrganizationOf = (model: Model) =>
 	Option.flatMap(Option.fromNullishOr(model.clerkSnapshot), (snapshot) => snapshot.maybeOrganization)
 
 /** `ClerkReverseRedirects`' plan and region gates, for a signed-in Clerk org off the auth pages. */
-export const planGateOf = (model: Model): Option.Option<Gate> =>
+export const planGateOf: (model: Model) => Option.Option<Gate> = lastByModel((model) =>
 	Session.match(model.session, {
 		Resolving: () => Option.none<Gate>(),
 		SignedOut: () => Option.none<Gate>(),
@@ -704,10 +717,19 @@ export const planGateOf = (model: Model): Option.Option<Gate> =>
 					}),
 				),
 			),
-	})
+	}),
+)
 
 const isWrongRegion = (model: Model): boolean =>
 	Option.exists(planGateOf(model), (gate) => gate.wrongRegion !== null)
+
+/** Keep routes outside the organization's rollout or deployment capabilities unmounted. */
+const flagRedirectOf = (model: Model): Option.Option<Redirect> =>
+	isClerkAuthEnabled
+		? Option.flatMap(clerkOrganizationOf(model), (organization) =>
+				flaggedRouteRedirect(model.route, organization.flags),
+			)
+		: flaggedRouteRedirect(model.route, { statusPages: selfHostedStatusPagesEnabled })
 
 const followRedirects: Step = (model) => {
 	const maybeRedirect = Session.match(model.session, {
@@ -716,6 +738,7 @@ const followRedirects: Step = (model) => {
 		SignedIn: () =>
 			Option.orElse(routeRedirect(model.route), () => sessionRedirect(model)).pipe(
 				Option.orElse(() => Option.flatMap(planGateOf(model), (gate) => gate.redirect)),
+				Option.orElse(() => flagRedirectOf(model)),
 			),
 	})
 	return Option.match(maybeRedirect, {
@@ -733,12 +756,13 @@ const loadRoute: Step = (model) =>
 		Resolving: () => ({ model }),
 		SignedOut: () => ({ model }),
 		SignedIn: ({ maybeOrgId }) =>
-			// `WrongRegionScreen` replaces the whole frame: no shell, no chat sheet, nothing it reads.
-			Option.isNone(maybeOrgId) || isPublicRoute(model.route) || isWrongRegion(model)
+			// `WrongRegionScreen` replaces the whole frame: no shell, nothing it reads.
+			Option.isNone(maybeOrgId) ||
+			isPublicRoute(model.route) ||
+			isWrongRegion(model) ||
+			!rendersShell(model.route)
 				? { model }
-				: rendersShell(model.route)
-					? foldShellStep(Shell.enter(maybeOrgId.value))(model)
-					: foldShellStep(Shell.enterBare)(model),
+				: foldShellStep(Shell.enter(maybeOrgId.value))(model),
 	})
 
 /**
@@ -829,7 +853,7 @@ const syncSessionTimeRange: Step = (model) =>
 				Option.filter(
 					completeRangeOf(model.route),
 					(value) =>
-						JSON.stringify(value) !== JSON.stringify(state.value) &&
+						encodeJson(value) !== encodeJson(state.value) &&
 						isWithin(value, Number.POSITIVE_INFINITY, state.nowMs, model.timeZone),
 				),
 				{
@@ -876,7 +900,6 @@ export const settle: Step = Update.combine([
 	loadPage,
 	loadOnboarding,
 	syncSessionTimeRange,
-	followChatSheetOrg,
 ])
 
 // SESSION
@@ -1048,7 +1071,6 @@ const foldMessage = (model: Model, message: Message) =>
 		CompletedReconnectOrgCollections: () => ({ model }),
 		CompletedRestoreDashboardWidgets: () => ({ model }),
 		GotPageMessage: ({ message }) => toPage(model, message),
-		GotChatSheetMessage: ({ message }) => foldChatSheet(model, message),
 		GotOnboardingMessage: ({ message }) => updateOnboarding(model, message),
 		IntendedLink: ({ href, isImmediate }) =>
 			Option.match(Preload.intended(model.preload, href), {

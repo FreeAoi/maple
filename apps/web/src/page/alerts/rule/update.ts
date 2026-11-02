@@ -4,13 +4,13 @@ import type { V2InvestigationCreateParams } from "@maple/domain/http/v2"
 import { formatSignalValue, signalLabels } from "@maple/web-data/alerts/form-utils"
 import { Option, Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Chart from "../../../charts/chart"
-import { LoadChartRuntime } from "../../../charts/chart-runtime"
-import * as Keyed from "../../../data/keyed"
-import { requestKey } from "../../../data/request-key"
+import * as Chart from "@maple/views/charts/chart"
+import { LoadChartRuntime } from "@maple/views/charts/chart-runtime"
+import * as Keyed from "@maple/views/data/keyed"
+import { requestKey } from "@maple/views/data/request-key"
 import type { Resources } from "../../../platform/resources"
 import { AppRoute, hrefOf } from "../../../route"
-import * as Menu from "../../../ui/menu"
+import * as Menu from "@maple/views/ui/menu"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import { routeWindowStep, snapModeOf } from "../../kit/route-window"
 import * as TimeRangePicker from "../../kit/time-range-picker"
@@ -368,7 +368,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				onSuccess: () => ({ model: { ...model, isTogglingRule: false } }),
 				onFailure: (failure) => ({
 					model: { ...model, isTogglingRule: false },
-					outMessage: errorToast("Failed to update rule", failure.message),
+					outMessage: errorToast("Couldn't update rule", failure.message),
 				}),
 			}),
 		ClickedOpenInvestigation: ({ incidentId }) => openInvestigation(model, incidentId),
@@ -383,7 +383,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				}),
 				onFailure: (failure) => ({
 					model: { ...model, isOpeningInvestigation: false },
-					outMessage: errorToast("Failed to open investigation", failure.message),
+					outMessage: errorToast("Couldn't open investigation", failure.message),
 				}),
 			}),
 		GotRowMenuMessage: ({ menuId, message: child }) => updateMenu(model, menuId, child),

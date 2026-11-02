@@ -1,8 +1,8 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon, type IconName } from "../../ui/icon"
-import { spinner } from "../../ui/spinner"
+import { eyebrow, eyebrowVariants } from "@maple/views/ui/eyebrow"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import { spinner } from "@maple/views/ui/spinner"
 
 // The parts every source's connect flow is built from: the step card, its status row, the rail
 // beside it and the Go live checklist. `/sources/new` frames them; each source fills them in.
@@ -26,7 +26,7 @@ export type StepCardOptions = Readonly<{
 /** The step's one card: a titled body. */
 export const stepCard = <M>(h: HtmlBuilder<M>, options: StepCardOptions, children: Children): Html =>
 	h.section(
-		[h.Class("flex flex-col gap-5 rounded-lg border border-border bg-card p-5")],
+		[h.Class("flex flex-col gap-5 rounded-md border border-border bg-card p-5")],
 		[
 			h.header(
 				[h.Class("flex flex-wrap items-center justify-between gap-2")],
@@ -81,7 +81,7 @@ export const choiceTiles = <M>(h: HtmlBuilder<M>, tiles: ReadonlyArray<ChoiceTil
 									h.span(
 										[
 											h.Class(
-												"font-mono text-[10px] uppercase tracking-wide text-primary",
+												cn(eyebrowVariants({ variant: "mono" }), "text-primary"),
 											),
 										],
 										[tile.tag],
@@ -93,14 +93,14 @@ export const choiceTiles = <M>(h: HtmlBuilder<M>, tiles: ReadonlyArray<ChoiceTil
 			]
 			const className = cn(
 				"flex flex-col gap-1.5 rounded-md border p-3.5 text-left",
-				tile.isSelected === true ? "border-primary bg-primary/5" : "border-border",
+				tile.isSelected === true ? "border-primary bg-primary-a1" : "border-border",
 			)
 			return tile.onSelect === undefined
 				? h.div([h.Class(className)], body)
 				: h.button(
 						[
 							h.Type("button"),
-							h.Class(cn(className, "hover:border-foreground/30")),
+							h.Class(cn(className, "hover:border-border-strong active:border-border-strong")),
 							h.AriaPressed(tile.isSelected === true ? "true" : "false"),
 							h.OnClick(tile.onSelect),
 						],
@@ -113,7 +113,7 @@ export type StatusTone = "idle" | "working" | "ok" | "error"
 
 const STATUS_ICON = {
 	idle: { name: "ClockIcon", className: "text-muted-foreground" },
-	ok: { name: "CircleCheckIcon", className: "text-success" },
+	ok: { name: "CircleCheckIcon", className: "text-severity-info" },
 	error: { name: "CircleWarningIcon", className: "text-severity-error" },
 } satisfies Record<Exclude<StatusTone, "working">, { name: IconName; className: string }>
 
@@ -138,8 +138,8 @@ export const statusRow = <M>(h: HtmlBuilder<M>, options: StatusRowOptions, child
 		[
 			h.Class(
 				cn(
-					"flex items-start gap-3 rounded-lg border bg-card px-4 py-3",
-					options.tone === "error" ? "border-severity-error/40" : "border-border",
+					"flex items-start gap-3 rounded-md border bg-card p-4",
+					options.tone === "error" ? "border-severity-error-a4" : "border-border",
 				),
 			),
 			h.Role("status"),
@@ -166,7 +166,7 @@ export const foundChips = <M>(
 		[h.Class("flex flex-wrap gap-1.5")],
 		chips.map((chip) =>
 			h.li(
-				[h.Class("rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]")],
+				[h.Class("rounded-sm border border-border-subtle bg-surface-sunken px-1.5 py-0.5 font-mono text-2xs")],
 				[
 					chip.label,
 					...(chip.detail === undefined
@@ -196,7 +196,7 @@ export const flowRail = <M>(h: HtmlBuilder<M>, options: RailOptions): Html =>
 		[h.Class("flex flex-col gap-3")],
 		[
 			h.div(
-				[h.Class("flex flex-col gap-4 rounded-lg border border-border bg-card p-4")],
+				[h.Class("flex flex-col gap-4 rounded-md border border-border bg-card p-4")],
 				[
 					eyebrow(h, { variant: "label" }, [options.eyebrow]),
 					h.ul(
@@ -232,7 +232,7 @@ export const flowRail = <M>(h: HtmlBuilder<M>, options: RailOptions): Html =>
 									[
 										icon(h, "ShieldCheckIcon", {
 											size: 14,
-											className: "mt-px shrink-0 text-success",
+											className: "mt-px shrink-0 text-severity-info",
 										}),
 										options.trust,
 									],
@@ -259,7 +259,7 @@ export const flowRail = <M>(h: HtmlBuilder<M>, options: RailOptions): Html =>
 													h.Href(options.docs.href),
 													h.Target("_blank"),
 													h.Rel("noreferrer"),
-													h.Class("text-foreground hover:underline"),
+													h.Class("text-foreground hover:underline active:underline"),
 												],
 												[options.docs.label],
 											),
@@ -273,9 +273,9 @@ export const flowRail = <M>(h: HtmlBuilder<M>, options: RailOptions): Html =>
 /** On Go live: the source exists, so leaving the page is safe. */
 export const savedBanner = <M>(h: HtmlBuilder<M>, text: string, meta?: string): Html =>
 	h.div(
-		[h.Class("flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm")],
+		[h.Class("flex items-center gap-3 rounded-md border border-border bg-card p-4 text-sm")],
 		[
-			icon(h, "ShieldCheckIcon", { size: 14, className: "shrink-0 text-success" }),
+			icon(h, "ShieldCheckIcon", { size: 14, className: "shrink-0 text-severity-info" }),
 			h.span([h.Class("flex-1")], [text]),
 			...(meta === undefined ? [] : [h.span([h.Class("text-xs text-muted-foreground")], [meta])]),
 		],
@@ -293,7 +293,7 @@ export type CheckRow = Readonly<{
 }>
 
 const CHECK_ICON = {
-	done: { name: "CircleCheckIcon", className: "text-success" },
+	done: { name: "CircleCheckIcon", className: "text-severity-info" },
 	waiting: { name: "ClockIcon", className: "text-muted-foreground" },
 	failed: { name: "CircleWarningIcon", className: "text-severity-error" },
 } satisfies Record<Exclude<CheckState, "working">, { name: IconName; className: string }>
@@ -317,7 +317,7 @@ export const liveChecklist = <M>(
 ): Html =>
 	h.section(
 		[
-			h.Class("flex flex-col rounded-lg border border-border bg-card"),
+			h.Class("flex flex-col rounded-md border border-border bg-card"),
 			h.AriaLabel(options.title ?? "Going live"),
 		],
 		[
@@ -339,7 +339,7 @@ export const liveChecklist = <M>(
 				options.rows.map((row) =>
 					h.li(
 						[
-							h.Class("flex gap-3 border-t border-border/60 px-5 py-3 first:border-t-0"),
+							h.Class("flex gap-3 border-t border-border-subtle px-5 py-3 first:border-t-0"),
 							h.DataAttribute("state", row.state),
 						],
 						[
@@ -395,7 +395,7 @@ export const whereToFind = <M>(h: HtmlBuilder<M>, label: string, href: string): 
 			h.Href(href),
 			h.Target("_blank"),
 			h.Rel("noreferrer"),
-			h.Class("inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"),
+			h.Class("inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground active:text-foreground"),
 		],
 		[label, icon(h, "ExternalLinkIcon", { size: 12 })],
 	)

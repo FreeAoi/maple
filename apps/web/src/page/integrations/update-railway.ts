@@ -1,8 +1,8 @@
 import { RailwayConnectRequest } from "@maple/domain/http"
 import { Option, Schema } from "effect"
 import { AsyncData, Command as FoldkitCommand } from "foldkit"
-import type { LoadFailure } from "../../data/load-failure"
-import * as Field from "../../ui/field"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import * as Field from "@maple/views/ui/field"
 import { type PageContext, PageOutMessage, type PageReturn } from "../contract"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -85,7 +85,7 @@ export const completedSync = (model: Model, context: PageContext, failure: LoadF
 	const settled = withCard(model, { isSyncing: false })
 	return failure === null
 		? requestStatus(settled, context, "railway", "Supersede")
-		: toast(settled, "error", "Failed to sync Railway", failure.message)
+		: toast(settled, "error", "Couldn't sync Railway", failure.message)
 }
 
 export const setRotating = (model: Model, isRotating: boolean): Return => ({

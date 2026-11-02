@@ -4,15 +4,15 @@ import { buildServiceOpenIssuesQuery } from "../../../lib/services/error-issues"
 import { parseWarehouseDateTime } from "@maple/query-engine"
 import { Option, type Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Chart from "../../../charts/chart"
-import { LoadChartRuntime } from "../../../charts/chart-runtime"
-import * as Keyed from "../../../data/keyed"
-import { requestKey } from "../../../data/request-key"
+import * as Chart from "@maple/views/charts/chart"
+import { LoadChartRuntime } from "@maple/views/charts/chart-runtime"
+import * as Keyed from "@maple/views/data/keyed"
+import { requestKey } from "@maple/views/data/request-key"
 import { commitDetailKey } from "../../kit/commit-card"
 import { resolveWindow, type TimeWindow } from "../../../data/time-range"
 import type { Resources } from "../../../platform/resources"
 import { AppRoute, hrefOf } from "../../../route"
-import * as Select from "../../../ui/select"
+import * as Select from "@maple/views/ui/select"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import * as TimeRangePicker from "../../kit/time-range-picker"
 import {
@@ -32,6 +32,7 @@ import {
 	FetchUptimeMonitors,
 	FetchUsage,
 	FetchWorkloads,
+	FetchRuntimes,
 } from "./command"
 import {
 	ALL_ENVIRONMENTS,
@@ -53,7 +54,7 @@ import { deriveDeploys, isResolvableSha } from "./derive-panels"
 import { matchesFilter } from "./derive-api"
 import * as EndpointPeek from "./endpoint-peek/model"
 import * as EndpointPeekUpdate from "./endpoint-peek/update"
-import { Message, type RequestMode } from "./message"
+import { Message, type RequestMode, type RetryTarget } from "./message"
 import type { Commit, CommitFailure, Model } from "./model"
 import type { Endpoint } from "./model-tabs"
 import { groupsOf, visibleEndpoints } from "./view-api"
@@ -235,6 +236,30 @@ const commitsStep =
 	}
 
 /** What `OverviewTab` mounts: the panels' reads, the refinement once sampling shows, the commits. */
+/** Where the service runs, which the header links on every tab. */
+const runsOnSteps = (context: PageContext, window: TimeWindow, mode: RequestMode): Steps => [
+	(model) => {
+		const input = { services: [model.serviceName], ...window }
+		return keyed(
+			model.workloads,
+			requestKey(context.orgId, "getServiceWorkloads", { data: input }),
+			mode,
+			(workloads) => ({ workloads }),
+			(key) => FetchWorkloads({ key, input }),
+		)
+	},
+	(model) => {
+		const input = { services: [model.serviceName], ...window }
+		return keyed(
+			model.runtimes,
+			requestKey(context.orgId, "getServiceRuntimes", { data: input }),
+			mode,
+			(runtimes) => ({ runtimes }),
+			(key) => FetchRuntimes({ key, input }),
+		)
+	},
+]
+
 const overviewTabSteps = (context: PageContext, window: TimeWindow, mode: RequestMode): Steps => [
 	operationsStep(context, window, mode),
 	(model) => {
@@ -256,16 +281,6 @@ const overviewTabSteps = (context: PageContext, window: TimeWindow, mode: Reques
 			mode,
 			(usage) => ({ usage }),
 			(key) => FetchUsage({ key, input }),
-		)
-	},
-	(model) => {
-		const input = { services: [model.serviceName], ...window }
-		return keyed(
-			model.workloads,
-			requestKey(context.orgId, "getServiceWorkloads", { data: input }),
-			mode,
-			(workloads) => ({ workloads }),
-			(key) => FetchWorkloads({ key, input }),
 		)
 	},
 	dependenciesStep(context, window, mode),
@@ -494,6 +509,7 @@ export const sync = (model: Model, context: PageContext, mode: RequestMode): Ret
 	const window = windowOf(model, context, model.nowMs)
 	const requested = runSteps({ ...model, window }, [
 		overviewStep(context, window, mode),
+		...runsOnSteps(context, window, mode),
 		...tabSteps(model, context, window, mode),
 	])
 	return syncPeek(requested, context, mode)
@@ -547,6 +563,7 @@ export const init = (
 		uptimeMonitors: Keyed.idle(),
 		canCreateUptimeMonitors: false,
 		workloads: Keyed.idle(),
+		runtimes: Keyed.idle(),
 		dependencies: Keyed.idle(),
 		commits: {},
 		isDeploysExpanded: false,
@@ -698,6 +715,24 @@ const settleCommit = (model: Model, sha: string, result: Result.Result<Commit, C
 	},
 })
 
+/** Clears the failed read so `sync` asks for it again. */
+const retrying = (model: Model, target: RetryTarget): Model => {
+	switch (target) {
+		case "Overview":
+			return { ...model, overview: Keyed.idle() }
+		case "Operations":
+			return { ...model, operations: Keyed.idle() }
+		case "Dependencies":
+			return { ...model, dependencies: Keyed.idle() }
+		case "Endpoints":
+			return { ...model, endpoints: Keyed.idle() }
+		case "ApiOverview":
+			return { ...model, apiOverview: Keyed.idle() }
+		case "StatusBreakdown":
+			return { ...model, statusBreakdown: Keyed.idle() }
+	}
+}
+
 export const update = (model: Model, message: Message, context: PageContext): Return =>
 	Message.match<Return>(message, {
 		CompletedResolveClock: ({ nowMs, mode }) => sync({ ...model, nowMs }, context, mode),
@@ -787,6 +822,9 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				canCreateUptimeMonitors: isAdmin,
 			},
 		}),
+		CompletedFetchRuntimes: ({ key, result }) => ({
+			model: { ...model, runtimes: Keyed.accept(model.runtimes, key, result) },
+		}),
 		CompletedFetchWorkloads: ({ key, result }) => ({
 			model: { ...model, workloads: Keyed.accept(model.workloads, key, result) },
 		}),
@@ -813,7 +851,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 		CompletedReloadSpin: ({ version }) =>
 			version === model.refreshVersion ? { model: { ...model, isReloading: false } } : { model },
 		// `useAtomRefresh` on the failed overview: forget the slot, so the next sync requests it again.
-		ClickedRetry: () => sync({ ...model, overview: Keyed.idle() }, context, "Load"),
+		ClickedRetry: ({ target }) => sync(retrying(model, target), context, "Load"),
 		ClickedResetTimeRange: () =>
 			navigate(
 				model,

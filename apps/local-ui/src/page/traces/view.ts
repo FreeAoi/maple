@@ -1,17 +1,17 @@
 import { cn } from "@maple/ui/lib/utils"
-import { listFooter } from "@maple/web/ui/list-footer"
-import { table, tableBody, tableHead, tableHeader, tableRow } from "@maple/web/ui/table"
-import { tableSkeleton } from "@maple/web/ui/table-skeleton"
+import { errorState } from "@maple/views/ui/error-state"
+import { listFooter } from "@maple/views/ui/list-footer"
+import { table, tableBody, tableHead, tableHeader, tableRow } from "@maple/views/ui/table"
+import { tableSkeleton } from "@maple/views/ui/table-skeleton"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
 import { queryOf } from "../../route"
 import { rangeOf } from "../contract"
 import type { PageViewInputs } from "../kit/inputs"
 import { pageShell } from "../kit/page-shell"
 import { signalEmptyState } from "../kit/signal-empty-state"
-import { errorState } from "../kit/view-states"
 import { activeFilterCount, filtersOf } from "./filters"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -41,11 +41,14 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	const rows = Option.match(maybeData, { onNone: () => [], onSome: (data) => data.pages.flat() })
 	const hasNextPage = Option.exists(maybeData, (data) => data.hasNextPage)
 	const content = (): Html => {
-		if (isPending(model.traces))
+		if (isAwaitingFirstData(model.traces))
 			return tableSkeleton(h, { className: "rounded-none border-0", rows: 12, columns: SKELETON_COLUMNS })
 		const failure = failureWithoutData(model.traces)
 		if (Option.isSome(failure))
-			return errorState(h, { label: "traces", failure: failure.value, onRetry: Message.ClickedRefresh() })
+			return errorState(h, {
+				failure: failure.value, title: "Couldn’t load traces",
+				onRetry: Message.ClickedRefresh(),
+			})
 		if (rows.length === 0)
 			return signalEmptyState(h, {
 				signal: "traces",
@@ -53,12 +56,12 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 				onClearFilters: Message.ClickedClearFilters(),
 				range,
 				onWidenRange: Message.ClickedWidenRange(),
-				maybePresence: inputs.presenceOf("traces"),
+				presence: inputs.presenceOf("traces"),
 				nowMs: inputs.presenceNowMs,
 				guide: { id: "traces-empty", endpoint: context.env.otlpEndpoint, copies: model.copies, toCopyMessage: toCopy },
 			})
 		return h.div(
-			[h.Class(cn(model.traces.isPlaceholder && "opacity-60 transition-opacity"))],
+			[h.Class(cn(model.traces.retained === true && "opacity-60 transition-opacity"))],
 			[
 				table(h, {}, [
 					tableHeader(h, [

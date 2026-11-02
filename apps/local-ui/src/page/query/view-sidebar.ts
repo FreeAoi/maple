@@ -1,13 +1,13 @@
 import { EXAMPLE_QUERIES, tablePreviewSql } from "../../lib/query-console"
 import { formatNumber } from "@maple/ui/lib/format"
-import { eyebrow } from "@maple/web/ui/eyebrow"
-import { filterSidebarBody, filterSidebarFrame, filterSidebarHeader } from "@maple/web/ui/filters/filter-sidebar"
-import { icon } from "@maple/web/ui/icon"
-import { spinner } from "@maple/web/ui/spinner"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { filterSidebarBody, filterSidebarFrame, filterSidebarHeader } from "@maple/views/ui/filters/filter-sidebar"
+import { icon } from "@maple/views/ui/icon"
+import { spinner } from "@maple/views/ui/spinner"
 import { Option } from "effect"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { failureWithoutData, isPending } from "../../data/slot"
+import { failureWithoutData, isAwaitingFirstData } from "@maple/views/data/keyed"
 import { Message } from "./message"
 import type { Model } from "./model"
 
@@ -25,7 +25,7 @@ const sidebarItem = (h: HtmlBuilder<Message>, title: string, sql: string, childr
 	)
 
 const tablesList = (h: HtmlBuilder<Message>, model: Model): Html => {
-	if (isPending(model.tables)) return h.div([h.Class("flex h-12 items-center justify-center")], [spinner(h, "size-4")])
+	if (isAwaitingFirstData(model.tables)) return h.div([h.Class("flex h-12 items-center justify-center")], [spinner(h, "size-4")])
 	const failure = failureWithoutData(model.tables)
 	if (Option.isSome(failure)) return h.p([h.Class("text-xs break-all text-destructive")], [failure.value.message])
 	const tables = Option.getOrElse(AsyncData.getData(model.tables.data), () => [])

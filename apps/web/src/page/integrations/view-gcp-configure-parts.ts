@@ -1,11 +1,12 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as DialogView from "../../ui/dialog-view"
-import { icon } from "../../ui/icon"
+import * as DialogView from "@maple/views/ui/dialog-view"
+import { icon } from "@maple/views/ui/icon"
 import { STEPS } from "./gcp-configure-copy"
 import { CONFIGURE_DIALOG_ID } from "./gcp-configure"
 import type { Message } from "./message"
 import { GCP_LINK } from "./view-gcp-parts"
+import { hstackClass } from "@maple/views/ui/stack"
 
 // `GcpExternalLink`, `Mono`, `Chip`, `FooterNote`, `Stepper` and `ConfigureHeader`.
 
@@ -38,7 +39,7 @@ export const chip = (h: H, children: Children): Html =>
 	h.span(
 		[
 			h.Class(
-				"inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-xs/5",
+				"inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-sunken px-2 py-0.5 text-xs/5",
 			),
 		],
 		children,
@@ -65,7 +66,7 @@ const stepper = (h: H, current: StepIndex): Html =>
 					...(active ? [h.AriaCurrent("step")] : []),
 					h.Class(
 						cn(
-							"inline-flex items-center gap-1.5",
+							hstackClass({ gap: "1.5", inline: true }),
 							active
 								? "font-medium text-foreground underline decoration-primary underline-offset-4"
 								: "text-muted-foreground",
@@ -73,7 +74,7 @@ const stepper = (h: H, current: StepIndex): Html =>
 					),
 				],
 				[
-					...(done ? [icon(h, "CheckIcon", { size: 12, className: "text-success" })] : []),
+					...(done ? [icon(h, "CheckIcon", { size: 12, className: "text-severity-info" })] : []),
 					label,
 					...(done ? [h.span([h.Class("sr-only")], [" (done)"])] : []),
 				],
@@ -82,7 +83,7 @@ const stepper = (h: H, current: StepIndex): Html =>
 				? [step]
 				: [
 						h.li(
-							[h.AriaHidden(true), h.Class("inline-flex text-muted-foreground/60")],
+							[h.AriaHidden(true), h.Class("inline-flex text-foreground-subtle")],
 							[icon(h, "ArrowRightIcon", { size: 12 })],
 						),
 						step,
@@ -104,7 +105,7 @@ export const configureHeader = (h: H, title: Children, step: StepIndex | null): 
 					h.span(
 						[
 							h.Class(
-								"flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/60",
+								"flex size-8 shrink-0 items-center justify-center rounded-md border bg-surface-strong",
 							),
 						],
 						[icon(h, "GoogleCloudIcon", { size: 18 })],

@@ -3,7 +3,6 @@ import { countLabel, EMPTY_VALUE } from "@maple/ui/lib/format"
 import { hostFromUrl } from "@maple/ui/lib/replay"
 import { formatSessionDuration, isSessionLive, sessionDurationMs } from "@maple/ui/lib/replay-format"
 import { cn } from "@maple/ui/lib/utils"
-import { badgeVariants } from "@maple/ui/styles/ui/badge"
 import {
 	SESSION_TAG_DESCRIPTIONS,
 	SESSION_TAG_LABELS,
@@ -11,9 +10,11 @@ import {
 	SESSION_TAG_STYLES,
 } from "../../../components/replays/session-tags"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { badge } from "../../../ui/display"
-import { icon } from "../../../ui/icon"
-import { truncatedText } from "../../../ui/truncated-text"
+import { badge } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { pressable } from "@maple/views/ui/pressable"
+import { textLink } from "@maple/views/ui/text-link"
+import { truncatedText } from "@maple/views/ui/truncated-text"
 import { relativeTime } from "../../kit/relative-time"
 import type { SessionRow } from "./session-row"
 import {
@@ -24,6 +25,8 @@ import {
 	livePill,
 	type SessionsListOptions,
 } from "./sessions-parts"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // A session list row: its org button, tags and badges.
 
@@ -37,12 +40,14 @@ const orgButton = <M>(
 ): Html => {
 	const className = "min-w-0 truncate text-xs font-medium text-foreground"
 	if (onFilter === undefined) return h.span([h.Class(className)], [name])
-	return h.button(
-		[
-			h.Type("button"),
-			h.Class(cn(className, "rounded hover:underline")),
-			h.OnClick(onFilter(name), { propagation: "Stop" }),
-		],
+	return textLink(
+		h,
+		{
+			tone: "muted",
+			onClick: onFilter(name),
+			clickOptions: { propagation: "Stop" },
+			className: cn(className, "block rounded-sm text-left"),
+		},
 		[name],
 	)
 }
@@ -53,15 +58,29 @@ const sessionTags = <M>(
 	onFilter: ((tag: SessionTag) => M) | undefined,
 ): ReadonlyArray<Html> =>
 	SESSION_TAG_ORDER.filter((tag) => tags.includes(tag)).map((tag) => {
-		const className = cn(badgeVariants({ pill: true, size: "xs" }), SESSION_TAG_STYLES[tag])
 		return onFilter === undefined
-			? h.span([h.Class(className), h.Title(SESSION_TAG_DESCRIPTIONS[tag])], [SESSION_TAG_LABELS[tag]])
-			: h.button(
-					[
-						h.Type("button"),
-						h.Class(cn(className, "hover:ring-1 hover:ring-border")),
-						h.OnClick(onFilter(tag), { propagation: "Stop" }),
-					],
+			? badge(
+					h,
+					{
+						pill: true,
+						size: "xs",
+						className: SESSION_TAG_STYLES[tag],
+						attributes: [h.Title(SESSION_TAG_DESCRIPTIONS[tag])],
+					},
+					[SESSION_TAG_LABELS[tag]],
+				)
+			: badge(
+					h,
+					{
+						pill: true,
+						size: "xs",
+						className: cn(
+							SESSION_TAG_STYLES[tag],
+							"hover:ring-1 active:ring-1 hover:ring-border active:ring-border",
+						),
+						onClick: onFilter(tag),
+						clickOptions: { propagation: "Stop" },
+					},
 					[SESSION_TAG_LABELS[tag]],
 				)
 	})
@@ -114,30 +133,29 @@ const userColumn = <M>(
 	return h.div(
 		[h.Class("relative min-w-0 flex-1 overflow-hidden")],
 		[
-			h.div(
-				[h.Class("flex items-center gap-2")],
-				[
-					h.span(
-						[
-							h.Class(
-								cn("min-w-0 truncate text-sm font-medium", muted && "text-muted-foreground"),
-							),
-							h.Title(label),
-						],
-						[label],
-					),
-					...(isSessionLive(session, options.nowMs) ? [livePill(h, true)] : []),
-					startedAt(
-						h,
-						options,
-						session,
-						"ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground @2xl:hidden",
-					),
-				],
-			),
+			hstack(h, { gap: "2" }, [
+				h.span(
+					[
+						h.Class(cn("min-w-0 truncate text-sm font-medium", muted && "text-muted-foreground")),
+						h.Title(label),
+					],
+					[label],
+				),
+				...(isSessionLive(session, options.nowMs) ? [livePill(h, true)] : []),
+				startedAt(
+					h,
+					options,
+					session,
+					"ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground @2xl:hidden",
+				),
+			]),
 			truncatedText(
 				h,
-				{ text: entry, mono: secondary === entry, className: "mt-0.5 text-xs text-muted-foreground" },
+				{
+					text: entry,
+					mono: secondary === entry,
+					className: typographyClass({ size: "xs", tone: "muted", className: "mt-0.5" }),
+				},
 				[secondary],
 			),
 			h.div(
@@ -176,21 +194,19 @@ export const sessionListRow = <M>(
 			h.OnClick(open),
 			h.Class(
 				cn(
-					"group relative flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 transition-colors hover:bg-accent/40 @2xl:gap-4",
+					"group relative flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 hover:bg-surface-sunken active:bg-surface-sunken @2xl:gap-4",
 					lowSignal ? "py-1.5" : "py-2.5",
 				),
 			),
 		],
 		[
-			h.button(
-				[
-					h.Type("button"),
-					h.OnClick(open, { propagation: "Stop" }),
-					h.AriaLabel(`Open session from ${identityLabel(session)}`),
-					h.Class(
-						"absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-					),
-				],
+			pressable(
+				h,
+				{
+					label: `Open session from ${identityLabel(session)}`,
+					className: "absolute inset-0 focus-visible:ring-inset focus-visible:ring-ring",
+					attributes: [h.OnClick(open, { propagation: "Stop" })],
+				},
 				[],
 			),
 			...(session.errorCount > 0
@@ -210,7 +226,7 @@ export const sessionListRow = <M>(
 				[
 					session.groupName
 						? orgButton(h, session.groupName, options.onFilterGroup)
-						: h.span([h.Class("text-xs text-muted-foreground/50")], [EMPTY_VALUE]),
+						: h.span([h.Class("text-xs text-foreground-faint")], [EMPTY_VALUE]),
 				],
 			),
 			h.div(
@@ -233,7 +249,7 @@ export const sessionListRow = <M>(
 							h.Class(
 								cn(
 									"whitespace-nowrap font-mono text-sm font-semibold tabular-nums",
-									lowSignal && "font-normal text-muted-foreground",
+									lowSignal && typographyClass({ tone: "muted", weight: "normal" }),
 								),
 							),
 						],
@@ -242,14 +258,11 @@ export const sessionListRow = <M>(
 					...(p95 !== undefined && p95 > 0 && durationMs !== null && durationMs > p95
 						? [longBadge(h, p95)]
 						: []),
-					h.span(
-						[h.Class("whitespace-nowrap text-xs text-muted-foreground")],
-						[
-							countLabel(session.pageViews || 1, "page"),
-							" · ",
-							countLabel(session.clickCount, "click"),
-						],
-					),
+					typography(h, { size: "xs", tone: "muted", className: "whitespace-nowrap" }, [
+						countLabel(session.pageViews || 1, "page"),
+						" · ",
+						countLabel(session.clickCount, "click"),
+					]),
 				],
 			),
 			deviceColumn(h, session),
@@ -260,7 +273,14 @@ export const sessionListRow = <M>(
 			),
 			h.div(
 				[h.Class(cn(COLUMNS.time, "relative items-center"))],
-				[startedAt(h, options, session, "whitespace-nowrap text-xs text-muted-foreground")],
+				[
+					startedAt(
+						h,
+						options,
+						session,
+						typographyClass({ size: "xs", tone: "muted", className: "whitespace-nowrap" }),
+					),
+				],
 			),
 		],
 	)
@@ -281,10 +301,10 @@ const deviceColumn = <M>(h: HtmlBuilder<M>, session: SessionRow): Html =>
 			),
 			h.span(
 				[h.Class("shrink-0 text-muted-foreground"), h.Title(session.deviceType || "desktop")],
-				[icon(h, deviceIconFor(session.deviceType), { className: "size-4 opacity-70" })],
+				[icon(h, deviceIconFor(session.deviceType), { className: "size-4" })],
 			),
 			...(session.country
-				? [h.span([h.Class("truncate text-xs text-muted-foreground")], [session.country])]
+				? [typography(h, { size: "xs", tone: "muted", truncate: true }, [session.country])]
 				: []),
 		],
 	)

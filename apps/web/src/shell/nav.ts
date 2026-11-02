@@ -1,6 +1,6 @@
 import { KUBERNETES_ROOT, KUBERNETES_VIEWS } from "../components/infra/kubernetes/views"
 import { Schema } from "effect"
-import type { IconName } from "../ui/icon"
+import type { IconName } from "@maple/views/ui/icon"
 
 // The sidebar's nav tree and helpers, with generated icon names.
 
@@ -105,6 +105,16 @@ const infrastructureItem: NavItem = {
 }
 // GROUPS
 
+const servicesItem: NavItem = {
+	title: "Services",
+	href: "/services",
+	icon: "ServerIcon",
+	subItems: [
+		{ title: "All services", href: "/services", icon: "UnorderedListIcon", paletteTitle: "Services" },
+		{ title: "Map", href: "/service-map", icon: "NetworkNodesIcon", paletteTitle: "Service map" },
+	],
+}
+
 const exploreItem: NavItem = {
 	title: "Explore",
 	href: "/traces",
@@ -114,29 +124,34 @@ const exploreItem: NavItem = {
 		{ title: "Logs", href: "/logs", icon: "FileIcon" },
 		{ title: "Metrics", href: "/metrics", icon: "ChartLineIcon" },
 		{ title: "Replays", href: "/replays", icon: "PlayRotateClockwiseIcon" },
-		{ title: "Agent Sessions", href: "/agent-sessions", icon: "SquareSparkleIcon" },
+		{ title: "Agent sessions", href: "/agent-sessions", icon: "SquareSparkleIcon" },
+		{ title: "MCP servers", href: "/mcp-servers", icon: "PlugIcon" },
 	],
 }
 
-/** `navGroups(flags)`; `releases` and `securityAudit` gate a row each. */
-export const navGroups = (
-	flags: Readonly<{ releases: boolean; securityAudit: boolean }>,
-): ReadonlyArray<NavGroup> => [
+/** The org rollout flags that gate a nav row each. */
+export type NavFlags = Readonly<{ releases: boolean; securityAudit: boolean; statusPages: boolean }>
+
+/** `navGroups(flags)`; `releases`, `securityAudit` and `statusPages` gate a row each. */
+export const navGroups = (flags: NavFlags): ReadonlyArray<NavGroup> => [
 	{ id: "overview", items: [{ title: "Overview", href: "/", icon: "HouseIcon" }] },
 	{
 		id: "monitor",
 		label: "Monitor",
 		items: [
 			{
-				title: "Services",
-				href: "/services",
-				icon: "ServerIcon",
-				alsoActive: flags.releases ? [] : ["/releases"],
+				...servicesItem,
+				alsoActive: [
+					...(flags.releases ? [] : ["/releases"]),
+					...(flags.statusPages ? [] : ["/status-pages"]),
+				],
 			},
+			...(flags.statusPages
+				? [{ title: "Status pages", href: "/status-pages", icon: "WindowChartLineIcon" } as const]
+				: []),
 			...(flags.releases
 				? [{ title: "Releases", href: "/releases", icon: "RocketIcon" } as const]
 				: []),
-			{ title: "Service Map", href: "/service-map", icon: "NetworkNodesIcon" },
 			infrastructureItem,
 		],
 	},
@@ -145,7 +160,7 @@ export const navGroups = (
 		label: "Analyze",
 		items: [
 			exploreItem,
-			{ title: "Web Analytics", href: "/analytics", icon: "ChartBarHorizontalIcon" },
+			{ title: "Web analytics", href: "/analytics", icon: "ChartBarHorizontalIcon" },
 			{ title: "Dashboards", href: "/dashboards", icon: "GridSquareCirclePlusIcon" },
 		],
 	},
@@ -156,7 +171,7 @@ export const navGroups = (
 			{ title: "Errors", href: "/errors", icon: "CircleWarningIcon" },
 			{ title: "Alerts", href: "/alerts", icon: "BellIcon", alsoActive: ["/anomalies"] },
 			{
-				title: "Code Review",
+				title: "Code review",
 				href: "/code-review",
 				icon: "CodeIcon",
 				badge: "Beta",

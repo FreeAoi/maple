@@ -16,13 +16,17 @@ import {
 import { worstState } from "@maple/web-data/alerts/rule-status"
 import type { AlertRuleStateRow } from "@maple/web-data/collections/alerts"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button, linkButton } from "../../../ui/button"
-import { card } from "../../../ui/card"
-import { icon } from "../../../ui/icon"
-import { segmentedSelect } from "../../../ui/segmented-select"
+import { button, linkButton } from "@maple/views/ui/button"
+import { card } from "@maple/views/ui/card"
+import { icon } from "@maple/views/ui/icon"
+import { pressable } from "@maple/views/ui/pressable"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
 import { alertsHref } from "../shared/links"
 import { Message } from "./message"
 import type { Model } from "./model"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
+import { strip } from "@maple/views/ui/rule"
 
 // `RuleDiagnosisPanel`: the rule's diagnosis.
 
@@ -80,46 +84,43 @@ export const diagnosisPanel = (h: H, model: Model, inputs: DiagnosisInputs): Htm
 	return card(
 		h,
 		[
-			h.button(
+			pressable(
+				h,
+				{
+					onClick: Message.ClickedDiagnosisHeader({ isOpen }),
+					className: "flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left",
+				},
 				[
-					h.Type("button"),
-					h.Class("flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"),
-					h.OnClick(Message.ClickedDiagnosisHeader({ isOpen })),
-				],
-				[
-					h.div(
-						[h.Class("flex min-w-0 items-center gap-2.5")],
+					hstack(h, { gap: "2.5", shrink: true },
 						[
 							stageIcon(h, verdict.status, 16),
 							h.div(
 								[h.Class("min-w-0")],
 								[
-									h.p(
-										[h.Class("text-sm font-medium")],
+									typography(h, { size: "sm", weight: "medium", as: "p" },
 										[verdict.status === "pass" ? "Rule is healthy" : "Why is this alert failing?"],
 									),
-									h.p([h.Class("truncate text-xs text-muted-foreground")], [verdict.summary]),
+									typography(h, { size: "xs", tone: "muted", truncate: true, as: "p" }, [verdict.summary]),
 								],
 							),
 						],
 					),
 					icon(h, "ChevronDownIcon", {
 						size: 16,
-						className: cn("shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-180"),
+						className: cn(typographyClass({ tone: "muted", className: "shrink-0 transition-transform" }), isOpen && "rotate-180"),
 					}),
 				],
 			),
 			...(isOpen
 				? [
-						h.div(
-							[h.Class("border-t px-4 py-2.5")],
+						strip(h, { kind: "foot" },
 							[
 								...(groupKeys.length > 0
 									? [
 											h.div(
 												[h.Class("mb-3 flex items-center gap-2")],
 												[
-													h.span([h.Class("shrink-0 text-xs text-muted-foreground")], ["Group"]),
+													typography(h, { size: "xs", tone: "muted", className: "shrink-0" }, ["Group"]),
 													h.div(
 														[h.Class("-my-1 min-w-0 flex-1 overflow-x-auto py-1")],
 														[
@@ -143,7 +144,7 @@ export const diagnosisPanel = (h: H, model: Model, inputs: DiagnosisInputs): Htm
 												{
 													variant: "link",
 													size: "xs",
-													className: "mt-1.5 text-muted-foreground hover:text-foreground",
+													className: "mt-1.5 text-muted-foreground hover:text-foreground active:text-foreground",
 													attributes: [h.OnClick(Message.ClickedShowAllStages())],
 												},
 												[
@@ -181,28 +182,27 @@ const stageRow = (h: H, model: Model, stage: DiagnosisStage): Html => {
 			h.Class(
 				cn(
 					"rounded-md px-2 py-1",
-					stage.status === "fail" && "bg-severity-error/5",
-					stage.status === "warn" && "bg-severity-warn/5",
+					stage.status === "fail" && "bg-severity-error-a1",
+					stage.status === "warn" && "bg-severity-warn-a1",
 				),
 			),
 		],
 		[
-			h.div(
-				[h.Class("flex items-center gap-2.5")],
+			hstack(h, { gap: "2.5" },
 				[
 					stageIcon(h, stage.status, 14),
-					h.button(
+					pressable(
+						h,
+						{
+							onClick: Message.ClickedStage({ stageId: stage.id, isOpen: !isOpen }),
+							className: "flex min-w-0 flex-1 items-baseline gap-2 text-left",
+						},
 						[
-							h.Type("button"),
-							h.Class("flex min-w-0 flex-1 items-baseline gap-2 text-left"),
-							h.OnClick(Message.ClickedStage({ stageId: stage.id, isOpen: !isOpen })),
-						],
-						[
-							h.span([h.Class("shrink-0 text-xs font-medium")], [stage.label]),
+							typography(h, { size: "xs", weight: "medium", className: "shrink-0" }, [stage.label]),
 							h.span(
 								[
 									h.Class(
-										cn("truncate text-xs", stage.status === "fail" ? "text-severity-error" : "text-muted-foreground"),
+										cn(typographyClass({ size: "xs", truncate: true }), stage.status === "fail" ? "text-severity-error" : "text-muted-foreground"),
 									),
 								],
 								[stage.summary],
@@ -230,7 +230,7 @@ const stageRow = (h: H, model: Model, stage: DiagnosisStage): Html => {
 														{
 															variant: "link",
 															size: "xs",
-															className: "text-muted-foreground/80 hover:text-foreground",
+															className: "text-foreground-subtle hover:text-foreground active:text-foreground",
 															attributes: [h.OnClick(Message.ClickedShowAllEvidence({ stageId: stage.id }))],
 														},
 														["+", String(hiddenEvidence), " more"],

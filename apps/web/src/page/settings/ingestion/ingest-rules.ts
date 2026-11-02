@@ -3,10 +3,10 @@ import { collectV2Pages } from "@maple/web-data/lib/v2-pagination"
 import { Array, DateTime, Effect, Option, Result, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { LoadFailure, toLoadFailure } from "../../../data/load-failure"
+import { LoadFailure, toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleApiV2Client } from "../../../platform/api-clients"
-import * as Dialog from "../../../ui/dialog"
-import * as Menu from "../../../ui/menu"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Menu from "@maple/views/ui/menu"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { ruleHref } from "../ingest-rule/hrefs"
 
@@ -210,7 +210,7 @@ export const update = (model: Model, message: Message): Return =>
 				onSuccess: () => refreshed(settled),
 				onFailure: (error): Return => ({
 					model: settled,
-					outMessage: toast("error", "Failed to update ingest rule", error.message),
+					outMessage: toast("error", "Couldn't update ingest rule", error.message),
 				}),
 			})
 		},
@@ -229,7 +229,7 @@ export const update = (model: Model, message: Message): Return =>
 			return Result.isFailure(result)
 				? {
 						...after,
-						outMessage: toast("error", "Failed to reorder ingest rules", result.failure.message),
+						outMessage: toast("error", "Couldn't reorder ingest rules", result.failure.message),
 					}
 				: after
 		},
@@ -258,7 +258,7 @@ export const update = (model: Model, message: Message): Return =>
 				},
 				onFailure: (error): Return => ({
 					model: { ...model, isDeleting: false },
-					outMessage: toast("error", "Failed to delete ingest rule", error.message),
+					outMessage: toast("error", "Couldn't delete ingest rule", error.message),
 				}),
 			}),
 	})

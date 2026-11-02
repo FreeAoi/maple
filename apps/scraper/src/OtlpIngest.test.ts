@@ -24,15 +24,14 @@ const TestLayer = OtlpIngest.layer.pipe(
 	Layer.provide(Layer.mergeAll(FetchHttpClient.layer, Layer.succeed(ScraperEnv, testEnv))),
 )
 
-/** Lets the stubbed fetch settle on the real event loop, then moves the test clock past a backoff. */
-const settleAndAdvance = (steps: number, by: Duration.Input = "2 seconds") =>
-	Effect.forEach(
-		Array.from({ length: steps }),
-		() =>
-			Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 0))).pipe(
-				Effect.andThen(TestClock.adjust(by)),
-			),
-		{ discard: true },
+/**
+ * Lets the stubbed fetch settle on the real event loop and moves the test clock past a backoff,
+ * until `fiber` exits. A fixed tick count races the libuv gzip when the machine is loaded.
+ */
+const advanceUntilDone = (fiber: Fiber.Fiber<unknown, unknown>, by: Duration.Input = "2 seconds") =>
+	Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 0))).pipe(
+		Effect.andThen(TestClock.adjust(by)),
+		Effect.repeat({ until: () => fiber.pollUnsafe() !== undefined, times: 100 }),
 	)
 
 const SAMPLE_REQUEST: OtlpExportRequest = {
@@ -74,7 +73,10 @@ interface RecordedRequest {
 	wireBytes: number
 }
 
-const stubFetch = (recorded: Array<RecordedRequest>, respond: () => Response): typeof globalThis.fetch =>
+const stubFetch = (
+	recorded: Array<RecordedRequest>,
+	respond: () => Response | Promise<Response>,
+): typeof globalThis.fetch =>
 	(async (input: string | URL | Request, init?: RequestInit) => {
 		const headers: Record<string, string> = {}
 		new Headers(init?.headers).forEach((value, key) => {
@@ -172,9 +174,43 @@ describe("OtlpIngest", () => {
 					),
 				),
 			)
-			yield* settleAndAdvance(2)
+			yield* advanceUntilDone(fiber)
 			yield* Fiber.join(fiber)
 			assert.lengthOf(recorded, 2)
+		}).pipe(Effect.provide(TestLayer)),
+	)
+
+	it.effect("errors no span for a dropped connection the retry recovers from", () =>
+		Effect.gen(function* () {
+			const recorded: Array<RecordedRequest> = []
+			const tracer = makeCapturingTracer()
+			const otlp = yield* OtlpIngest
+			const fiber = yield* Effect.forkChild(
+				otlp.send("maple_pk_test_key", SAMPLE_REQUEST).pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch(recorded, () =>
+							recorded.length === 1
+								? Promise.reject(new TypeError("socket closed"))
+								: Response.json({ partialSuccess: {} }),
+						),
+					),
+					Effect.provide(tracer.layer),
+				),
+			)
+			yield* advanceUntilDone(fiber)
+			yield* Fiber.join(fiber)
+
+			assert.lengthOf(recorded, 2)
+			assert.isTrue(tracer.ended.every((span) => Exit.isSuccess(span.exit)))
+			const attempts = endedSpansNamed(tracer.ended, "POST")
+			assert.lengthOf(attempts, 2)
+			assert.strictEqual(attempts[0]!.attributes.get("error.type"), "TransportError")
+			assert.strictEqual(attempts[1]!.attributes.get("http.response.status_code"), 200)
+			const [chunk] = endedSpansNamed(tracer.ended, "OtlpIngest.send_chunk")
+			assert.isTrue(attempts.every((attempt) => attempt.parentSpanId === chunk!.spanId))
+			// Each attempt propagates its own span, so ingest's server span parents to it.
+			assert.include(recorded[1]!.headers.traceparent, attempts[1]!.spanId)
 		}).pipe(Effect.provide(TestLayer)),
 	)
 
@@ -218,7 +254,7 @@ describe("OtlpIngest", () => {
 				{ startImmediately: true },
 			)
 			// Each of the three attempts times out at 30s, with a backoff between them.
-			yield* settleAndAdvance(3, "35 seconds")
+			yield* advanceUntilDone(fiber, "35 seconds")
 			const error = yield* Fiber.join(fiber)
 			assert.strictEqual(error.reason, "scrape_failed")
 			assert.strictEqual(error.statusCode, null)

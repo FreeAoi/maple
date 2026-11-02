@@ -3,8 +3,8 @@ import { Result } from "effect"
 import { Submodel } from "foldkit"
 import { expect as expectView, given, role, scene, text, withViewInputs } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
-import * as Select from "../../../ui/select"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import * as Select from "@maple/views/ui/select"
 import { isFormReady } from "./dialog"
 import type { DestinationForm } from "./form"
 import { init, type LinearStatus, Message, type Model, reset, update } from "./linear-fields"
@@ -107,6 +107,21 @@ describe("linear destination fields", () => {
 		)
 		expect(names(returned)).toEqual(["FetchAlertLinearStatus"])
 		shows(withStatus({ ...CONNECTED, revoked: true }).model, "Reconnect Linear")
+	})
+
+	test("the popup coming back reads the status even after its close settled the form", () => {
+		const connecting = update(withStatus(NOT_CONNECTED).model, Message.ClickedConnect(), form).model
+		const closed = update(
+			connecting,
+			Message.CompletedConnect({ attempt: connecting.connectAttempt, outcome: "Closed" }),
+			form,
+		).model
+		const stale = update(
+			closed,
+			Message.CompletedFetchStatus({ key: closed.status.key ?? "", result: Result.succeed(NOT_CONNECTED) }),
+			form,
+		).model
+		expect(names(update(stale, Message.ReturnedConnect(), form))).toEqual(["FetchAlertLinearStatus"])
 	})
 
 	test("a reopen frees Connect, and the earlier popup's close no longer settles the form", () => {

@@ -5,9 +5,8 @@ import {
 	getAwsInfraSparklines,
 	getAwsInfraTimeseries,
 } from "@maple/web-data/warehouse/aws-infra"
-import { getServiceOverview } from "@maple/web-data/warehouse/services"
 import { Effect, Schema } from "effect"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import type { TimeWindow } from "../../../data/time-range"
 import { MapleApiV2Client } from "../../../platform/api-clients"
 
@@ -65,8 +64,10 @@ export const loadStatus = Effect.gen(function* () {
 
 export const loadFleet = (window: TimeWindow) =>
 	getAwsInfraFleet({ data: window }).pipe(
-		Effect.map((response): ReadonlyArray<FleetRead> => response.kinds),
-		Effect.mapError(toLoadFailure),
+		Effect.mapBoth({
+			onSuccess: (response): ReadonlyArray<FleetRead> => response.kinds,
+			onFailure: toLoadFailure,
+		}),
 		Effect.result,
 	)
 
@@ -80,8 +81,10 @@ export type SparksInput = typeof SparksInput.Type
 
 export const loadSparks = (input: SparksInput) =>
 	getAwsInfraSparklines({ data: { ...input, kinds: [...input.kinds] } }).pipe(
-		Effect.map((response): ReadonlyArray<SparkRead> => response.kinds),
-		Effect.mapError(toLoadFailure),
+		Effect.mapBoth({
+			onSuccess: (response): ReadonlyArray<SparkRead> => response.kinds,
+			onFailure: toLoadFailure,
+		}),
 		Effect.result,
 	)
 
@@ -96,30 +99,9 @@ export type TimeseriesInput = typeof TimeseriesInput.Type
 
 export const loadTimeseries = (input: TimeseriesInput) =>
 	getAwsInfraTimeseries({ data: { ...input, keys: [...input.keys] } }).pipe(
-		Effect.map((response): ReadonlyArray<BucketPoint> => response.points),
-		Effect.mapError(toLoadFailure),
-		Effect.result,
-	)
-
-/** A traced service's entry spans: what "Traced as" matches a resource's name against. */
-export const TracedService = Schema.Struct({
-	serviceName: Schema.String,
-	errorRate: Schema.Number,
-	throughput: Schema.Number,
-	p95LatencyMs: Schema.Number,
-})
-export type TracedService = typeof TracedService.Type
-
-export const loadTraced = (window: TimeWindow) =>
-	getServiceOverview({ data: { startTime: window.startTime, endTime: window.endTime } }).pipe(
-		Effect.map((response): ReadonlyArray<TracedService> =>
-			response.data.map((row) => ({
-				serviceName: row.serviceName,
-				errorRate: row.errorRate,
-				throughput: row.throughput,
-				p95LatencyMs: row.p95LatencyMs,
-			})),
-		),
-		Effect.mapError(toLoadFailure),
+		Effect.mapBoth({
+			onSuccess: (response): ReadonlyArray<BucketPoint> => response.points,
+			onFailure: toLoadFailure,
+		}),
 		Effect.result,
 	)

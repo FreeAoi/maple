@@ -5,7 +5,7 @@ import { defineMessageUnion } from "foldkit/message"
 import { STACK_PLATFORM_IDS, type StackPlatform } from "../../lib/onboarding-stack"
 import { browserStorage, peekOAuthReturn } from "../../platform/oauth-return-stash"
 import type { Resources } from "../../platform/resources"
-import * as Dialog from "../../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import type { PageContext, PageOutMessage } from "../contract"
 import * as SourcesFlow from "../sources/new/embed"
 
@@ -132,7 +132,6 @@ const PLATFORM_OF_FLOW = {
 	planetscale: "planetscale",
 	supabase: "supabase",
 	github: null,
-	hazel: null,
 	linear: null,
 	chat_install: null,
 	chat_identity: null,

@@ -6,7 +6,7 @@
  * the flags to decide what to show; a server consumer uses them to decide what to run, which is
  * what keeps a merged-but-staged feature from acting for an organization that never saw it.
  *
- * Self-hosted builds have no Clerk to read and get every rollout on, as the web app does. A
+ * Self-hosted builds enable rollouts, except status pages when their deployment disables them. A
  * managed build that cannot reach Clerk fails closed: every rollout off for that call.
  */
 import { createClerkClient } from "@clerk/backend"
@@ -70,7 +70,11 @@ export class OrganizationFeatureFlagsService extends Context.Service<
 			"OrganizationFeatureFlagsService.flags",
 		)(function* (orgId) {
 			yield* Effect.annotateCurrentSpan({ orgId })
-			if (!clerkMode) return ENABLED_ORGANIZATION_FEATURE_FLAGS
+			if (!clerkMode)
+				return {
+					...ENABLED_ORGANIZATION_FEATURE_FLAGS,
+					statusPages: !env.MAPLE_STATUS_PAGES_DISABLED,
+				}
 			const nowMs = yield* Clock.currentTimeMillis
 			const cached = cache.get(orgId)
 			if (cached !== undefined && nowMs - cached.atMs < FLAGS_TTL_MS) {

@@ -4,10 +4,10 @@ import { Result, Schema } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { expect as expectView, given, Mount, role, scene, text } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import type { StackPlatform } from "../../lib/onboarding-stack"
-import * as Dialog from "../../ui/dialog"
-import * as Tabs from "../../ui/tabs"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Tabs from "@maple/views/ui/tabs"
 import type { PageContext } from "../contract"
 import { Message as FlowMessage } from "../sources/new/message"
 import { init, Message, type Model, update as updateWith } from "./quick-start"
@@ -196,7 +196,7 @@ describe("onboarding connect drawer", () => {
 		)
 		expect(failed.outMessage).toMatchObject({
 			_tag: "RequestedConnectFlowOut",
-			out: { _tag: "RequestedToast", type: "error", title: "Failed to create source" },
+			out: { _tag: "RequestedToast", type: "error", title: "Couldn't create source" },
 		})
 		expect(failed.model.drawer?.dialog.isOpen).toBe(true)
 	})

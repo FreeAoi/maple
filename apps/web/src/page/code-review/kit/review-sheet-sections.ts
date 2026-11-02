@@ -8,27 +8,29 @@ import {
 import {
 	CATEGORY_LABELS,
 	FINDING_STATUS_LABELS,
-	formatCount,
 	formatSpan,
 	outcomeOf,
 	SEVERITY_LABELS,
 	SEVERITY_TONE,
 	SKIP_LABELS,
 } from "../../../components/code-review/code-review-format"
-import { EMPTY_VALUE } from "@maple/ui/lib/format"
+import { EMPTY_VALUE, formatNumber } from "@maple/ui/lib/format"
 import { formatRelativeFrom } from "@maple/ui/lib/time-format"
 import { TONE_TEXT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { alert, alertDescription } from "../../../ui/alert"
-import { badge } from "../../../ui/display"
-import { icon } from "../../../ui/icon"
-import { panel } from "../../../ui/panel"
+import { alert, alertDescription } from "@maple/views/ui/alert"
+import { badge } from "@maple/views/ui/display"
+import { icon } from "@maple/views/ui/icon"
+import { panel } from "@maple/views/ui/panel"
 import { statRail, statRailItem } from "../../kit/stat-rail"
 import { messageResponse } from "./markdown"
 import { bulletList, section } from "./parts"
 import type { ReviewSheet, SheetMessage } from "./review-sheet"
 import { ciRunsSection, historySection, postMergeSection, productionSection } from "./review-sheet-more"
+import { emptyMessage } from "@maple/views/ui/empty"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 // `ReviewDetailContent`'s body.
 
@@ -47,6 +49,18 @@ const stat = (h: H, label: string, value: string, tone?: string): Html =>
 		valueClassName: cn("min-w-0 shrink truncate text-sm font-medium", tone),
 	})
 
+/** The stat tiles' labels, in order; the loading skeleton shows them too. */
+export const SHEET_STAT_LABELS = {
+	outcome: "Outcome",
+	confidence: "Confidence",
+	quality: "Quality",
+	issues: "Issues",
+	duration: "Duration",
+	model: "Model",
+	tokens: "Tokens",
+	reviewed: "Reviewed",
+} as const
+
 const stats = (h: H, detail: CodeReviewDetail, nowMs: number): Html => {
 	const { review } = detail
 	const outcome = outcomeOf(review)
@@ -55,14 +69,22 @@ const stats = (h: H, detail: CodeReviewDetail, nowMs: number): Html => {
 			? null
 			: (review.finishedAt - (detail.startedAt ?? review.createdAt)) / 1000
 	return statRail(h, {}, [
-		stat(h, "Outcome", outcome.label, outcome.tone),
-		stat(h, "Confidence", review.confidence === null ? EMPTY_VALUE : `${review.confidence}/10`),
-		stat(h, "Quality", review.score === null ? EMPTY_VALUE : `${review.score}/100`),
-		stat(h, "Issues", formatCount(review.findings)),
-		stat(h, "Duration", formatSpan(durationSeconds)),
-		stat(h, "Model", modelLabel(review.model)),
-		stat(h, "Tokens", formatCount((detail.inputTokens ?? 0) + (detail.outputTokens ?? 0))),
-		stat(h, "Reviewed", formatRelativeFrom(review.createdAt, nowMs)),
+		stat(h, SHEET_STAT_LABELS.outcome, outcome.label, outcome.tone),
+		stat(
+			h,
+			SHEET_STAT_LABELS.confidence,
+			review.confidence === null ? EMPTY_VALUE : `${review.confidence}/10`,
+		),
+		stat(h, SHEET_STAT_LABELS.quality, review.score === null ? EMPTY_VALUE : `${review.score}/100`),
+		stat(h, SHEET_STAT_LABELS.issues, formatNumber(review.findings)),
+		stat(h, SHEET_STAT_LABELS.duration, formatSpan(durationSeconds)),
+		stat(h, SHEET_STAT_LABELS.model, modelLabel(review.model)),
+		stat(
+			h,
+			SHEET_STAT_LABELS.tokens,
+			formatNumber((detail.inputTokens ?? 0) + (detail.outputTokens ?? 0)),
+		),
+		stat(h, SHEET_STAT_LABELS.reviewed, formatRelativeFrom(review.createdAt, nowMs)),
 	])
 }
 
@@ -80,7 +102,7 @@ const findingCard = (h: H, finding: PrReviewFinding, tracked: CodeReviewFinding 
 						),
 						h.span([h.Class("text-muted-foreground")], [CATEGORY_LABELS[finding.category]]),
 						...(finding.handle
-							? [h.span([h.Class("font-mono text-muted-foreground")], [finding.handle])]
+							? [typography(h, { tone: "muted", mono: true }, [finding.handle])]
 							: []),
 						...(tracked === undefined
 							? []
@@ -91,7 +113,7 @@ const findingCard = (h: H, finding: PrReviewFinding, tracked: CodeReviewFinding 
 								]),
 					],
 				),
-				h.p([h.Class("text-sm font-medium")], [finding.title]),
+				typography(h, { size: "sm", weight: "medium", as: "p" }, [finding.title]),
 				h.p(
 					[h.Class("font-mono text-xs break-all text-muted-foreground")],
 					[
@@ -103,44 +125,42 @@ const findingCard = (h: H, finding: PrReviewFinding, tracked: CodeReviewFinding 
 							: []),
 					],
 				),
-				messageResponse(h, finding.body, "text-sm text-muted-foreground"),
+				messageResponse(h, finding.body, typographyClass({ size: "sm", tone: "muted" })),
 			]),
 		],
 	)
 
 /** The "Before merge" steps, ticked ones struck through with who ticked them. */
 const mergeSteps = (h: H, steps: ReadonlyArray<PrReviewMergeStep>): Html =>
-	h.ul(
-		[h.Class("flex flex-col gap-1.5 text-sm")],
+	vstack(
+		h,
+		{ gap: "1.5", as: "ul", className: typographyClass({ size: "sm" }) },
 		steps.map((step) => {
 			const isDone = step.done === true
-			return h.li(
-				[h.Class("flex items-start gap-2")],
-				[
-					h.span(
-						[
-							h.AriaLabel(isDone ? "Done" : "Open"),
-							h.Class(
-								isDone
-									? "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm bg-primary text-primary-foreground"
-									: "mt-0.5 size-4 shrink-0 rounded-sm border border-border",
-							),
-						],
-						isDone ? [icon(h, "CheckIcon", { size: 12 })] : [],
-					),
-					h.span(
-						[h.Class(isDone ? "text-muted-foreground line-through" : "text-foreground")],
-						[
-							step.path === undefined || step.subject !== step.path
-								? step.title
-								: `${step.title} (${step.path})`,
-							...(isDone && step.doneBy !== undefined
-								? [h.span([h.Class("ml-1.5 text-xs no-underline")], [`@${step.doneBy}`])]
-								: []),
-						],
-					),
-				],
-			)
+			return hstack(h, { gap: "2", align: "start", as: "li" }, [
+				h.span(
+					[
+						h.AriaLabel(isDone ? "Done" : "Open"),
+						h.Class(
+							isDone
+								? "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm bg-primary text-primary-foreground"
+								: "mt-0.5 size-4 shrink-0 rounded-sm border border-border",
+						),
+					],
+					isDone ? [icon(h, "CheckIcon", { size: 12 })] : [],
+				),
+				h.span(
+					[h.Class(isDone ? "text-muted-foreground line-through" : "text-foreground")],
+					[
+						step.path === undefined || step.subject !== step.path
+							? step.title
+							: `${step.title} (${step.path})`,
+						...(isDone && step.doneBy !== undefined
+							? [h.span([h.Class("ml-1.5 text-xs no-underline")], [`@${step.doneBy}`])]
+							: []),
+					],
+				),
+			])
 		}),
 	)
 
@@ -152,7 +172,7 @@ const reportSections = (h: H, detail: CodeReviewDetail, nowMs: number): Readonly
 		section(h, "Summary", [
 			messageResponse(h, report.summary, "text-sm"),
 			...(report.confidenceReason
-				? [h.p([h.Class("text-xs text-muted-foreground")], [report.confidenceReason])]
+				? [typography(h, { size: "xs", tone: "muted", as: "p" }, [report.confidenceReason])]
 				: []),
 		]),
 		...(report.keyChanges && report.keyChanges.length > 0
@@ -163,9 +183,10 @@ const reportSections = (h: H, detail: CodeReviewDetail, nowMs: number): Readonly
 			: []),
 		section(h, `Issues (${report.findings.length})`, [
 			report.findings.length === 0
-				? h.p([h.Class("text-sm text-muted-foreground")], ["No issues filed on this head."])
-				: h.ul(
-						[h.Class("flex flex-col gap-3")],
+				? emptyMessage(h, {}, ["No issues filed on this head"])
+				: vstack(
+						h,
+						{ gap: "3", as: "ul" },
 						report.findings.map((finding) =>
 							findingCard(
 								h,
@@ -210,10 +231,11 @@ export const reviewSections = (
 		stats(h, detail, sheet.nowMs),
 		...(review.status === "skipped" && review.skipReason !== null
 			? [
-					h.p(
-						[h.Class("text-sm text-muted-foreground")],
-						["Skipped: ", SKIP_LABELS[review.skipReason], "."],
-					),
+					typography(h, { size: "sm", tone: "muted", as: "p" }, [
+						"Skipped: ",
+						SKIP_LABELS[review.skipReason],
+						".",
+					]),
 				]
 			: []),
 		...(problem === null

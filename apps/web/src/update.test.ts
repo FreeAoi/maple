@@ -5,17 +5,21 @@ import { fromString as urlFromString } from "foldkit/url"
 import { describe, expect, test, vi } from "vitest"
 
 // The shell's favorites listener targets `window` at import; the root update never touches it here.
-vi.hoisted(() => Object.assign(globalThis, { window: new EventTarget() }))
-import * as ChatSheet from "./page/chat/sheet"
+vi.hoisted(() => {
+	Object.assign(globalThis, { window: new EventTarget() })
+	vi.stubEnv("VITE_STATUS_PAGES_DISABLED", "1")
+})
 import { Message } from "./message"
 import { ClerkPhase, type Model, Session } from "./model"
 import { initCustomer } from "./page/onboarding/plan-gate"
 import * as Preload from "./page/preload"
+import { enterRoute, pageIdentity } from "./page/registry"
+import { Message as ServicesMessage } from "./page/services/list/message"
 import * as SignIn from "./page/sign-in"
 import { AppRoute } from "./route"
 import * as Shell from "./shell"
 import { DashboardsData } from "./shell/model"
-import * as Toast from "./ui/toast"
+import * as Toast from "@maple/views/ui/toast"
 import type { ClerkSnapshot } from "./platform/clerk"
 import { subscriptions } from "./subscription"
 import { settle, update } from "./update"
@@ -32,7 +36,6 @@ const base = (route: AppRoute): Model => ({
 	toasts: Toast.init("toasts"),
 	toastActions: {},
 	toastRootActions: {},
-	chatSheet: ChatSheet.init(),
 	page: null,
 	pageInstances: 0,
 	parkedPages: [],
@@ -46,14 +49,27 @@ const base = (route: AppRoute): Model => ({
 })
 
 const urlOf = (path: string) => Option.getOrThrow(urlFromString(`http://localhost${path}`))
-const commandsOf = (result: { readonly commands?: ReadonlyArray<{ readonly name: string; readonly args?: unknown }> }) =>
-	(result.commands ?? []).map(({ name, args }) => ({ name, args }))
+const commandsOf = (result: {
+	readonly commands?: ReadonlyArray<{ readonly name: string; readonly args?: unknown }>
+}) => (result.commands ?? []).map(({ name, args }) => ({ name, args }))
 
 describe("root navigation", () => {
+	test("a deployment without status storage redirects status pages before loading them", () => {
+		const result = settle(base(AppRoute.StatusPages()))
+		expect(result.model.page).toBeNull()
+		expect(commandsOf(result).map(({ name }) => name)).toContain("ReplaceUrl")
+		expect(commandsOf(result).map(({ name }) => name)).not.toContain("FetchStatusPages")
+	})
+
 	test("a link navigation lands with the remembered window; Back/Forward is left as it is", () => {
 		const model = base(AppRoute.Logs({ search: {} }))
-		const clicked = update(model, Message.ClickedLink({ request: UrlRequest.Internal({ url: urlOf("/services") }) }))
-		expect(commandsOf(clicked)).toEqual([{ name: "NavigateInternal", args: { url: "/services?timePreset=7d" } }])
+		const clicked = update(
+			model,
+			Message.ClickedLink({ request: UrlRequest.Internal({ url: urlOf("/services") }) }),
+		)
+		expect(commandsOf(clicked)).toEqual([
+			{ name: "NavigateInternal", args: { url: "/services?timePreset=7d" } },
+		])
 		const popped = update(model, Message.ChangedUrl({ url: urlOf("/services") }))
 		expect(commandsOf(popped).filter(({ name }) => name === "ReplaceUrl")).toEqual([])
 		expect(popped.model.route).toEqual(AppRoute.Services({ search: {} }))
@@ -65,12 +81,20 @@ describe("root navigation", () => {
 		expect(zoned.model.timeZone).toBe("Asia/Tokyo")
 		const resolve = commandsOf(zoned).filter(({ args }) => JSON.stringify(args).includes("Asia/Tokyo"))
 		expect(resolve).toHaveLength(1)
-		expect(update(zoned.model, Message.ChangedTimeZonePreference({ timeZone: "Asia/Tokyo" })).commands ?? []).toEqual([])
+		expect(
+			update(zoned.model, Message.ChangedTimeZonePreference({ timeZone: "Asia/Tokyo" })).commands ?? [],
+		).toEqual([])
 	})
 
 	test("a closed toast's action entries are dropped", () => {
-		const model = { ...base(AppRoute.Logs({ search: {} })), toastRootActions: { t1: { _tag: "ReconnectOrgCollections" as const } } }
-		const ended = update(model, Message.GotToastMessage({ message: Toast.Message.EndedToastTransition({ toastId: "t1" }) }))
+		const model = {
+			...base(AppRoute.Logs({ search: {} })),
+			toastRootActions: { t1: { _tag: "ReconnectOrgCollections" as const } },
+		}
+		const ended = update(
+			model,
+			Message.GotToastMessage({ message: Toast.Message.EndedToastTransition({ toastId: "t1" }) }),
+		)
 		expect(ended.model.toastRootActions).toEqual({})
 	})
 
@@ -81,7 +105,10 @@ describe("root navigation", () => {
 			preload: { ...Preload.init(), holder: "ServicesList:Services:org_acme:1", heldKeys: ["k1"] },
 		}
 		const result = settle(model)
-		expect(commandsOf(result)).toContainEqual({ name: "ReleaseReads", args: { orgId: null, keys: ["k1"] } })
+		expect(commandsOf(result)).toContainEqual({
+			name: "ReleaseReads",
+			args: { orgId: null, keys: ["k1"] },
+		})
 		expect(result.model.preload.heldKeys).toEqual([])
 	})
 
@@ -107,10 +134,20 @@ describe("telemetry identity", () => {
 			memberships: [],
 			maybePendingTask: Option.none(),
 		}
-		const loaded = update(base(AppRoute.Services({ search: {} })), Message.CompletedLoadClerk({ snapshot }))
+		const loaded = update(
+			base(AppRoute.Services({ search: {} })),
+			Message.CompletedLoadClerk({ snapshot }),
+		)
 		expect(commandsOf(loaded)).toContainEqual({
 			name: "IdentifySession",
-			args: { identity: { id: "user_ada", username: "Ada Lovelace", email: "ada@acme.test", groupId: "org_acme" } },
+			args: {
+				identity: {
+					id: "user_ada",
+					username: "Ada Lovelace",
+					email: "ada@acme.test",
+					groupId: "org_acme",
+				},
+			},
 		})
 		const again = update(loaded.model, Message.ChangedClerkSession({ snapshot }))
 		expect(commandsOf(again).map(({ name }) => name)).not.toContain("IdentifySession")
@@ -129,13 +166,16 @@ describe("re-render on change only", () => {
 			homeRegion: "us",
 			isServedHere: true,
 			isRegionOpen: false,
-			flags: { aiAutoTriage: false, releases: false, securityAudit: false },
+			flags: { aiAutoTriage: false, releases: false, securityAudit: false, statusPages: false },
 		}),
 		memberships: [],
 		maybePendingTask: Option.none(),
 	})
 	const loadedHome = () =>
-		update(base(AppRoute.Home({ search: {} })), Message.CompletedLoadClerk({ snapshot: snapshotOf("Acme") })).model
+		update(
+			base(AppRoute.Home({ search: {} })),
+			Message.CompletedLoadClerk({ snapshot: snapshotOf("Acme") }),
+		).model
 
 	test("a Clerk emit that changed nothing (a token refresh) keeps the model and runs nothing", () => {
 		const model = loadedHome()
@@ -145,7 +185,10 @@ describe("re-render on change only", () => {
 	})
 
 	test("a Clerk emit with a renamed org stores the new snapshot", () => {
-		const renamed = update(loadedHome(), Message.ChangedClerkSession({ snapshot: snapshotOf("Acme Labs") }))
+		const renamed = update(
+			loadedHome(),
+			Message.ChangedClerkSession({ snapshot: snapshotOf("Acme Labs") }),
+		)
 		expect(renamed.model.clerkSnapshot?.maybeOrganization).toEqual(
 			Option.some(expect.objectContaining({ name: "Acme Labs" })),
 		)
@@ -159,6 +202,38 @@ describe("re-render on change only", () => {
 		expect(signedOut.model.session).toEqual(Session.SignedOut())
 	})
 
+	test("a page message its page ignores keeps the root model", () => {
+		const route = AppRoute.Services({ search: {} })
+		const context = { orgId, pinnedNamespace: null, timeZone: "UTC" }
+		const slot = Option.getOrThrow(Option.fromNullishOr(enterRoute(null, route, context, 1).slot))
+		const model: Model = {
+			...base(route),
+			page: slot,
+			pageInstances: 1,
+			preload: { ...Preload.init(), holder: pageIdentity(slot) },
+		}
+		const otherOrg = Schema.decodeSync(OrgId)("org_other")
+		const ignored = update(
+			model,
+			Message.GotPageMessage({
+				message: {
+					_tag: "ServicesList",
+					key: slot.key,
+					orgId: slot.orgId,
+					instance: slot.instance,
+					message: ServicesMessage.UpdatedIncidents({ orgId: otherOrg, incidents: [] }),
+				},
+			}),
+		)
+		expect(ignored.model).toBe(model)
+		expect(ignored.commands ?? []).toEqual([])
+	})
+
+	test("leaving a link that was never hovered keeps the root model", () => {
+		const model = base(AppRoute.Logs({ search: {} }))
+		expect(update(model, Message.EndedLinkIntent({ href: "/traces" })).model).toBe(model)
+	})
+
 	test("a shell message that changes no state keeps the root model, so the app does not re-render", () => {
 		const model = base(AppRoute.Logs({ search: {} }))
 		const visible = update(model, Message.GotShellMessage({ message: Shell.Message.BecameTabVisible() }))
@@ -169,11 +244,21 @@ describe("re-render on change only", () => {
 
 describe("pinned dashboards load", () => {
 	test("the sidebar waiting on dashboards watches for a sync failure, which settles it as failed", () => {
-		const shell = { ...base(AppRoute.Logs({ search: {} })).shell, maybeOrgId: Option.some(orgId), hasRequestedSidebarData: true }
-		const waiting: Model = { ...base(AppRoute.Logs({ search: {} })), shell: { ...shell, dashboards: DashboardsData.Loading() } }
+		const shell = {
+			...base(AppRoute.Logs({ search: {} })).shell,
+			maybeOrgId: Option.some(orgId),
+			hasRequestedSidebarData: true,
+		}
+		const waiting: Model = {
+			...base(AppRoute.Logs({ search: {} })),
+			shell: { ...shell, dashboards: DashboardsData.Loading() },
+		}
 		const watched = (model: Model) => subscriptions.shellDashboardsLoad.modelToDependencies(model).orgId
 		expect(watched(waiting)).toBe(orgId)
-		const failed = update(waiting, Message.GotShellMessage({ message: Shell.Message.FailedLoadDashboards({ orgId }) })).model
+		const failed = update(
+			waiting,
+			Message.GotShellMessage({ message: Shell.Message.FailedLoadDashboards({ orgId }) }),
+		).model
 		expect(failed.shell.dashboards._tag).toBe("Failure")
 		expect(watched(failed)).toBeNull()
 	})

@@ -4,7 +4,7 @@ import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
 
 // `QueryBuilderLegend` (packages/ui/src/components/charts/_shared/query-builder-legend.tsx), bottom
-// layout, for hosts outside a chart. The chart's own copy lives in `charts/area-chart.ts`.
+// layout, for hosts outside a chart. The chart's own copy lives in `@maple/views/charts/area-chart.ts`.
 
 export type LegendSeries = Readonly<{ key: string; label: string; color: string }>
 
@@ -39,7 +39,7 @@ const compactStrip = <M>(h: HtmlBuilder<M>, options: QueryBuilderLegendOptions<M
 					h.OnClick(options.onToggle(entry.key)),
 					h.Class(
 						cn(
-							"hover:bg-muted/50 flex min-w-0 max-w-full items-center gap-1.5 rounded px-1 py-0.5 select-none",
+							"hover:bg-surface-sunken active:bg-surface-sunken flex min-w-0 max-w-full items-center gap-1.5 rounded-sm px-1 py-0.5 select-none",
 							options.hidden.includes(entry.key) && "opacity-40",
 						),
 					),
@@ -58,7 +58,7 @@ const statCells = <M>(h: HtmlBuilder<M>, stats: SeriesStats | null, unit: string
 					[
 						h.Class(
 							cn(
-								"px-2 text-right font-mono tabular-nums text-muted-foreground/60 last:pr-0",
+								"px-2 text-right font-mono tabular-nums text-foreground-subtle last:pr-0",
 								column.className,
 							),
 						),
@@ -113,7 +113,7 @@ const statsTable = <M>(h: HtmlBuilder<M>, options: QueryBuilderLegendOptions<M>)
 									h.OnClick(options.onToggle(entry.key)),
 									h.Class(
 										cn(
-											"hover:bg-muted/50 cursor-pointer select-none",
+											"hover:bg-surface-sunken active:bg-surface-sunken cursor-pointer select-none",
 											options.hidden.includes(entry.key) && "opacity-40",
 										),
 									),

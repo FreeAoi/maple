@@ -7,14 +7,14 @@ import { getSpanHierarchy, getTraceSpanEvents } from "@maple/web-data/warehouse/
 import { Clock, Effect, Option, Schema } from "effect"
 import { Command } from "foldkit"
 import { IdleTtl } from "../../../data/idle-ttl"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { readThrough } from "../../../data/read-cache"
-import { requestKey, type RequestKey } from "../../../data/request-key"
+import { requestKey, type RequestKey } from "@maple/views/data/request-key"
 import { writeClipboard } from "../../kit/clipboard"
 import { listQueryOf } from "./list-query"
 import { Message } from "./message"
 import { ProductEvent } from "./model"
-import { SpanEvents, TraceData } from "./trace-data"
+import { SpanEvents, TraceData } from "@maple/views/traces/trace-data"
 
 /** `decodeTraceIdParam`: a pasted id may carry whitespace; anything still undecodable is not found. */
 export const decodeTraceId = (raw: string): Option.Option<TraceId> =>

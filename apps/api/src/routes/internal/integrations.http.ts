@@ -10,7 +10,6 @@ import {
 	CloudflareTopTrafficRow,
 	CloudflareUsageResponse,
 	CurrentTenant,
-	ExternalUserId,
 	GcpResourcesResponse,
 	GithubDeleteRepositoryResponse,
 	GithubDisconnectResponse,
@@ -21,11 +20,8 @@ import {
 	GithubPrReviewSettingsResponse,
 	GithubSetTrackedBranchResponse,
 	GithubStartConnectResponse,
-	HazelChannelsListResponse,
-	HazelDisconnectResponse,
-	HazelIntegrationStatus,
-	HazelOrganizationsListResponse,
-	HazelStartConnectResponse,
+	GithubSelectInstallationResponse,
+	InfraSurfaceLiteral,
 	IntegrationsForbiddenError,
 	IntegrationsUpstreamError,
 	LinearDisconnectResponse,
@@ -38,7 +34,6 @@ import {
 	RoleName,
 	SupabaseConnectResponse,
 	SupabaseDisconnectResponse,
-	UserId,
 	VCS_COMMIT_DETAILS_MAX_SHAS,
 	VCS_COMMIT_RANGES_MAX,
 	VcsCommitDetailResponse,
@@ -62,7 +57,12 @@ import {
 	topTrafficQuery,
 	type TopTrafficGroupDefinition,
 } from "@maple/backend/services/integrations/cloudflare-analytics/queries"
+import { AwsConnectionService } from "@maple/backend/services/integrations/AwsConnectionService"
 import { GcpConnectorService } from "@maple/backend/services/integrations/GcpConnectorService"
+import { PlanetScaleConnectionService } from "@maple/backend/services/integrations/PlanetScaleConnectionService"
+import { makeQueryRunners } from "@maple/backend/queries/query-runner"
+import { QueryEngineService } from "@maple/backend/services/warehouse/QueryEngineService"
+import { WarehouseQueryService } from "@maple/backend/services/warehouse/WarehouseQueryService"
 import { RailwayMetricsService } from "@maple/backend/services/integrations/RailwayMetricsService"
 import { SupabaseConnectionService } from "@maple/backend/services/integrations/SupabaseConnectionService"
 import { SupabaseInsightsService } from "@maple/backend/services/integrations/SupabaseInsightsService"
@@ -74,20 +74,17 @@ import {
 import { GithubConnectService } from "@maple/backend/services/integrations/vcs/vendor/github/GithubConnectService"
 import { VcsCommitService } from "@maple/backend/services/integrations/vcs/VcsCommitService"
 import { VcsSourceService } from "@maple/backend/services/integrations/vcs/VcsSourceService"
-import { HazelOAuthService } from "@maple/backend/services/auth/HazelOAuthService"
 import { LinearOAuthService } from "@maple/backend/services/auth/LinearOAuthService"
 import { requireAdmin as requireAdminRole } from "@maple/backend/services/auth/auth"
 import {
 	CLOUDFLARE_CALLBACK_PATH,
 	GITHUB_CALLBACK_PATH,
-	HAZEL_CALLBACK_PATH,
 	LINEAR_CALLBACK_PATH,
 } from "@/routes/integrations-callback.http"
 import { isTrustedCallbackOrigin, resolveRequestOrigin } from "@/routes/v2/integrations.http"
 import { makeOAuthCompleter } from "@/routes/oauth-complete"
-
-const asExternalUserId = Schema.decodeUnknownSync(ExternalUserId)
-const asUserId = Schema.decodeUnknownSync(UserId)
+import { Queries } from "@/routes/queries"
+import { settleInfraSurfaces } from "./infra-surfaces"
 
 /**
  * How long `cloudflarePrime` spends on the post-connect poll. Long enough for zone discovery plus
@@ -97,6 +94,8 @@ const asUserId = Schema.decodeUnknownSync(UserId)
  */
 const CLOUDFLARE_PRIME_TIMEOUT = "20 seconds"
 
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
+
 const requireAdmin = (roles: ReadonlyArray<RoleName>) =>
 	requireAdminRole(
 		roles,
@@ -105,7 +104,6 @@ const requireAdmin = (roles: ReadonlyArray<RoleName>) =>
 
 export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "integrations", (handlers) =>
 	Effect.gen(function* () {
-		const hazel = yield* HazelOAuthService
 		const linear = yield* LinearOAuthService
 		const github = yield* GithubConnectService
 		const vcsCommits = yield* VcsCommitService
@@ -118,6 +116,12 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 		const supabaseLogs = yield* SupabaseLogsService
 		const supabaseInsights = yield* SupabaseInsightsService
 		const gcp = yield* GcpConnectorService
+		const planetscale = yield* PlanetScaleConnectionService
+		const aws = yield* AwsConnectionService
+		const { runQuery } = makeQueryRunners({
+			warehouse: yield* WarehouseQueryService,
+			queryEngine: yield* QueryEngineService,
+		})
 		const edgeCache = yield* EdgeCacheService
 		const env = yield* Env
 		const completeOAuth = yield* makeOAuthCompleter
@@ -126,7 +130,8 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 		// client-settable header, so it must belong to the app's own host family.
 		const trustedCallbackUrl = (path: string) =>
 			Effect.gen(function* () {
-				const origin = resolveRequestOrigin(yield* HttpServerRequest.HttpServerRequest)
+				const request = yield* HttpServerRequest.HttpServerRequest
+				const origin = resolveRequestOrigin(request)
 				if (!isTrustedCallbackOrigin(origin, env)) {
 					return yield* new IntegrationsForbiddenError({
 						message: "Integrations cannot be connected from this host",
@@ -142,76 +147,6 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						return yield* completeOAuth(payload, { orgId: tenant.orgId, userId: tenant.userId })
-					}),
-				)
-				.handle("hazelStatus", () =>
-					Effect.gen(function* () {
-						const tenant = yield* CurrentTenant.Context
-						const status = yield* hazel.getStatus(tenant.orgId)
-						if (!status.connected) {
-							return new HazelIntegrationStatus({
-								connected: false,
-								externalUserId: null,
-								externalUserEmail: null,
-								connectedByUserId: null,
-								scope: null,
-							})
-						}
-						return new HazelIntegrationStatus({
-							connected: true,
-							externalUserId: asExternalUserId(status.externalUserId),
-							externalUserEmail: status.externalUserEmail,
-							connectedByUserId: asUserId(status.connectedByUserId),
-							scope: status.scope,
-						})
-					}),
-				)
-				.handle("hazelStart", ({ payload }) =>
-					Effect.gen(function* () {
-						const tenant = yield* CurrentTenant.Context
-						yield* requireAdmin(tenant.roles)
-						const callbackUrl = yield* trustedCallbackUrl(HAZEL_CALLBACK_PATH)
-						const result = yield* hazel.startConnect(tenant.orgId, tenant.userId, {
-							callbackUrl,
-							returnTo: payload.returnTo,
-						})
-						return new HazelStartConnectResponse(result)
-					}),
-				)
-				.handle("hazelOrganizations", () =>
-					Effect.gen(function* () {
-						const tenant = yield* CurrentTenant.Context
-						const organizations = yield* hazel.listOrganizations(tenant.orgId)
-						return new HazelOrganizationsListResponse({
-							organizations: organizations.map((o) => ({
-								id: o.id,
-								name: o.name,
-								slug: o.slug,
-								logoUrl: o.logoUrl,
-							})),
-						})
-					}),
-				)
-				.handle("hazelChannels", ({ params }) =>
-					Effect.gen(function* () {
-						const tenant = yield* CurrentTenant.Context
-						const channels = yield* hazel.listChannels(tenant.orgId, params.organizationId)
-						return new HazelChannelsListResponse({
-							channels: channels.map((c) => ({
-								id: c.id,
-								name: c.name,
-								type: c.type,
-								organizationId: c.organizationId,
-							})),
-						})
-					}),
-				)
-				.handle("hazelDisconnect", () =>
-					Effect.gen(function* () {
-						const tenant = yield* CurrentTenant.Context
-						yield* requireAdmin(tenant.roles)
-						const result = yield* hazel.disconnect(tenant.orgId)
-						return new HazelDisconnectResponse(result)
 					}),
 				)
 				.handle("linearStatus", () =>
@@ -256,7 +191,36 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						return new LinearDisconnectResponse(yield* linear.disconnect(tenant.orgId))
+						const disconnected = yield* linear.disconnect(tenant.orgId)
+						return new LinearDisconnectResponse(disconnected)
+					}),
+				)
+				// The sidebar's boot read: one request instead of the probe plus six statuses.
+				.handle("infraSurfaces", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const connected = <E, R>(
+							status: Effect.Effect<{ readonly connected: boolean }, E, R>,
+						) => Effect.map(status, (value) => value.connected)
+						return yield* settleInfraSurfaces({
+							surfaces: Effect.map(runQuery(Queries.infraPresence, tenant, payload), (rows) =>
+								rows.flatMap((row) =>
+									Schema.is(InfraSurfaceLiteral)(row.surface) ? [row.surface] : [],
+								),
+							),
+							cloudflare: connected(cloudflareAnalytics.getIntegrationStatus(tenant.orgId)),
+							railway: connected(railway.getStatus(tenant.orgId)),
+							planetscale: connected(planetscale.getStatus(tenant.orgId)),
+							// Google Cloud counts only with metrics on: the page reads metrics, not logs.
+							gcp: Effect.map(gcp.status(tenant.orgId), (status) =>
+								status.connectors.some((connector) => connector.metricsEnabled),
+							),
+							supabase: connected(supabase.getStatus(tenant.orgId)),
+							aws: Effect.map(
+								aws.status(tenant.orgId),
+								(status) => status.connections.length > 0,
+							),
+						})
 					}),
 				)
 				.handle("cloudflareStatus", () =>
@@ -433,7 +397,7 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 						// serve one user's drill-down as another's overview. Sorted so two equivalent
 						// selections share an entry.
 						const filterDigest = isFiltered
-							? JSON.stringify(
+							? yield* encodeJson(
 									Object.fromEntries(
 										Object.entries(filterVariables)
 											.sort(([a], [b]) => a.localeCompare(b))
@@ -442,7 +406,7 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 												Array.isArray(value) ? [...value].sort() : value,
 											]),
 									),
-								)
+								).pipe(Effect.orDie)
 							: ""
 						const cached = yield* edgeCache.getOrCompute(
 							{
@@ -544,7 +508,8 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						return new RailwayDisconnectResponse(yield* railway.disconnect(tenant.orgId))
+						const disconnected = yield* railway.disconnect(tenant.orgId)
+						return new RailwayDisconnectResponse(disconnected)
 					}),
 				)
 				// Any member may read the status; every change is an admin action, as for Railway.
@@ -600,13 +565,15 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
 						yield* requireAdmin(tenant.roles)
-						return new SupabaseDisconnectResponse(yield* supabase.disconnect(tenant.orgId))
+						const disconnected = yield* supabase.disconnect(tenant.orgId)
+						return new SupabaseDisconnectResponse(disconnected)
 					}),
 				)
 				.handle("gcpResources", ({ query }) =>
 					Effect.gen(function* () {
 						const tenant = yield* CurrentTenant.Context
-						return new GcpResourcesResponse(yield* gcp.resources(tenant.orgId, query))
+						const resources = yield* gcp.resources(tenant.orgId, query)
+						return new GcpResourcesResponse(resources)
 					}),
 				)
 				.handle("githubStatus", () =>
@@ -620,6 +587,7 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 							accountType: status.accountType,
 							repositorySelection: status.repositorySelection,
 							ciTracesEnabled: status.ciTracesEnabled,
+							repositoryDiscovery: status.repositoryDiscovery,
 							repositories: status.repositories,
 						})
 					}),
@@ -632,8 +600,24 @@ export const HttpIntegrationsLive = HttpApiBuilder.group(MapleInternalApi, "inte
 						const result = yield* github.startConnect(tenant.orgId, tenant.userId, {
 							callbackUrl,
 							returnTo: payload.returnTo,
+							mode: payload.mode,
 						})
 						return new GithubStartConnectResponse(result)
+					}),
+				)
+				.handle("githubSelectInstallation", ({ payload }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						yield* requireAdmin(tenant.roles)
+						const selected = yield* github.selectInstallation(
+							payload.installationId,
+							payload.state,
+							{
+								orgId: tenant.orgId,
+								userId: tenant.userId,
+							},
+						)
+						return new GithubSelectInstallationResponse(selected)
 					}),
 				)
 				.handle("githubDisconnect", () =>

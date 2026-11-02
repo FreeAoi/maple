@@ -13,6 +13,8 @@ import { buildTelegramText, buildTelegramTextFromTemplate } from "../../AlertDel
 import { truncate } from "../../alert-formatting"
 import type { HttpTransport, ProviderAck, RenderInput, SecretConfigOf } from "../Transport"
 
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
+
 type Config = SecretConfigOf<"telegram">
 
 const TELEGRAM_API_ORIGIN = "https://api.telegram.org"
@@ -67,7 +69,7 @@ export const telegramTransport: HttpTransport<Config> = {
 	peerService: "telegram",
 	providerLabel: "Telegram",
 	render: (input: RenderInput<Config>) => {
-		const { context, templated, linkUrl, chatUrl } = input
+		const { context, templated, linkUrl } = input
 		const text = templated
 			? buildTelegramTextFromTemplate(templated.title, templated.body, context)
 			: buildTelegramText(context)
@@ -80,24 +82,19 @@ export const telegramTransport: HttpTransport<Config> = {
 			// `server.address` only. The first provider where these two disagree,
 			// which is why `sensitivePath` is declared rather than inferred.
 			sensitivePath: true,
-			body: JSON.stringify({
+			body: encodeJson({
 				chat_id: input.config.chatId,
 				text,
 				parse_mode: "HTML",
 				// The chart as the message's link preview: Telegram renders it inline
 				// above the text, so it costs no second `sendPhoto` round-trip. With
-				// no chart there is nothing to preview and the links are buttons, so
-				// previews stay off rather than unfurling one of them at random.
+				// no chart there is nothing to preview and the link is a button, so
+				// previews stay off rather than unfurling it.
 				link_preview_options: context.chartUrl
 					? { url: context.chartUrl, show_above_text: true }
 					: { is_disabled: true },
 				reply_markup: {
-					inline_keyboard: [
-						[
-							{ text: "Open in Maple", url: linkUrl },
-							{ text: "✨ Ask Maple AI", url: chatUrl },
-						],
-					],
+					inline_keyboard: [[{ text: "Open in Maple", url: linkUrl }]],
 				},
 			}),
 		}
@@ -308,7 +305,7 @@ export const fetchTelegramChats = (
 ): Effect.Effect<TelegramChatDiscovery, never, HttpClient.HttpClient> =>
 	telegramGet(
 		`${TELEGRAM_API_ORIGIN}/bot${botToken}/getUpdates?limit=100&timeout=0&allowed_updates=${encodeURIComponent(
-			JSON.stringify(["message", "edited_message", "channel_post", "my_chat_member"]),
+			encodeJson(["message", "edited_message", "channel_post", "my_chat_member"]),
 		)}`,
 	).pipe(
 		Effect.map((response): TelegramChatDiscovery => {

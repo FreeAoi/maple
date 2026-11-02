@@ -2,18 +2,19 @@ import { formatClock } from "@maple/ui/lib/replay-format"
 import { hostFromUrl } from "@maple/ui/lib/replay"
 import { TONE_SOFT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
-import { Option } from "effect"
+import { Option, Schema } from "effect"
 import { createKeyedLazy, createLazy, type Html, type HtmlBuilder } from "foldkit/html"
-import { button } from "../../../ui/button"
-import { filterChip } from "../../../ui/filter-chip"
-import { icon } from "../../../ui/icon"
-import { iconButton } from "../../../ui/icon-button"
-import { panel } from "../../../ui/panel"
-import { segmentedSelect } from "../../../ui/segmented-select"
-import { spinner } from "../../../ui/spinner"
+import { button } from "@maple/views/ui/button"
+import { filterChip } from "@maple/views/ui/filter-chip"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { panel } from "@maple/views/ui/panel"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
+import { spinner } from "@maple/views/ui/spinner"
 import { docsLink } from "../../kit/signal-empty-state"
 import { stableSlice } from "../../kit/stable-slice"
 import {
+	COMPLETE_ATTRIBUTE,
 	CONTROL_ATTRIBUTE,
 	HOLD_ATTRIBUTE,
 	IDLE_ATTRIBUTE,
@@ -23,11 +24,23 @@ import {
 import { MARKER_STYLES } from "../kit/replay-meta"
 import { replayFormat } from "../kit/replay-window"
 import { FeedEvents, MountEngine } from "./command"
-import { type PlayerStatus, timelineFrom, timelineOf } from "./derive"
-import { isBuffering, seedEvents, seedShiftMs, trailingRanges } from "./loader"
+import type { PlayerStatus } from "./derive"
+import {
+	hasMoreChunks,
+	isBuffering,
+	loadedFromMs,
+	loadedUntilMs,
+	seedEvents,
+	seedShiftMs,
+	trailingRanges,
+} from "./loader"
 import { Message } from "./message"
 import type { Model, ReplayDetail } from "./model"
-import type { LoadFailure } from "../../../data/load-failure"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 // The replay surface and its transport controls.
 // TODO(scrubber-drag): the scrubber seeks on pointer down; drag-to-scrub and the hover time bubble
@@ -37,41 +50,38 @@ type H = HtmlBuilder<Message>
 
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8].map((s) => ({ value: String(s), label: `${s}×` }))
 
-/** The playhead on the trimmed (display) timeline: the only part a playback tick moves. */
+/**
+ * The playhead on the recording's own clock: the only part a playback tick moves. Skip-idle jumps the
+ * engine over idle gaps but never shortens the scrubber, so its length holds still as ranges load.
+ */
 export type Playhead = Readonly<{ currentMs: number; totalMs: number }>
 
-export const playheadOf = (model: Model): Playhead => {
-	const timeline = timelineOf(model)
-	return { currentMs: timeline.toDisplay(model.player.currentMs), totalMs: timeline.activeTotalMs }
-}
+export const playheadOf = (model: Model): Playhead => ({
+	currentMs: model.player.currentMs,
+	totalMs: model.player.totalMs,
+})
 
 type Marker = Model["meta"]["actionMarkers"][number]
 type Interval = Model["meta"]["inactiveIntervals"][number]
 
 const IDLE_HATCH = "repeating-linear-gradient(45deg, transparent 0 2px, rgba(0,0,0,0.18) 2px 4px)"
 
-const idleBandsView = (
-	h: H,
-	intervals: ReadonlyArray<Interval>,
-	totalMs: number,
-	isSkippingIdle: boolean,
-): Html => {
-	const timeline = timelineFrom({ inactiveIntervals: intervals, totalMs, isSkippingIdle })
-	const total = timeline.activeTotalMs
-	return h.div(
+/** `[left, width]` in percent of `totalMs` for the span `[fromMs, untilMs]`, clamped to the track. */
+const spanPct = (fromMs: number, untilMs: number, totalMs: number): readonly [number, number] => {
+	const leftPct = Math.max(0, Math.min(100, (fromMs / totalMs) * 100))
+	return [leftPct, Math.max(0, Math.min(100 - leftPct, ((untilMs - fromMs) / totalMs) * 100))]
+}
+
+const idleBandsView = (h: H, intervals: ReadonlyArray<Interval>, totalMs: number): Html =>
+	h.div(
 		[h.Class("absolute inset-0")],
-		total <= 0
+		totalMs <= 0
 			? []
 			: intervals.map((interval, i) => {
-					const start = timeline.toDisplay(interval.start)
-					const leftPct = Math.max(0, Math.min(100, (start / total) * 100))
-					const widthPct = Math.max(
-						0,
-						Math.min(100 - leftPct, ((timeline.toDisplay(interval.end) - start) / total) * 100),
-					)
+					const [leftPct, widthPct] = spanPct(interval.start, interval.end, totalMs)
 					return h.span(
 						[
-							h.Key(`idle-${start}-${i}`),
+							h.Key(`idle-${interval.start}-${i}`),
 							h.Class("absolute inset-y-0 bg-foreground/25"),
 							h.Style({
 								left: `${leftPct}%`,
@@ -85,38 +95,45 @@ const idleBandsView = (
 					)
 				}),
 	)
-}
 
-const markersView = (
-	h: H,
-	markers: ReadonlyArray<Marker>,
-	intervals: ReadonlyArray<Interval>,
-	totalMs: number,
-	isSkippingIdle: boolean,
-): Html => {
-	const timeline = timelineFrom({ inactiveIntervals: intervals, totalMs, isSkippingIdle })
-	const total = timeline.activeTotalMs
-	return h.div(
+const markersView = (h: H, markers: ReadonlyArray<Marker>, totalMs: number): Html =>
+	h.div(
 		[h.Class("absolute inset-0")],
-		total <= 0
+		totalMs <= 0
 			? []
-			: markers.map((marker, i) => {
-					const ms = timeline.toDisplay(marker.ms)
-					return h.span(
+			: markers.map((marker, i) =>
+					h.span(
 						[
-							h.Key(`${marker.kind}-${ms}-${i}`),
+							h.Key(`${marker.kind}-${marker.ms}-${i}`),
 							h.Class(
 								cn(
 									"absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-1 ring-card",
 									MARKER_STYLES[marker.kind],
 								),
 							),
-							h.Style({ left: `${Math.min(100, Math.max(0, (ms / total) * 100))}%` }),
+							h.Style({ left: `${Math.min(100, Math.max(0, (marker.ms / totalMs) * 100))}%` }),
 							h.Title(marker.kind),
 						],
 						[],
-					)
-				}),
+					),
+				),
+	)
+
+const bufferedView = (h: H, fromMs: number, untilMs: number, totalMs: number): Html => {
+	if (totalMs <= 0 || untilMs <= fromMs) return h.div([h.Class("absolute inset-0")], [])
+	const [leftPct, widthPct] = spanPct(fromMs, untilMs, totalMs)
+	return h.div(
+		[h.Class("absolute inset-0")],
+		[
+			h.span(
+				[
+					h.Class("absolute inset-y-0 rounded-full bg-foreground/20"),
+					h.Style({ left: `${leftPct}%`, width: `${widthPct}%` }),
+					h.Title("Downloaded"),
+				],
+				[],
+			),
+		],
 	)
 }
 
@@ -126,21 +143,19 @@ const trackSlots = createKeyedLazy()
 export type TrackSurface = "docked" | "fullscreen" | "timeline"
 
 export const idleBandsTrack = (h: H, model: Model, surface: TrackSurface): Html =>
-	trackSlots(`idle-${surface}`, idleBandsView, [
+	trackSlots(`idle-${surface}`, idleBandsView, [h, model.meta.inactiveIntervals, model.player.totalMs])
+
+/** The downloaded, playable span under the progress fill, like a video's buffered range. */
+export const bufferedTrack = (h: H, model: Model, surface: TrackSurface): Html =>
+	trackSlots(`buffered-${surface}`, bufferedView, [
 		h,
-		model.meta.inactiveIntervals,
+		model.loader.seedCount === 0 ? 0 : loadedFromMs(model),
+		model.loader.seedCount === 0 ? 0 : Math.min(loadedUntilMs(model), model.player.totalMs),
 		model.player.totalMs,
-		model.player.isSkippingIdle,
 	])
 
 export const markersTrack = (h: H, model: Model, surface: TrackSurface): Html =>
-	trackSlots(`markers-${surface}`, markersView, [
-		h,
-		model.meta.actionMarkers,
-		model.meta.inactiveIntervals,
-		model.player.totalMs,
-		model.player.isSkippingIdle,
-	])
+	trackSlots(`markers-${surface}`, markersView, [h, model.meta.actionMarkers, model.player.totalMs])
 
 /** `PlayerMessage`: the surface's centred note when there is nothing to play. */
 const playerMessage = (h: H, children: ReadonlyArray<Html | string>, hasSpinner = false): Html =>
@@ -158,7 +173,11 @@ const playerMessage = (h: H, children: ReadonlyArray<Html | string>, hasSpinner 
 						],
 						[hasSpinner ? spinner(h, "size-5") : icon(h, "EyeIcon", { className: "size-5" })],
 					),
-					h.p([h.Class("text-sm leading-relaxed text-muted-foreground")], children),
+					typography(
+						h,
+						{ size: "sm", tone: "muted", as: "p", className: "leading-relaxed" },
+						children,
+					),
 				],
 			),
 		],
@@ -185,8 +204,9 @@ const playerError = (h: H, failure: LoadFailure): Html => {
 						[h.Class("space-y-1")],
 						[
 							h.p([h.Class("text-sm font-medium text-muted-foreground")], [failure.title]),
-							h.p(
-								[h.Class("text-sm leading-relaxed text-muted-foreground")],
+							typography(
+								h,
+								{ size: "sm", tone: "muted", as: "p", className: "leading-relaxed" },
 								[failure.message],
 							),
 						],
@@ -234,9 +254,13 @@ const statusOverlay = (
 						)
 					: playerMessage(h, [
 							"This session wasn’t recorded. Replay is off or unsampled for this app. Its traces and events are still below.",
-							h.span([h.Class("mt-2 flex justify-center")], [docsLink(h, "sessionReplay")]),
+							hstack(
+								h,
+								{ align: "stretch", justify: "center", as: "span", className: "mt-2" },
+								[docsLink(h, "sessionReplay")],
+							),
 						])
-	return h.div([h.Class("absolute inset-0 bg-muted/30")], [body])
+	return h.div([h.Class("absolute inset-0 bg-surface-sunken")], [body])
 }
 
 /** What the stage reads: everything but the playhead, so a tick reuses it. */
@@ -255,6 +279,7 @@ const stageOf = stableSlice((model: Model) => ({
 	originMs: model.loader.originMs,
 	seedCount: model.loader.seedCount,
 	loaded: model.loader.loaded,
+	complete: hasMoreChunks(model) ? "" : String(trailingRanges(model.loader).length),
 }))
 type Stage = ReturnType<typeof stageOf>
 
@@ -272,9 +297,10 @@ const engineMount = (
 		h.Class("absolute inset-0"),
 		h.DataAttribute(CONTROL_ATTRIBUTE, stage.control),
 		h.DataAttribute(SPEED_ATTRIBUTE, String(stage.speed)),
-		h.DataAttribute(IDLE_ATTRIBUTE, JSON.stringify(stage.isSkippingIdle ? stage.inactiveIntervals : [])),
+		h.DataAttribute(IDLE_ATTRIBUTE, encodeJson(stage.isSkippingIdle ? stage.inactiveIntervals : [])),
 		h.DataAttribute(HOLD_ATTRIBUTE, String(isHolding)),
 		h.DataAttribute(TOTAL_ATTRIBUTE, String(stage.totalMs)),
+		h.DataAttribute(COMPLETE_ATTRIBUTE, stage.complete),
 	]
 	return status === "ready"
 		? h.div(
@@ -326,16 +352,13 @@ const playOverlay = (h: H, stage: Stage): Html =>
 
 const urlBar = (h: H, urlInitial: string): Html =>
 	h.div(
-		[h.Class("flex items-center gap-3 border-b border-border bg-muted/40 px-3.5 py-2.5")],
+		[h.Class("flex items-center gap-3 border-b border-border bg-surface-sunken px-3.5 py-2.5")],
 		[
-			h.div(
-				[h.Class("flex items-center gap-1.5"), h.AriaHidden(true)],
-				[
-					h.span([h.Class("size-3 rounded-full bg-[#ff5f57]")], []),
-					h.span([h.Class("size-3 rounded-full bg-[#febc2e]")], []),
-					h.span([h.Class("size-3 rounded-full bg-[#28c840]")], []),
-				],
-			),
+			hstack(h, { gap: "1.5", attributes: [h.AriaHidden(true)] }, [
+				h.span([h.Class("size-3 rounded-full bg-window-dot-close")], []),
+				h.span([h.Class("size-3 rounded-full bg-window-dot-minimize")], []),
+				h.span([h.Class("size-3 rounded-full bg-window-dot-zoom")], []),
+			]),
 			h.div(
 				[
 					h.Class(
@@ -343,11 +366,10 @@ const urlBar = (h: H, urlInitial: string): Html =>
 					),
 				],
 				[
-					icon(h, "GlobeIcon", { className: "size-3.5 shrink-0 opacity-70" }),
-					h.span(
-						[h.Class("truncate font-mono")],
-						[urlInitial ? hostFromUrl(urlInitial) : "about:blank"],
-					),
+					icon(h, "GlobeIcon", { className: "size-3.5 shrink-0" }),
+					typography(h, { mono: true, truncate: true }, [
+						urlInitial ? hostFromUrl(urlInitial) : "about:blank",
+					]),
 				],
 			),
 		],
@@ -401,7 +423,7 @@ export const replaySurface = (h: H, model: Model, session: ReplayDetail, state: 
 		h,
 		{
 			className: cn(
-				"block shadow-sm",
+				"block shadow-raised",
 				"rounded-b-none shadow-none",
 				isFullscreen && "flex h-screen w-screen flex-col rounded-none border-0 bg-black",
 			),
@@ -449,6 +471,7 @@ const scrubber = (h: H, model: Model, surface: TrackSurface): Html => {
 					),
 				],
 				[
+					bufferedTrack(h, model, surface),
 					idleBandsTrack(h, model, surface),
 					h.div(
 						[h.Class("relative h-full rounded-full bg-primary"), h.Style({ width: `${pct}%` })],
@@ -460,7 +483,7 @@ const scrubber = (h: H, model: Model, surface: TrackSurface): Html => {
 			h.div(
 				[
 					h.Class(
-						"absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background opacity-0 shadow-sm transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100",
+						"absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background opacity-0 shadow-raised transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100",
 					),
 					h.Style({ left: `${pct}%` }),
 				],
@@ -509,7 +532,8 @@ const settings = (h: H, speed: number, isSkippingIdle: boolean, isFullscreen: bo
 				{
 					label: isFullscreen ? "Exit fullscreen" : "Enter fullscreen",
 					size: "icon",
-					className: "text-muted-foreground hover:text-foreground max-sm:ml-auto",
+					className:
+						"text-muted-foreground hover:text-foreground active:text-foreground max-sm:ml-auto",
 					attributes: [h.OnClick(Message.ClickedFullscreen())],
 				},
 				[icon(h, isFullscreen ? "MinimizeIcon" : "MaximizeIcon")],

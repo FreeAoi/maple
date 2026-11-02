@@ -5,16 +5,16 @@ import { parseWarehouseDateTime, relativeRangeSeconds } from "@maple/query-engin
 import { TONE_TEXT } from "@maple/ui/lib/tone"
 import { badgeVariants } from "@maple/ui/styles/ui/badge"
 import { kbdStyles } from "@maple/ui/styles/ui/kbd"
-import { isDialogOpen, isEditableTarget } from "@maple/ui/lib/keyboard"
+import { isDialogOpen, isEditableTarget, pressedKey } from "@maple/ui/lib/keyboard"
 import { Clock, Effect, Option, Schema, type Stream } from "effect"
 import { Command, Dom, Mount, Submodel, type Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { button } from "../../ui/button"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon } from "../../ui/icon"
-import * as Combobox from "../../ui/combobox"
-import * as Popover from "../../ui/popover"
+import { button } from "@maple/views/ui/button"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import * as Combobox from "@maple/views/ui/combobox"
+import * as Popover from "@maple/views/ui/popover"
 import {
 	readEffectiveTimeZone,
 	readSelectedTimeZone,
@@ -24,10 +24,15 @@ import {
 import { PageOutMessage } from "../contract"
 import { zoneListView } from "./timezone-select-view"
 import { formatUtcOffset, readZoneRows, ZoneRow } from "./timezone-zones"
-import { isMounted } from "../../ui/overlay/transition"
+import { isMounted } from "@maple/views/ui/overlay/transition"
 import * as CustomRange from "./custom-range"
 import * as CustomRangeView from "./custom-range-view"
-import { presetLabel, timeRangeTriggerContent } from "./time-controls"
+import {
+	LONG_RANGE_PRESET_VALUES,
+	PRESET_VALUES,
+	presetLabel,
+	timeRangeTriggerContent,
+} from "./time-controls"
 
 // `TimeRangePicker`: the header
 // popover with the preset rail and quick select. Picking a range is an OutMessage; the page writes
@@ -286,8 +291,27 @@ export const update = (model: Model, message: Message): Return =>
 	})
 
 /** The list presets (`LONG_RANGE_PRESET_OPTIONS` for long-range pages, else `PRESET_OPTIONS`). */
-export const PRESET_VALUES = ["5m", "15m", "30m", "1h", "6h", "12h", "1d", "3d", "1w", "2w", "1mo"]
-export const LONG_RANGE_PRESET_VALUES = [...PRESET_VALUES, "3mo", "6mo", "12mo"]
+export { LONG_RANGE_PRESET_VALUES, PRESET_VALUES }
+
+/** The window a shorthand resolves to: minutes and hours roll, days and weeks count calendar days,
+ * months count calendar months (`resolveRelativeRange`). Null for "today" and non-shorthand. */
+const windowIdentity = (shorthand: string): string | null => {
+	const match = shorthand.trim().toLowerCase().match(/^(\d+)(mo|m|h|d|w)$/)
+	if (match === null) return null
+	const amount = Number.parseInt(match[1] ?? "0", 10)
+	const unit = match[2]
+	if (unit === "m" || unit === "h") return `rolling:${unit === "h" ? amount * 60 : amount}`
+	if (unit === "d" || unit === "w") return `days:${unit === "w" ? amount * 7 : amount}`
+	return `months:${amount}`
+}
+
+/** A preset row is active for its own value or one naming the same window ("7d" marks "1w"). */
+export const isActivePreset = (selected: string | undefined, value: string): boolean => {
+	if (selected === undefined) return false
+	if (selected === value) return true
+	const identity = windowIdentity(selected)
+	return identity !== null && identity === windowIdentity(value)
+}
 const LONG_LABELS = new Map([
 	["3mo", "Last 3 months"],
 	["6mo", "Last 6 months"],
@@ -322,7 +346,7 @@ const presetList = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html =>
 			h.div(
 				[h.Class("flex flex-col")],
 				inputs.presets.map((value) => {
-					const isActive = inputs.selectedPreset === value
+					const isActive = isActivePreset(inputs.selectedPreset, value)
 					return h.button(
 						[
 							h.Key(value),
@@ -331,10 +355,10 @@ const presetList = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html =>
 							h.Class(
 								cn(
 									"relative flex h-7 items-center pl-3 pr-2 text-left text-xs transition-colors",
-									"before:absolute before:inset-y-1 before:left-0 before:w-[2px] before:rounded-r before:bg-transparent before:transition-colors",
-									"hover:bg-muted/50",
+									"before:absolute before:inset-y-1 before:left-0 before:w-[2px] before:rounded-r-sm before:bg-transparent before:transition-colors",
+									"hover:bg-surface-sunken active:bg-surface-sunken",
 									isActive && "text-foreground before:bg-primary",
-									!isActive && "text-foreground/80",
+									!isActive && "text-foreground-soft",
 								),
 							),
 						],
@@ -347,13 +371,13 @@ const presetList = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html =>
 					)
 				}),
 			),
-			h.div([h.Class("mx-3 mt-1 h-px bg-border/60")], []),
+			h.div([h.Class("mx-3 mt-1 h-px bg-border-subtle")], []),
 			h.button(
 				[
 					h.Type("button"),
 					h.OnClick(Message.ClickedCustomRange(customSeed(inputs))),
 					h.Class(
-						"mt-1 flex h-7 items-center gap-2 pl-3 pr-2 text-left text-xs text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground",
+						"mt-1 flex h-7 items-center gap-2 pl-3 pr-2 text-left text-xs text-foreground-soft hover:bg-surface-sunken active:bg-surface-sunken hover:text-foreground active:text-foreground",
 					),
 				],
 				[
@@ -378,7 +402,7 @@ const quickSelect = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html =>
 							h.Type("button"),
 							h.OnClick(Message.ClickedPreset({ value, ...withMax(inputs) })),
 							h.Class(
-								"flex h-7 items-center justify-center rounded-md border border-border/60 bg-background/30 font-mono text-2xs tracking-wide text-foreground/90 transition-colors hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+								"flex h-7 items-center justify-center rounded-md border border-border-subtle bg-background/30 font-mono text-2xs tracking-wide text-foreground-soft hover:border-border active:border-border hover:bg-surface-strong active:bg-surface-strong hover:text-foreground active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 							),
 						],
 						[value],
@@ -416,12 +440,12 @@ const shorthandInput = (h: HtmlBuilder<Message>, model: Model, inputs: ViewInput
 							"focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
 							model.isShorthandInvalid
 								? "border-destructive/70"
-								: "border-border/70 hover:border-border",
+								: "border-border-subtle hover:border-border active:border-border",
 						),
 					),
 				],
 				[
-					h.span([h.Class("font-mono text-2xs text-muted-foreground/70 select-none")], ["›"]),
+					h.span([h.Class("font-mono text-2xs text-foreground-subtle select-none")], ["›"]),
 					h.input([
 						h.Value(model.shorthand),
 						h.OnInput((value) => Message.ChangedShorthand({ value })),
@@ -432,7 +456,7 @@ const shorthandInput = (h: HtmlBuilder<Message>, model: Model, inputs: ViewInput
 						),
 						h.Placeholder("Any duration, e.g. 90m"),
 						h.Class(
-							"flex-1 bg-transparent font-mono text-sm tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none",
+							"flex-1 bg-transparent font-mono text-sm tracking-tight text-foreground placeholder:text-foreground-faint focus:outline-none",
 						),
 						h.Spellcheck(false),
 						h.Autocomplete("off"),
@@ -503,7 +527,7 @@ export const SelectTimeZone = Command.define("SelectTimeZone", {
 const HOTKEY_ATTRIBUTE = "time-range-hotkey"
 
 type KeyPress = Readonly<{
-	key: string
+	key?: string | undefined
 	metaKey: boolean
 	ctrlKey: boolean
 	altKey: boolean
@@ -512,7 +536,11 @@ type KeyPress = Readonly<{
 
 /** The `time.open` combo: a bare "D" (either case), no modifier held. */
 export const isOpenKey = (event: KeyPress): boolean =>
-	event.key.toLowerCase() === "d" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+	pressedKey(event).toLowerCase() === "d" &&
+	!event.metaKey &&
+	!event.ctrlKey &&
+	!event.altKey &&
+	!event.shiftKey
 
 /**
  * `useAppHotkey("time.open", () => setOpen(true))`: "D" outside fields and dialogs, unmodified,
@@ -545,7 +573,7 @@ const timezoneFooter = (h: HtmlBuilder<Message>, model: Model, fallbackZone: str
 		[
 			h.Id(anchorId),
 			h.Class(
-				"flex items-center justify-between gap-3 border-t border-border/70 bg-muted/20 px-4 py-2",
+				"flex items-center justify-between gap-3 border-t border-border-subtle bg-surface-faint px-4 py-2",
 			),
 		],
 		[
@@ -563,7 +591,7 @@ const timezoneFooter = (h: HtmlBuilder<Message>, model: Model, fallbackZone: str
 						cn(
 							"-mr-1.5 inline-flex h-6 min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5",
 							"text-2xs tracking-tight outline-none transition-colors",
-							"hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/24 data-popup-open:bg-muted/60",
+							"hover:bg-surface-strong active:bg-surface-strong focus-visible:ring-[3px] focus-visible:ring-ring/24 data-popup-open:bg-surface-strong",
 						),
 					),
 					h.DataAttribute("slot", "combobox-trigger"),
@@ -572,12 +600,12 @@ const timezoneFooter = (h: HtmlBuilder<Message>, model: Model, fallbackZone: str
 					h.Type("button"),
 				],
 				[
-					icon(h, "GlobeIcon", { className: "size-3 shrink-0 text-muted-foreground/70" }),
-					h.span([h.Class("truncate font-mono text-foreground/90")], [timeZone]),
+					icon(h, "GlobeIcon", { className: "size-3 shrink-0 text-foreground-subtle" }),
+					h.span([h.Class("truncate font-mono text-foreground-soft")], [timeZone]),
 					h.keyed("span")(
 						`utc-offset-${fallbackZone}`,
 						[
-							h.Class("shrink-0 font-mono text-muted-foreground/70"),
+							h.Class("shrink-0 font-mono text-foreground-subtle"),
 							h.OnMount(MountUtcOffset({ timeZone: fallbackZone })),
 						],
 						[model.utcOffset?.label ?? ""],
@@ -668,7 +696,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
 										h.div(
 											[
 												h.Class(
-													"w-full shrink-0 border-b border-border/70 sm:w-[168px] sm:border-r sm:border-b-0",
+													"w-full shrink-0 border-b border-border-subtle sm:w-44 sm:border-r sm:border-b-0",
 												),
 											],
 											[presetList(h, inputs)],

@@ -11,14 +11,9 @@ import {
 } from "@maple/domain/http"
 import { Clock, Context, Effect, Layer, Option, Redacted, Schema } from "effect"
 import { HttpClient } from "effect/http"
-import { buildAlertChatUrl } from "./AlertDeliveryDispatch"
 import { dispatchDelivery as dispatchDeliveryImpl } from "./delivery/dispatch"
 import type { DispatchContext } from "./delivery/context"
-import {
-	hydrateDestinationRow,
-	type DestinationSecretConfig,
-	type EnrichedDestinationSecretConfig,
-} from "./AlertDestinationHydration"
+import { hydrateDestinationRow } from "./AlertDestinationHydration"
 import { parseBase64Aes256GcmKey } from "@maple/backend/platform/Crypto"
 import { ChatAlertPoster } from "./ChatAlertPoster"
 import { LinearIssueTracker } from "./LinearIssueTracker"
@@ -41,6 +36,8 @@ class NotificationDispatchError extends Schema.TaggedError<NotificationDispatchE
 		cause: Schema.optionalKey(Schema.Defect()),
 	},
 ) {}
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
 
 export interface NotificationRequest {
 	readonly deliveryKey: string
@@ -134,14 +131,6 @@ const make: Effect.Effect<
 				),
 			)
 
-	const enrichSecretConfig = (
-		_row: AlertDestinationRow,
-		secretConfig: DestinationSecretConfig,
-	): Effect.Effect<EnrichedDestinationSecretConfig, NotificationDispatchError> =>
-		// Hazel-OAuth webhooks now embed their delivery token in the URL path,
-		// so no enrichment is required at dispatch time.
-		Effect.succeed(secretConfig)
-
 	const dispatchOne = Effect.fn("NotificationDispatcher.dispatchOne")(function* (
 		row: AlertDestinationRow,
 		request: NotificationRequest,
@@ -158,11 +147,10 @@ const make: Effect.Effect<
 			onSecretConfigInvalid: () =>
 				new NotificationDispatchError({ message: "Stored destination secret is invalid" }),
 		})
-		const enrichedSecret = yield* enrichSecretConfig(row, hydrated.secretConfig)
 		const context: DispatchContext = {
 			destination: row,
 			publicConfig: hydrated.publicConfig,
-			secretConfig: enrichedSecret,
+			secretConfig: hydrated.secretConfig,
 			deliveryKey: request.deliveryKey,
 			ruleId: request.ruleId,
 			ruleName: request.ruleName,
@@ -180,11 +168,10 @@ const make: Effect.Effect<
 			value: request.value,
 			sampleCount: request.sampleCount,
 		}
-		const chatUrl = buildAlertChatUrl(env.MAPLE_APP_BASE_URL, {
-			...request,
-			thresholdUpper: request.thresholdUpper ?? null,
-		})
-		const payloadJson = JSON.stringify({
+		// Every request here is an error issue or its escalation, which no alert incident or rule page has.
+		const chatUrl = request.linkUrl
+		const sentAtMs = yield* Clock.currentTimeMillis
+		const payloadJson = yield* encodeJson({
 			eventType: request.escalation ? "escalation" : request.eventType,
 			...(request.escalation ? { escalation: request.escalation } : undefined),
 			incidentId: request.incidentId,
@@ -207,8 +194,16 @@ const make: Effect.Effect<
 			},
 			linkUrl: request.linkUrl,
 			chatUrl,
-			sentAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
-		})
+			sentAt: new Date(sentAtMs).toISOString(),
+		}).pipe(
+			Effect.mapError(
+				(cause) =>
+					new NotificationDispatchError({
+						message: "Failed to encode notification payload",
+						cause,
+					}),
+			),
+		)
 		const result = yield* dispatchDeliveryImpl(
 			context,
 			payloadJson,

@@ -1,10 +1,10 @@
 import { AlertDestinationId } from "@maple/domain/http"
 import { Option, Result, Schema } from "effect"
 import { AsyncData, Command as FoldkitCommand } from "foldkit"
-import * as Keyed from "../../../data/keyed"
-import { requestKey } from "../../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import { requestKey } from "@maple/views/data/request-key"
 import type { AppRoute } from "../../../route"
-import * as Menu from "../../../ui/menu"
+import * as Menu from "@maple/views/ui/menu"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import { monitorHref, monitorIdFromUrl } from "../shared/uptime-commands"
 import {
@@ -19,6 +19,8 @@ import { defaultName, formFromMonitor, formIssues, wireConfig, wirePayload } fro
 import { ASSERTION_OPS, type AssertionDraft, emptyForm, type Form, MonitorKind, type TextField } from "./form"
 import { Message } from "./message"
 import type { Model } from "./model"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 type Return = PageReturn<Model, Message>
 type FormRoute = Extract<AppRoute, { readonly _tag: "AlertsUptimeNew" }>
@@ -133,7 +135,7 @@ const updateDestinationMenu = (model: Model, message: Menu.Message): Return => {
 }
 
 /** The tested config as a comparable key; destinations and name are not part of it. */
-const configKey = (form: Form): string => JSON.stringify(wireConfig(form))
+const configKey = (form: Form): string => encodeJson(wireConfig(form))
 
 /** A test result only stands while the form still has the config it ran on. */
 const dropStaleTest = (next: Return): Return =>

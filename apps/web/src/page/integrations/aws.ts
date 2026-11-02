@@ -11,12 +11,12 @@ import { readLocalStorage, writeLocalStorage } from "@maple/ui/lib/local-storage
 import { displayError, isUnexpectedError } from "@maple/web-data/lib/error-messages"
 import { Effect, Option, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
-import { KeyedSchema } from "../../data/keyed"
-import { LoadFailure, toLoadFailure } from "../../data/load-failure"
+import { KeyedSchema } from "@maple/views/data/keyed"
+import { LoadFailure, toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleApiV2Client } from "../../platform/api-clients"
-import * as CopyButton from "../../ui/copy-button"
-import * as Dialog from "../../ui/dialog"
-import * as Field from "../../ui/field"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Field from "@maple/views/ui/field"
 import { AwsRemovedStack, AwsSetupMethod } from "./aws-schema"
 import { Message } from "./message"
 
@@ -143,7 +143,7 @@ export const CreateAwsConnection = Command.define("CreateAwsConnection", {
 		}).pipe(
 			Effect.catch((error) =>
 				Effect.succeed(
-					Message.FailedAwsCreate({ error: messageOf(error, "Failed to connect AWS.") }),
+					Message.FailedAwsCreate({ error: messageOf(error, "Couldn't connect AWS.") }),
 				),
 			),
 		),
@@ -164,7 +164,7 @@ export const UpdateAwsMetricStream = Command.define("UpdateAwsMetricStream", {
 				onFailure: (error) =>
 					Message.CompletedAwsMetricStream({
 						connection: null,
-						error: messageOf(error, "Failed to turn on the metric stream."),
+						error: messageOf(error, "Couldn't turn on the metric stream."),
 					}),
 				onSuccess: (connection) => Message.CompletedAwsMetricStream({ connection, error: null }),
 			}),
@@ -230,7 +230,7 @@ export const DeleteAwsConnection = Command.define("DeleteAwsConnection", {
 					Message.CompletedAwsDisconnect({
 						id,
 						removed: null,
-						error: messageOf(error, "Failed to disconnect AWS."),
+						error: messageOf(error, "Couldn't disconnect AWS."),
 					}),
 				onSuccess: (response) =>
 					Message.CompletedAwsDisconnect({

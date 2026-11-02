@@ -1,7 +1,7 @@
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { PlotGeometry } from "../../../charts/chart"
-import { truncatedText } from "../../../ui/truncated-text"
+import type { PlotGeometry } from "@maple/views/charts/chart"
+import { truncatedText } from "@maple/views/ui/truncated-text"
 import type { MarkerLayout } from "./derive-markers"
 
 // Commit markers over a chart, idle.
@@ -85,8 +85,8 @@ export const markersOverlay = <M>(
 							}),
 							h.Class(
 								cn(
-									"pointer-events-auto flex cursor-pointer items-center justify-center gap-1 rounded-[5px] border px-1.5 font-mono text-2xs leading-none backdrop-blur-sm transition-colors",
-									"border-border/60 bg-popover/85 text-muted-foreground hover:text-popover-foreground",
+									"pointer-events-auto flex cursor-pointer items-center justify-center gap-1 rounded-sm border px-1.5 font-mono text-2xs leading-none backdrop-blur-sm",
+									"border-border-subtle bg-popover/85 text-muted-foreground hover:text-popover-foreground active:text-popover-foreground",
 								),
 							),
 						],
@@ -98,8 +98,8 @@ export const markersOverlay = <M>(
 											[
 												h.Class(
 													cn(
-														"shrink-0 rounded-[3px] px-1 text-3xs tabular-nums",
-														"bg-muted/70 text-muted-foreground",
+														"shrink-0 rounded-xs px-1 text-3xs tabular-nums",
+														"bg-surface-strong text-muted-foreground",
 													),
 												),
 											],

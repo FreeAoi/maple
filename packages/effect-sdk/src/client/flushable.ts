@@ -32,6 +32,7 @@ import { makeMetricBuffer } from "../shared/flushable-metrics.js"
 import { type CaptureExceptionOptions, makeSpanBuffer, type SpanBuffer } from "../shared/flushable-tracer.js"
 import type { MapleSpanOptions } from "../shared/span-options.js"
 import { browserDocument, browserNavigator, browserResourceAttributes } from "./browser-globals.js"
+import { isBrowserNoise } from "./error-noise.js"
 import { type ClientReplayConfig, startClientSession } from "./replay-loader.js"
 import { withSessionLink } from "./session-link.js"
 import type { PrivacyOptions } from "./track.js"
@@ -153,6 +154,7 @@ export interface FlushableTelemetry {
 
 /** Keepalive-budgeted POST (see file header), aborted when it takes too long. */
 const postOtlp = (url: string, headers: Record<string, string>, body: unknown) => {
+	// oxlint-disable-next-line effecttsgo/global-json -- customer-facing SDK, keeps Schema out of the bundle
 	const json = JSON.stringify(body)
 	const timeoutMs = POST_TIMEOUT_MS + (json.length / 1024) * POST_TIMEOUT_MS_PER_KIB
 	const controller = new AbortController()
@@ -359,7 +361,7 @@ export const make = (config: MapleClientFlushableConfig): FlushableTelemetry => 
 		// louder error tracker.
 		const error: unknown =
 			event.error ?? (event.message && event.filename ? new Error(event.message) : undefined)
-		if (error === undefined) return
+		if (error === undefined || isBrowserNoise(error, "window.onerror", event.filename)) return
 		captureException(error, {
 			name: "browser.uncaught_error",
 			attributes: {
@@ -375,6 +377,7 @@ export const make = (config: MapleClientFlushableConfig): FlushableTelemetry => 
 	}
 
 	const onUnhandledRejection = (event: PromiseRejectionEvent): void => {
+		if (isBrowserNoise(event.reason, "unhandledrejection")) return
 		captureException(event.reason, {
 			name: "browser.unhandled_rejection",
 			attributes: { "maple.exception.source": "unhandledrejection" },

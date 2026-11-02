@@ -1,9 +1,9 @@
 import { OrgId } from "@maple/domain"
 import { Result, Schema } from "effect"
-import { expect as expectView, given, Mount, scene, text, withViewInputs } from "foldkit/scene"
-import { ResolveThemeColors, ThemeMessage } from "../../../../charts/theme-colors"
+import { expect as expectView, given, Mount, role, scene, text, withViewInputs } from "foldkit/scene"
+import { ResolveThemeColors, ThemeMessage } from "@maple/views/charts/theme-colors"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import type { PageContext } from "../../../contract"
 import type { RailwayServiceRow } from "../model"
 import { Message } from "./message"
@@ -51,8 +51,14 @@ describe("railway service", () => {
 		const scoped = routeChanged(reloaded, { ...route, search: { environmentId: "env_staging" } }, context)
 		expect(names(scoped.commands)).toContain("FetchRailwayServiceTimeseries")
 		expect(names(scoped.commands)).not.toContain("ResolveRailwayServiceWindow")
-		const moved = routeChanged(scoped.model, { ...route, search: { environmentId: "env_staging", timePreset: "1h" } }, context)
-		expect(moved.commands?.map(({ name, args }) => [name, args?.["mode"]])).toEqual([["ResolveRailwayServiceWindow", "Refresh"]])
+		const moved = routeChanged(
+			scoped.model,
+			{ ...route, search: { environmentId: "env_staging", timePreset: "1h" } },
+			context,
+		)
+		expect(moved.commands?.map(({ name, args }) => [name, args?.["mode"]])).toEqual([
+			["ResolveRailwayServiceWindow", "Refresh"],
+		])
 	})
 
 	test("the window brings the fleet read and the service's series, bucketed for ~100 points", () => {
@@ -89,6 +95,45 @@ describe("railway service", () => {
 			given(loaded),
 			themeResolved(),
 			expectView(text("1.5 vCPU")).toExist(),
+		)
+	})
+
+	test("the service links its traces when a traced service has its name, and says so when none does", () => {
+		const model = windowed()
+		const loaded = pageUpdate(
+			model,
+			Message.CompletedFetchServices({
+				key: model.services.key ?? "",
+				result: Result.succeed([service]),
+			}),
+		).model
+		const traced = (serviceNames: ReadonlyArray<string>) =>
+			pageUpdate(
+				loaded,
+				Message.CompletedFetchTraced({
+					key: loaded.traced.key ?? "",
+					result: Result.succeed(
+						serviceNames.map((serviceName) => ({
+							serviceName,
+							errorRate: 0,
+							throughput: 1,
+							p95LatencyMs: 5,
+						})),
+					),
+				}),
+			).model
+		scene(
+			{ update: pageUpdate, view },
+			given(traced(["web", "api"])),
+			themeResolved(),
+			expectView(role("link", { name: "traced as api" })).toHaveAttr("href", "/services/api"),
+		)
+		scene(
+			{ update: pageUpdate, view },
+			given(traced(["web"])),
+			themeResolved(),
+			expectView(text("no traces matched")).toExist(),
+			expectView(role("link", { name: /traced as/ })).not.toExist(),
 		)
 	})
 

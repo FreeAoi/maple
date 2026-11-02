@@ -5,6 +5,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Resources } from "../platform/resources"
 import type { AppRoute } from "../route"
 import type { BreadcrumbEntry } from "../shell"
+import type { PageSourceRef } from "../shell/source-link"
 import type {
 	PageContext,
 	PageHost,
@@ -18,6 +19,7 @@ import * as AgentSessionsList from "./agent-sessions/list"
 import * as AgentSession from "./agent-sessions/session"
 import * as AgentSessionTool from "./agent-sessions/tool"
 import * as AgentSessionTools from "./agent-sessions/tools"
+import * as McpServers from "./mcp/hub"
 import * as AlertEditor from "./alerts/editor"
 import * as AlertsHub from "./alerts/hub"
 import * as AnomaliesList from "./anomalies/list"
@@ -31,11 +33,12 @@ import * as DashboardsList from "./dashboards/list"
 import * as DashboardTemplates from "./dashboards/templates"
 import * as DashboardView from "./dashboards/view"
 import * as DashboardWidget from "./dashboards/widget"
-import * as Chat from "./chat/page"
 import * as CodeReview from "./code-review"
+import * as SecurityDependencies from "./security/dependencies"
 import * as SecurityFinding from "./security/finding"
 import * as SecurityRun from "./security/run"
 import * as SecurityTabs from "./security/tabs"
+import * as SecurityTelemetry from "./security/telemetry"
 import * as ErrorsHub from "./errors/hub"
 import * as ErrorIssue from "./errors/issue"
 import * as InfraContainer from "./infra/containers/detail"
@@ -87,6 +90,9 @@ import * as Share from "./share"
 import * as SourcesList from "./sources/list"
 import * as SourcesNew from "./sources/new"
 import * as SourceDetail from "./sources/detail"
+import * as StatusPageBuilder from "./status-pages/builder"
+import * as StatusPageEditor from "./status-pages/editor"
+import * as StatusPagesList from "./status-pages/list"
 import * as TraceDetail from "./traces/detail"
 import * as TracesList from "./traces/list"
 
@@ -111,6 +117,9 @@ export const pages = [
 	AlertRule.page,
 	AlertsUptimeMonitor.page,
 	AlertsUptimeNew.page,
+	StatusPagesList.page,
+	StatusPageBuilder.page,
+	StatusPageEditor.page,
 	AlertEditor.page,
 	ServiceMap.page,
 	InfraHosts.page,
@@ -144,10 +153,13 @@ export const pages = [
 	DashboardWidget.page,
 	CodeReview.page,
 	SecurityTabs.page,
+	SecurityTelemetry.page,
+	SecurityDependencies.page,
 	SecurityRun.page,
 	SecurityFinding.page,
 	AgentSessionsList.page,
 	AgentSessionTools.page,
+	McpServers.page,
 	AgentSessionTool.page,
 	AgentSession.page,
 	Integrations.page,
@@ -169,7 +181,6 @@ export const pages = [
 	ReplayDetail.page,
 	Share.page,
 	Analytics.page,
-	Chat.page,
 ]
 
 /** Public routes a page renders bare, outside the shell (`/share/$token`). */
@@ -273,10 +284,14 @@ export const parkPages = (
 		Array.some(pages, (page) => page.id === left._tag && page.isRevivable) &&
 		!hasLoadInFlight(left.model)
 	const sameSlot = (a: PageSlotBase, b: PageSlotBase) => a._tag === b._tag && a.key === b.key
-	return [...(isLeft ? [left] : []), ...parked]
+	const next = [...(isLeft ? [left] : []), ...parked]
 		.filter((slot) => entered === null || (slot.orgId === entered.orgId && !sameSlot(slot, entered)))
 		.filter((slot, index, all) => all.findIndex((other) => sameSlot(other, slot)) === index)
 		.slice(0, PARKED_PAGES_MAX)
+	// Nothing parked or taken out: the same array, so the root Model can stay the same reference.
+	return next.length === parked.length && next.every((slot, index) => slot === parked[index])
+		? parked
+		: next
 }
 
 /** Link intent (`page/preload.ts`): the route's page's preload Commands, or none. */
@@ -352,6 +367,14 @@ export const settleInfraSurfaces = (current: PageSlot | null, context: PageConte
 
 export const pageBreadcrumbs = (slot: PageSlotBase): ReadonlyArray<BreadcrumbEntry> =>
 	Option.match(pageById(slot._tag), { onNone: () => [], onSome: (page) => page.breadcrumbs(slot) })
+
+/** The source the page's data comes from, for the top bar's link. */
+export const pageSource = (slot: PageSlotBase): PageSourceRef | null =>
+	Option.match(pageById(slot._tag), { onNone: () => null, onSome: (page) => page.source(slot) })
+
+/** The page links to its source, so entering it reads the org's sources. */
+export const pageHasSource = (slot: PageSlotBase): boolean =>
+	Option.match(pageById(slot._tag), { onNone: () => false, onSome: (page) => page.hasSource })
 
 export const pageSubscriptions = Subscription.aggregate<PageHost, PageMessage, Resources>()(
 	...pages.map((page) => page.subscriptions),

@@ -1,10 +1,10 @@
 import type { Resources } from "../../platform/resources"
 import { snapToMinute, WIDEST_RANGE } from "../../lib/time"
-import * as FilterSections from "@maple/web/ui/filters/filter-sections"
-import { formatCompact, parseRange } from "@maple/web/ui/filters/range-format"
+import * as FilterSections from "@maple/views/ui/filters/filter-sections"
+import { formatCompact, parseRange } from "@maple/views/ui/filters/range-format"
 import { Option, Result } from "effect"
 import { AsyncData, Command, type Update } from "foldkit"
-import { accept, acceptCached, canExtend, idle } from "../../data/slot"
+import { accept, acceptCached, canExtend, idle } from "@maple/views/data/keyed"
 import { queryOf } from "../../route"
 import { type PageContext, PageOutMessage, replaceParams, withParams } from "../contract"
 import { updateCopy } from "../kit/copies"
@@ -135,7 +135,7 @@ const appendPage = (model: Model, key: string, page: ReadonlyArray<TraceRow>): M
 	}))
 	return Option.match(data, {
 		onNone: () => ({ ...model, isFetchingNextPage: false }),
-		onSome: (next) => ({ ...model, isFetchingNextPage: false, traces: { ...model.traces, key, data: AsyncData.Success({ data: next }), isPlaceholder: false } }),
+		onSome: (next) => ({ ...model, isFetchingNextPage: false, traces: { ...model.traces, key, data: AsyncData.Success({ data: next }) } }),
 	})
 }
 

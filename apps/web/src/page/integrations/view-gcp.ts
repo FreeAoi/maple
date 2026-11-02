@@ -8,22 +8,25 @@ import {
 } from "../../components/integrations/gcp-connector-state"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { heading } from "@maple/views/ui/heading"
 import { AppRoute, hrefOf } from "../../route"
-import { button, linkButton } from "../../ui/button"
-import { errorState } from "../../ui/error-state"
-import { panel } from "../../ui/panel"
-import { skeleton } from "../../ui/skeleton"
-import { statusDot } from "../../ui/status-dot"
+import { button, linkButton } from "@maple/views/ui/button"
+import { errorState } from "@maple/views/ui/error-state"
+import { panel } from "@maple/views/ui/panel"
+import { skeletonBlock } from "@maple/views/ui/skeleton"
+import { statusDot } from "@maple/views/ui/status-dot"
 import { sectionHeading } from "../kit/section-heading"
 import { HEALTH_TONE } from "./derive"
+import { integrationNotice } from "./kit/notice"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { gcpConnectors } from "./update-gcp"
 import { gcpConnection } from "./view-gcp-connection"
 import { gcpConfigure } from "./view-gcp-configure"
 import { gcpDialogs } from "./view-gcp-dialogs"
-import { copyScriptButton, GCP_TITLE, openCloudShellButton } from "./view-gcp-parts"
+import { copyScriptButton, openCloudShellButton } from "./view-gcp-parts"
 import { usageBand } from "./view-gcp-workloads"
+import { hstack, vstack } from "@maple/views/ui/stack"
 
 // `GcpIntegrationCard` and `GcpHeaderStatus`.
 
@@ -32,12 +35,13 @@ type H = HtmlBuilder<Message>
 /** A removed connection whose cleanup script was never seen to run. */
 const cleanupPanels = (h: H, model: Model): ReadonlyArray<Html> =>
 	model.gcpCard.removed.map((entry) =>
-		panel(h, { className: "gap-3 border-severity-warn/32 bg-severity-warn/4 px-4 py-3" }, [
+		panel(h, { className: "gap-3 border-severity-warn-a3 bg-severity-warn-a1 px-4 py-3" }, [
 			h.div(
 				[],
 				[
-					h.h3(
-						[h.Class(GCP_TITLE)],
+					heading(
+						h,
+						{ level: 3, variant: "subsection" },
 						[
 							entry.label,
 							" ",
@@ -54,8 +58,7 @@ const cleanupPanels = (h: H, model: Model): ReadonlyArray<Html> =>
 					),
 				],
 			),
-			h.div(
-				[h.Class("flex flex-wrap items-center gap-2")],
+			hstack(h, { gap: "2", wrap: true },
 				[
 					openCloudShellButton(h, entry.hostProjectId),
 					copyScriptButton(h, model, `removed-${entry.id}`, entry.cleanupScript, "cleanup script"),
@@ -77,17 +80,10 @@ const FLOW_HREF = hrefOf(AppRoute.SourcesNew({ search: { integration: "gcp" } })
 
 /** A source page whose connection was removed: the way back is the connect flow. */
 const gcpReconnect = (h: H, text: string): Html =>
-	h.div(
-		[
-			h.Class(
-				"flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-4 text-sm",
-			),
-		],
-		[
-			h.span([h.Class("text-muted-foreground")], [text]),
-			linkButton(h, { size: "sm", href: FLOW_HREF }, ["Reconnect"]),
-		],
-	)
+	integrationNotice(h, {
+		message: text,
+		action: linkButton(h, { size: "sm", href: FLOW_HREF }, ["Reconnect"]),
+	})
 
 const byStatus = (
 	h: H,
@@ -107,8 +103,7 @@ const byStatus = (
 		...gcpConfigure(h, model, timeZone),
 	]
 	if (connectors.length === 0)
-		return h.div(
-			[h.Class("flex flex-col gap-4")],
+		return vstack(h, { gap: "4" },
 			[
 				...cleanupPanels(h, model),
 				gcpReconnect(
@@ -126,8 +121,7 @@ const byStatus = (
 			GCP_STATE_ORDER.indexOf(gcpConnectionState(b, model.nowMs)),
 	)
 	const band = usageBand(h, model, connectors)
-	return h.div(
-		[h.Class("flex flex-col gap-4")],
+	return vstack(h, { gap: "4" },
 		[
 			...cleanupPanels(h, model),
 			...(band === null ? [] : [band]),
@@ -154,8 +148,8 @@ const byStatus = (
 
 export const gcpCard = (h: H, model: Model, timeZone: string, focusId: string | null = null): Html =>
 	AsyncData.match(model.statuses.gcp.data, {
-		onIdle: () => skeleton(h, "h-40 w-full rounded-md"),
-		onLoading: () => skeleton(h, "h-40 w-full rounded-md"),
+		onIdle: () => skeletonBlock(h, { height: "40" }),
+		onLoading: () => skeletonBlock(h, { height: "40" }),
 		onFailure: (failure) =>
 			errorState(h, {
 				failure,

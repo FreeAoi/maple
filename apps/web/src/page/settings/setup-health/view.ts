@@ -2,20 +2,21 @@ import type { V2SetupAudit, V2SetupAuditCheck } from "@maple/domain/http/v2"
 import { countLabel } from "@maple/ui/lib/format"
 import { TONE_FILL, TONE_TEXT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
-import { buttonVariants } from "@maple/ui/styles/ui/button"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { alert, alertDescription, alertTitle } from "../../../ui/alert"
-import { badge } from "../../../ui/display"
-import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "../../../ui/empty"
-import { errorState } from "../../../ui/error-state"
-import { icon, type IconName } from "../../../ui/icon"
-import { inlineCode, inlineCodeClassName } from "../../../ui/inline-code"
-import { panel } from "../../../ui/panel"
-import { refreshButton } from "../../../ui/refresh-button"
-import { skeleton } from "../../../ui/skeleton"
+import { alert, alertDescription, alertTitle } from "@maple/views/ui/alert"
+import { collapsible } from "@maple/views/ui/collapsible"
+import { badge } from "@maple/views/ui/display"
+import { empty, emptyDescription, emptyHeader, emptyMedia, emptyTitle } from "@maple/views/ui/empty"
+import { errorState } from "@maple/views/ui/error-state"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import { inlineCode, inlineCodeClassName } from "@maple/views/ui/inline-code"
+import { panel } from "@maple/views/ui/panel"
+import { refreshButton } from "@maple/views/ui/refresh-button"
+import { skeletonBlock } from "@maple/views/ui/skeleton"
 import { relativeTime } from "../../kit/relative-time"
-import { docsLink, emptyActions } from "../../kit/signal-empty-state"
+import { docsLink } from "../../kit/signal-empty-state"
+import { emptyActions } from "@maple/views/ui/signal-empty-state"
 import { settingsSection, settingsSections } from "../kit/section"
 import {
 	type HealthSegment,
@@ -26,6 +27,9 @@ import {
 	setupHealthAction,
 } from "./derive"
 import { Message, type Model } from "./model"
+import { linkButton } from "@maple/views/ui/button"
+import { typography } from "@maple/views/ui/typography"
+import { vstack } from "@maple/views/ui/stack"
 
 type H = HtmlBuilder<Message>
 type Inputs = Readonly<{ nowMs: number; timeZone: string }>
@@ -58,21 +62,22 @@ const CATEGORY_LABEL = {
 	data_platform: "Data platform",
 } as const satisfies { readonly [Category in V2SetupAuditCheck["category"]]: string }
 
-const actionClassName = cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 gap-1.5")
-
 const actionButton = (h: H, action: SetupHealthAction): Html =>
 	action.kind === "docs"
-		? h.a(
-				[
-					h.Href(action.href),
-					h.Target("_blank"),
-					h.Rel("noopener noreferrer"),
-					h.Class(actionClassName),
-				],
+		? linkButton(
+				h,
+				{
+					variant: "outline",
+					size: "sm",
+					className: "shrink-0 gap-1.5",
+					href: action.href,
+					attributes: [h.Target("_blank"), h.Rel("noopener noreferrer")],
+				},
 				[action.label, icon(h, "ExternalLinkIcon", { size: 14 })],
 			)
-		: h.a(
-				[h.Href(action.href), h.Class(actionClassName)],
+		: linkButton(
+				h,
+				{ variant: "outline", size: "sm", className: "shrink-0 gap-1.5", href: action.href },
 				[action.label, icon(h, "ArrowRightIcon", { size: 14 })],
 			)
 
@@ -90,7 +95,7 @@ const affectedChip = (h: H, entity: V2SetupAuditCheck["affected"][number], index
 					{
 						className: cn(
 							chipClassName,
-							"text-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-foreground",
+							"text-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-foreground active:decoration-foreground",
 						),
 					},
 					[entity.name],
@@ -122,15 +127,13 @@ const findingRow = (h: H, check: V2SetupAuditCheck): Html => {
 						className: cn("mt-0.5 shrink-0", severity.text),
 						attributes: [h.AriaLabel(severity.label)],
 					}),
-					h.div(
-						[h.Class("flex min-w-0 flex-col gap-1.5")],
+					vstack(h, { gap: "1.5", shrink: true },
 						[
 							h.div(
 								[h.Class("flex flex-wrap items-center gap-x-2 gap-y-0.5")],
 								[
-									h.span([h.Class("text-sm font-medium")], [check.title]),
-									h.span(
-										[h.Class("text-muted-foreground/70 text-2xs")],
+									typography(h, { size: "sm", weight: "medium" }, [check.title]),
+									typography(h, { size: "2xs", tone: "subtle" },
 										[CATEGORY_LABEL[check.category]],
 									),
 								],
@@ -138,13 +141,12 @@ const findingRow = (h: H, check: V2SetupAuditCheck): Html => {
 							...(check.detail === null
 								? []
 								: [
-										h.p(
-											[h.Class("text-muted-foreground text-xs leading-relaxed")],
+										typography(h, { size: "xs", tone: "muted", as: "p", className: "leading-relaxed" },
 											[check.detail],
 										),
 									]),
 							h.p(
-								[h.Class("text-muted-foreground/80 text-xs leading-relaxed")],
+								[h.Class("text-foreground-subtle text-xs leading-relaxed")],
 								[check.fix_hint],
 							),
 							...(check.affected.length === 0
@@ -158,12 +160,7 @@ const findingRow = (h: H, check: V2SetupAuditCheck): Html => {
 												),
 												...(check.affected_count > check.affected.length
 													? [
-															h.span(
-																[
-																	h.Class(
-																		"text-muted-foreground/70 text-2xs",
-																	),
-																],
+															typography(h, { size: "2xs", tone: "subtle" },
 																[
 																	"+",
 																	String(
@@ -203,8 +200,7 @@ const summaryPanel = (h: H, audit: V2SetupAudit, isRefreshing: boolean, inputs: 
 					],
 				),
 				h.div([h.Class("grow")], []),
-				h.span(
-					[h.Class("text-muted-foreground/70 text-2xs")],
+				typography(h, { size: "2xs", tone: "subtle" },
 					[
 						"Last run ",
 						relativeTime(h, {
@@ -263,13 +259,9 @@ const noTelemetry = (h: H): Html =>
 					]),
 				]),
 				emptyActions(h, [
-					h.a(
-						[
-							h.Href("/settings?tab=ingestion"),
-							h.Class(buttonVariants({ variant: "outline", size: "sm" })),
-						],
-						["Go to Ingestion"],
-					),
+					linkButton(h, { variant: "outline", size: "sm", href: "/settings?tab=ingestion" }, [
+						"Go to Ingestion",
+					]),
 					docsLink(h, "quickstart"),
 				]),
 			],
@@ -293,9 +285,8 @@ const findings = (h: H, audit: V2SetupAudit): Html => {
 						[h.Class("flex flex-col items-center gap-2 px-4 py-10 text-center")],
 						[
 							icon(h, "CircleCheckIcon", { size: 20, className: TONE_TEXT.info }),
-							h.p([h.Class("text-sm font-medium")], ["Everything checks out"]),
-							h.p(
-								[h.Class("text-muted-foreground text-xs")],
+							typography(h, { size: "sm", weight: "medium", as: "p" }, ["Everything checks out"]),
+							typography(h, { size: "xs", tone: "muted", as: "p" },
 								[
 									"Alerts can deliver, and your telemetry follows the conventions Maple reads.",
 								],
@@ -317,124 +308,64 @@ const passingDisclosure = (
 ): ReadonlyArray<Html> => {
 	const { checks: passing, label } = resolvedChecks(checks)
 	if (passing.length === 0) return []
-	const isOpen = model.isPassingOpen
 	return [
-		h.div(
-			[h.DataAttribute(isOpen ? "open" : "closed", ""), h.DataAttribute("slot", "collapsible")],
-			[
-				panel(h, { className: "overflow-hidden" }, [
-					h.button(
+		panel(h, { className: "overflow-hidden" }, [
+			collapsible(
+				h,
+				{
+					isOpen: model.isPassingOpen,
+					onToggle: Message.ToggledPassing(),
+					panelId: "setup-health-passing",
+					triggerClassName:
+						"group hover:bg-surface-sunken active:bg-surface-sunken flex w-full items-center gap-3 px-4 py-3 text-left",
+					trigger: [
+						icon(h, "ChevronRightIcon", {
+							size: 14,
+							className:
+								"text-muted-foreground shrink-0 transition-transform group-data-panel-open:rotate-90",
+						}),
+						icon(h, "CircleCheckIcon", { size: 16, className: cn("shrink-0", TONE_TEXT.info) }),
+						typography(h, { size: "sm", weight: "medium" }, [label]),
+						typography(h, { size: "xs", tone: "muted", className: "min-w-0 flex-1" },
+							["Checks are skipped only when telemetry could not be read"],
+						),
+					],
+				},
+				[
+					h.div(
+						[],
 						[
-							...(isOpen ? [h.AriaControls("setup-health-passing")] : []),
-							h.AriaDisabled(false),
-							h.AriaExpanded(isOpen),
-							h.Class(
-								"group hover:bg-muted/20 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors",
-							),
-							...(isOpen ? [h.DataAttribute("panel-open", "")] : []),
-							h.DataAttribute("slot", "collapsible-trigger"),
-							h.Tabindex(0),
-							h.Type("button"),
-							h.OnClick(Message.ToggledPassing()),
-						],
-						[
-							icon(h, "ChevronRightIcon", {
-								size: 14,
-								className:
-									"text-muted-foreground shrink-0 transition-transform group-data-panel-open:rotate-90",
-							}),
-							icon(h, "CircleCheckIcon", {
-								size: 16,
-								className: cn("shrink-0", TONE_TEXT.info),
-							}),
-							h.span([h.Class("text-sm font-medium")], [label]),
-							h.span(
-								[h.Class("text-muted-foreground min-w-0 flex-1 text-xs")],
-								["Checks are skipped only when telemetry could not be read"],
+							h.ul(
+								[h.Class("divide-border divide-y border-t")],
+								passing.map((check) =>
+									h.li(
+										[h.Key(check.id), h.Class("flex items-center gap-3 px-4 py-2.5")],
+										[
+											check.status === "pass"
+												? icon(h, "CircleCheckIcon", {
+														size: 14,
+														className: cn("shrink-0", TONE_TEXT.info),
+													})
+												: icon(h, "CircleInfoIcon", {
+														size: 14,
+														className: "text-foreground-subtle shrink-0",
+													}),
+											h.span([h.Class("min-w-0 flex-1 text-xs")], [check.title]),
+											...(check.status === "skip"
+												? [badge(h, { variant: "secondary", size: "xs" }, ["Skipped"])]
+												: []),
+											typography(h, { size: "2xs", tone: "subtle" },
+												[CATEGORY_LABEL[check.category]],
+											),
+										],
+									),
+								),
 							),
 						],
 					),
-					...(isOpen
-						? [
-								h.div(
-									[
-										h.Class(
-											"h-(--collapsible-panel-height) overflow-hidden [contain:layout_paint] transition-[height] duration-200 ease-out motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0",
-										),
-										h.DataAttribute("open", ""),
-										h.DataAttribute("slot", "collapsible-panel"),
-										h.Id("setup-health-passing"),
-										h.Style({
-											"--collapsible-panel-height": "auto",
-											"--collapsible-panel-width": "auto",
-											"animation-name": "none",
-										}),
-									],
-									[
-										h.div(
-											[],
-											[
-												h.ul(
-													[h.Class("divide-border divide-y border-t")],
-													passing.map((check) =>
-														h.li(
-															[
-																h.Key(check.id),
-																h.Class(
-																	"flex items-center gap-3 px-4 py-2.5",
-																),
-															],
-															[
-																check.status === "pass"
-																	? icon(h, "CircleCheckIcon", {
-																			size: 14,
-																			className: cn(
-																				"shrink-0",
-																				TONE_TEXT.info,
-																			),
-																		})
-																	: icon(h, "CircleInfoIcon", {
-																			size: 14,
-																			className:
-																				"text-muted-foreground/60 shrink-0",
-																		}),
-																h.span(
-																	[h.Class("min-w-0 flex-1 text-xs")],
-																	[check.title],
-																),
-																...(check.status === "skip"
-																	? [
-																			badge(
-																				h,
-																				{
-																					variant: "secondary",
-																					size: "xs",
-																				},
-																				["Skipped"],
-																			),
-																		]
-																	: []),
-																h.span(
-																	[
-																		h.Class(
-																			"text-muted-foreground/70 text-2xs",
-																		),
-																	],
-																	[CATEGORY_LABEL[check.category]],
-																),
-															],
-														),
-													),
-												),
-											],
-										),
-									],
-								),
-							]
-						: []),
-				]),
-			],
-		),
+				],
+			),
+		]),
 	]
 }
 
@@ -459,15 +390,13 @@ export const view = Submodel.defineView<Model, Message, Inputs>((model, inputs, 
 	const audit = AsyncData.getOrElse(model.audit, () => null)
 	const top = AsyncData.match(model.audit, {
 		onIdle: () => [
-			h.div(
-				[h.Class("flex flex-col gap-4")],
-				[skeleton(h, "h-24 w-full rounded-md"), skeleton(h, "h-48 w-full rounded-md")],
+			vstack(h, { gap: "4" },
+				[skeletonBlock(h, { height: "24" }), skeletonBlock(h, { height: "48" })],
 			),
 		],
 		onLoading: () => [
-			h.div(
-				[h.Class("flex flex-col gap-4")],
-				[skeleton(h, "h-24 w-full rounded-md"), skeleton(h, "h-48 w-full rounded-md")],
+			vstack(h, { gap: "4" },
+				[skeletonBlock(h, { height: "24" }), skeletonBlock(h, { height: "48" })],
 			),
 		],
 		onFailure: (failure) => [

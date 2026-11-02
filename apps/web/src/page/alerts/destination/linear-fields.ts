@@ -1,11 +1,11 @@
 import { Effect, Option, Result, Schedule, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import * as Keyed from "../../../data/keyed"
-import { LoadFailure, toLoadFailure } from "../../../data/load-failure"
+import * as Keyed from "@maple/views/data/keyed"
+import { LoadFailure, toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleInternalApiClient } from "../../../platform/api-clients"
 import type { Resources } from "../../../platform/resources"
-import * as Select from "../../../ui/select"
+import * as Select from "@maple/views/ui/select"
 import { currentReturnPath, startConnect } from "../../integrations/connect"
 import { readIsAdmin } from "../shared/commands"
 import type { DestinationForm } from "./form"
@@ -59,6 +59,8 @@ export const Message = defineMessageUnion({
 	ClickedRetry: {},
 	ClickedConnect: {},
 	CompletedConnect: { attempt: Schema.Number, outcome: Schema.Literals(["Closed", "Blocked", "Failed"]) },
+	/** The connect popup finished (`connectReturns`), even one whose close was seen early. */
+	ReturnedConnect: {},
 	GotTeamSelectMessage: { message: Select.Message },
 })
 export type Message = typeof Message.Type
@@ -222,6 +224,11 @@ export const update = (model: Model, message: Message, form: DestinationForm): R
 				? readStatus({ ...settled, connectNote: null }, "Refresh")
 				: { model: { ...settled, connectNote: outcome }, commands: [] }
 		},
+		ReturnedConnect: () =>
+			readStatus(
+				{ ...model, isConnecting: false, isRecheckingStatus: false, connectNote: null },
+				"Refresh",
+			),
 		GotTeamSelectMessage: ({ message: inner }) => {
 			const step = Select.update(model.teamSelect, inner)
 			const lifted: Return = {

@@ -3,7 +3,7 @@ import { cn } from "@maple/ui/lib/utils"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { kitPage, kitSection } from "../kit-layout"
-import * as ToastView from "../../../ui/toast-view"
+import * as ToastView from "@maple/views/ui/toast-view"
 import { kitHoverCard, kitPopover, kitTooltip } from "./cards"
 import { kitAlertDialog, kitDialog, kitSheet } from "./dialogs"
 import { kitCommand } from "./command"
@@ -83,7 +83,7 @@ const itemLink = (h: H, name: OverlayItem, isActive: boolean): Html =>
 					"rounded-md border px-2 py-1 font-mono text-xs transition-colors",
 					isActive
 						? "active border-foreground/20 bg-accent font-medium text-foreground"
-						: "border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+						: "border-border text-muted-foreground hover:bg-surface-sunken active:bg-surface-sunken hover:text-foreground active:text-foreground",
 				),
 			),
 			...(isActive ? [h.DataAttribute("status", "active")] : []),

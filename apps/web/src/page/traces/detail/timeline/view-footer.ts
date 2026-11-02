@@ -1,9 +1,12 @@
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../../../ui/button"
-import { kbd } from "../../../../ui/display"
-import { serviceDot } from "../../../../ui/values"
+import { button } from "@maple/views/ui/button"
+import { kbd } from "@maple/views/ui/display"
+import { textLink } from "@maple/views/ui/text-link"
+import { serviceDot } from "@maple/views/ui/values"
 import { Message } from "./message"
 import type { Model } from "./model"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // The Timeline's footer (key hints and the service legend) and its shortcuts sheet.
 
@@ -17,23 +20,25 @@ export const footer = (h: H, model: Model): Html =>
 	h.div(
 		[
 			h.Class(
-				"flex shrink-0 items-center gap-3 border-t border-border bg-muted/30 px-2 py-1.5 text-3xs text-muted-foreground @min-[560px]/timeline:px-3",
+				"flex shrink-0 items-center gap-3 border-t border-border bg-surface-sunken px-2 py-1.5 text-3xs text-muted-foreground @min-[560px]/timeline:px-3",
 			),
 		],
 		[
 			h.div(
-				[h.Class("hidden shrink-0 items-center gap-3 text-foreground/30 @min-[560px]/timeline:flex")],
+				[h.Class("hidden shrink-0 items-center gap-3 text-foreground-faint @min-[560px]/timeline:flex")],
 				[
 					hint(h, "Drag", "zoom"),
 					hint(h, "W A S D", "navigate"),
 					hint(h, "/", "search"),
-					h.button(
-						[
-							h.Class("hover:text-foreground/70"),
-							h.Type("button"),
-							h.OnClick(Message.ClickedShortcuts()),
-						],
-						[kbd(h, HINT_KBD, ["?"]), " all shortcuts"],
+					textLink(
+						h,
+						{
+							tone: "muted",
+							onClick: Message.ClickedShortcuts(),
+							className:
+								"gap-1.5 text-foreground-faint hover:text-foreground-soft active:text-foreground-soft hover:no-underline active:no-underline",
+						},
+						[kbd(h, HINT_KBD, ["?"]), "all shortcuts"],
 					),
 				],
 			),
@@ -45,22 +50,20 @@ export const footer = (h: H, model: Model): Html =>
 				],
 				[
 					...model.services.map((service) =>
-						h.div(
-							[h.Class("flex shrink-0 items-center gap-1")],
+						hstack(h, { gap: "1", className: "shrink-0" },
 							[
 								serviceDot(h, { serviceName: service }),
 								h.span([h.Class("font-medium whitespace-nowrap")], [service]),
 							],
 						),
 					),
-					h.div(
-						[h.Class("flex shrink-0 items-center gap-1")],
+					hstack(h, { gap: "1", className: "shrink-0" },
 						[
 							h.span(
 								[
 									h.AriaHidden(true),
 									h.Class(
-										"size-2 shrink-0 rounded-[35%] bg-severity-error [corner-shape:squircle]",
+										"size-2 shrink-0 rounded-dot bg-severity-error [corner-shape:squircle]",
 									),
 								],
 								[],
@@ -100,7 +103,7 @@ export const shortcutsOverlay = (h: H): Html =>
 			h.div(
 				[
 					h.Class(
-						"max-h-[80%] w-[420px] max-w-[90%] overflow-y-auto border border-border bg-popover p-4 shadow-lg",
+						"max-h-[80%] w-[420px] max-w-[90%] overflow-y-auto border border-border bg-popover p-4 shadow-popup",
 					),
 					h.OnClick(Message.ClickedShortcutsSheet(), { propagation: "Stop" }),
 				],
@@ -108,7 +111,7 @@ export const shortcutsOverlay = (h: H): Html =>
 					h.div(
 						[h.Class("mb-3 flex items-center justify-between")],
 						[
-							h.span([h.Class("text-xs font-medium")], ["Timeline shortcuts"]),
+							typography(h, { size: "xs", weight: "medium" }, ["Timeline shortcuts"]),
 							button(
 								h,
 								{

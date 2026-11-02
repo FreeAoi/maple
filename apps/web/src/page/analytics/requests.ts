@@ -1,15 +1,15 @@
 import { filtersFromSearch, hasActiveFilters, type AnalyticsFilters } from "../../components/analytics/filters"
 import { previousWindow } from "../../components/analytics/previous-window"
 import { sparkBucketSeconds } from "../../components/analytics/ai/ai-traffic-model"
-import { chartBucketSeconds } from "../../components/infra/chart-units"
+import { chartBucketSeconds } from "@maple/views/lib/infra-chart-units"
 import { Option, Struct } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Keyed from "../../data/keyed"
-import { requestKey } from "../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import { requestKey } from "@maple/views/data/request-key"
 import type { TimeWindow } from "../../data/time-range"
 import type { Resources } from "../../platform/resources"
 import type { PageContext } from "../contract"
-import { presenceOf } from "../kit/signal-presence"
+import { presenceOf } from "@maple/views/data/signal-presence"
 import {
 	FetchAiCrawlers,
 	FetchAiReferrals,

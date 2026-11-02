@@ -3,7 +3,7 @@ import * as AWS from "@alchemy.run/aws"
 import * as Effect from "effect/Effect"
 import { ecsSecrets, resolveAwsResourceName } from "@maple/infra/aws"
 import { resolveDeploymentEnvironment, type MapleStackContext } from "@maple/infra/cloudflare"
-import { optionalPlain, requiredPlain } from "@maple/infra/env"
+import { optionalPlain, plainWithDefault, requiredPlain } from "@maple/infra/env"
 
 /**
  * `bun run --cwd apps/scraper bundle` writes the single-file bundle here before the deploy
@@ -55,14 +55,21 @@ export const createMapleScraper = ({
 		})
 
 		const secret = ecsSecrets(name("scraper"), tags)
-		const internalToken = yield* secret("internal-token", yield* requiredPlain("SD_INTERNAL_TOKEN"))
-		const otelIngestKey = yield* secret("otel-ingest-key", yield* requiredPlain("MAPLE_OTEL_INGEST_KEY"))
+		const internalTokenValue = yield* requiredPlain("SD_INTERNAL_TOKEN")
+		const internalToken = yield* secret("internal-token", internalTokenValue)
+		const otelIngestKeyValue = yield* requiredPlain("MAPLE_OTEL_INGEST_KEY")
+		const otelIngestKey = yield* secret("otel-ingest-key", otelIngestKeyValue)
 
 		const { COMMIT_SHA: commitSha, GITHUB_SHA: githubSha } = {
 			...(yield* optionalPlain("COMMIT_SHA")),
 			...(yield* optionalPlain("GITHUB_SHA")),
 		}
 		const sha = commitSha ?? githubSha
+		// Its own telemetry goes to the internal org's ingest, like the Workers' (US even for EU).
+		const { MAPLE_ENDPOINT: telemetryEndpoint } = yield* plainWithDefault(
+			"MAPLE_ENDPOINT",
+			"https://ingest.maple.dev",
+		)
 
 		yield* AWS.ECS.Service("scraper", {
 			cluster,
@@ -116,8 +123,7 @@ export const createMapleScraper = ({
 				MAPLE_API_URL: apiUrl,
 				MAPLE_INGEST_URL: ingestUrl,
 				PORT: String(SCRAPER_PORT),
-				// Its own telemetry, to the same gateway as the scraped metrics.
-				MAPLE_ENDPOINT: ingestUrl,
+				MAPLE_ENDPOINT: telemetryEndpoint,
 				MAPLE_ENVIRONMENT: resolveDeploymentEnvironment(stage),
 				OTEL_RESOURCE_ATTRIBUTES: `maple.region=${region},cloud.provider=aws`,
 				...(sha ? { COMMIT_SHA: sha } : undefined),

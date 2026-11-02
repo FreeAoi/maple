@@ -2,14 +2,13 @@ import { type ChatConnectorManifest, chatConnectorManifests } from "@maple/chat-
 import type { AlertDestinationType } from "@maple/domain/http"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon, type IconName } from "../../../ui/icon"
-import { manifestGlyph } from "../../../ui/manifest-glyph"
+import { icon, type IconName } from "@maple/views/ui/icon"
+import { manifestGlyph } from "@maple/views/ui/manifest-glyph"
 import { LINEAR_ACCENT } from "../../integrations/catalog"
 
 // `PROVIDERS` and `ProviderLogo`: the destination providers and their marks.
 
 const BRANDFETCH_CLIENT_ID = "1id0IQ-4i8Z46-n-DfQ"
-const HAZEL_ACCENT_TEXT = "light-dark(#A34209, #F46F0F)"
 const INK_ON_DARK_ACCENT = "#FFFFFF"
 const INK_ON_BRIGHT_ACCENT = "#1E1B17"
 
@@ -63,21 +62,6 @@ export const PROVIDERS = new Map<AlertDestinationType, DestinationProvider>([
 		},
 	],
 	[
-		"hazel-oauth",
-		{
-			type: "hazel-oauth",
-			label: "Hazel",
-			description: "Connect Hazel via OAuth and pick a workspace to route alerts into.",
-			accent: "#F46F0F",
-			accentBg: "rgba(244,111,15,0.16)",
-			accentText: HAZEL_ACCENT_TEXT,
-			accentOn: INK_ON_BRIGHT_ACCENT,
-			fallbackIcon: "HazelIcon",
-			docsUrl: "https://hazel.sh/docs/integrations/maple",
-			docsLabel: "Hazel integration guide",
-		},
-	],
-	[
 		"linear",
 		{
 			type: "linear",
@@ -118,6 +102,21 @@ export const PROVIDERS = new Map<AlertDestinationType, DestinationProvider>([
 			fallbackIcon: "TelegramIcon",
 			docsUrl: "https://maple.dev/docs/alerting/notification-destinations#telegram",
 			docsLabel: "Telegram setup guide",
+		},
+	],
+	[
+		"google-chat",
+		{
+			type: "google-chat",
+			label: "Google Chat",
+			description: "Post alerts to a Google Chat space via incoming webhook.",
+			accent: "#00AC47",
+			accentBg: "rgba(0,172,71,0.16)",
+			accentText: "light-dark(#00762F, #34C26B)",
+			accentOn: INK_ON_BRIGHT_ACCENT,
+			fallbackIcon: "GoogleChatIcon",
+			docsUrl: "https://maple.dev/docs/alerting/notification-destinations#google-chat",
+			docsLabel: "Google Chat setup guide",
 		},
 	],
 	[
@@ -196,7 +195,7 @@ export const DESTINATION_TYPES: ReadonlyArray<AlertDestinationType> = [
 	"email",
 	"webhook",
 	"telegram",
-	"hazel-oauth",
+	"google-chat",
 	"linear",
 ]
 export const destinationTypesFor = (isDiscordLinked: boolean): ReadonlyArray<AlertDestinationType> =>
@@ -284,7 +283,7 @@ export const providerLogo = <M>(h: HtmlBuilder<M>, options: ProviderLogoOptions<
 		[
 			h.Class(
 				cn(
-					"relative inline-flex shrink-0 items-center justify-center rounded-lg border border-border/60 bg-card",
+					"relative inline-flex shrink-0 items-center justify-center rounded-md border border-border-subtle bg-card",
 					options.className,
 				),
 			),
@@ -293,7 +292,7 @@ export const providerLogo = <M>(h: HtmlBuilder<M>, options: ProviderLogoOptions<
 		[
 			h.span([
 				h.AriaHidden(true),
-				h.Class("absolute inset-0 rounded-lg opacity-70"),
+				h.Class("absolute inset-0 rounded-md opacity-70"),
 				h.Style({
 					background: `radial-gradient(circle at 30% 20%, ${provider.accentBg}, transparent 70%)`,
 				}),

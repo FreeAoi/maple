@@ -1,4 +1,4 @@
-import { Array as Arr, Order, Schema } from "effect"
+import { Array as Arr, Option, Order, Schema } from "effect"
 import { QueryEngineAlertReducer, QueryEngineNoDataBehavior } from "../query-engine"
 import {
 	AlertDeliveryEventId,
@@ -8,8 +8,6 @@ import {
 	ChatConnectorId,
 	ChatWorkspaceId,
 	ErrorIssueId,
-	HazelChannelId,
-	HazelOrganizationId,
 	IsoDateTimeString,
 	PostgresTransactionId,
 	RoleName,
@@ -21,9 +19,9 @@ import { HttpTaggedError } from "./error-policy"
 export const AlertDestinationType = Schema.Literals([
 	"pagerduty",
 	"webhook",
-	"hazel-oauth",
 	"discord",
 	"telegram",
+	"google-chat",
 	"email",
 	"chat",
 	"linear",
@@ -298,19 +296,6 @@ export class WebhookAlertDestinationConfig extends Schema.Class<WebhookAlertDest
 	enabled: Schema.optionalKey(Schema.Boolean),
 }) {}
 
-export class HazelOAuthAlertDestinationConfig extends Schema.Class<HazelOAuthAlertDestinationConfig>(
-	"HazelOAuthAlertDestinationConfig",
-)({
-	type: Schema.Literal("hazel-oauth"),
-	name: ChannelLabel,
-	hazelOrganizationId: HazelOrganizationId,
-	hazelOrganizationName: NonEmptyString,
-	hazelOrganizationLogoUrl: Schema.optionalKey(Schema.NullOr(NonEmptyString)),
-	hazelChannelId: HazelChannelId,
-	hazelChannelName: NonEmptyString,
-	enabled: Schema.optionalKey(Schema.Boolean),
-}) {}
-
 export class DiscordAlertDestinationConfig extends Schema.Class<DiscordAlertDestinationConfig>(
 	"DiscordAlertDestinationConfig",
 )({
@@ -329,6 +314,17 @@ export class TelegramAlertDestinationConfig extends Schema.Class<TelegramAlertDe
 	botToken: NonEmptyString,
 	/** Target chat: a numeric id (`-1001234567890`) or an `@channelusername`. */
 	chatId: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+/** A Google Chat space's incoming webhook (`https://chat.googleapis.com/v1/spaces/…/messages?key=…&token=…`). */
+export class GoogleChatAlertDestinationConfig extends Schema.Class<GoogleChatAlertDestinationConfig>(
+	"GoogleChatAlertDestinationConfig",
+)({
+	type: Schema.Literal("google-chat"),
+	name: ChannelLabel,
+	/** Write-only: the `key` and `token` query parameters are the credential. */
+	webhookUrl: NonEmptyString,
 	enabled: Schema.optionalKey(Schema.Boolean),
 }) {}
 
@@ -360,6 +356,27 @@ export class LinearAlertDestinationConfig extends Schema.Class<LinearAlertDestin
 	enabled: Schema.optionalKey(Schema.Boolean),
 }) {}
 
+const GOOGLE_CHAT_HOST = "chat.googleapis.com"
+const SPACE_MESSAGES_PATH = /^\/v1\/spaces\/([A-Za-z0-9_-]+)\/messages$/
+
+/**
+ * An incoming webhook URL, as Google Chat's "Apps & integrations → Webhooks" hands it out. The
+ * `key` and `token` query parameters are the credential; the path names the space.
+ */
+export const parseGoogleChatWebhookUrl = (raw: string): Option.Option<{ readonly spaceId: string }> =>
+	Option.liftThrowable(() => new URL(raw.trim()))().pipe(
+		Option.flatMap((url) => {
+			const space = SPACE_MESSAGES_PATH.exec(url.pathname)
+			return url.protocol === "https:" &&
+				url.host === GOOGLE_CHAT_HOST &&
+				space?.[1] !== undefined &&
+				(url.searchParams.get("key") ?? "").length > 0 &&
+				(url.searchParams.get("token") ?? "").length > 0
+				? Option.some({ spaceId: space[1] })
+				: Option.none()
+		}),
+	)
+
 export const MAX_EMAIL_RECIPIENTS = 10
 
 /**
@@ -384,9 +401,9 @@ export class EmailAlertDestinationConfig extends Schema.Class<EmailAlertDestinat
 export const AlertDestinationCreateRequest = Schema.Union([
 	PagerDutyAlertDestinationConfig,
 	WebhookAlertDestinationConfig,
-	HazelOAuthAlertDestinationConfig,
 	DiscordAlertDestinationConfig,
 	TelegramAlertDestinationConfig,
+	GoogleChatAlertDestinationConfig,
 	EmailAlertDestinationConfig,
 	ChatAlertDestinationConfig,
 	LinearAlertDestinationConfig,
@@ -410,18 +427,6 @@ export class UpdateWebhookAlertDestinationConfig extends Schema.Class<UpdateWebh
 	enabled: Schema.optionalKey(Schema.Boolean),
 }) {}
 
-export class UpdateHazelOAuthAlertDestinationConfig extends Schema.Class<UpdateHazelOAuthAlertDestinationConfig>(
-	"UpdateHazelOAuthAlertDestinationConfig",
-)({
-	name: OptionalNonEmptyString,
-	hazelOrganizationId: Schema.optionalKey(HazelOrganizationId),
-	hazelOrganizationName: Schema.optionalKey(Schema.String),
-	hazelOrganizationLogoUrl: Schema.optionalKey(Schema.NullOr(Schema.String)),
-	hazelChannelId: Schema.optionalKey(HazelChannelId),
-	hazelChannelName: Schema.optionalKey(Schema.String),
-	enabled: Schema.optionalKey(Schema.Boolean),
-}) {}
-
 export class UpdateDiscordAlertDestinationConfig extends Schema.Class<UpdateDiscordAlertDestinationConfig>(
 	"UpdateDiscordAlertDestinationConfig",
 )({
@@ -436,6 +441,14 @@ export class UpdateTelegramAlertDestinationConfig extends Schema.Class<UpdateTel
 	name: OptionalNonEmptyString,
 	botToken: Schema.optionalKey(Schema.String),
 	chatId: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateGoogleChatAlertDestinationConfig extends Schema.Class<UpdateGoogleChatAlertDestinationConfig>(
+	"UpdateGoogleChatAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	webhookUrl: Schema.optionalKey(Schema.String),
 	enabled: Schema.optionalKey(Schema.Boolean),
 }) {}
 
@@ -474,16 +487,16 @@ export const AlertDestinationUpdateRequest = Schema.Union([
 		...UpdateWebhookAlertDestinationConfig.fields,
 	}),
 	Schema.Struct({
-		type: Schema.Literal("hazel-oauth"),
-		...UpdateHazelOAuthAlertDestinationConfig.fields,
-	}),
-	Schema.Struct({
 		type: Schema.Literal("discord"),
 		...UpdateDiscordAlertDestinationConfig.fields,
 	}),
 	Schema.Struct({
 		type: Schema.Literal("telegram"),
 		...UpdateTelegramAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("google-chat"),
+		...UpdateGoogleChatAlertDestinationConfig.fields,
 	}),
 	Schema.Struct({
 		type: Schema.Literal("email"),
@@ -612,7 +625,7 @@ export const ALERT_TEMPLATE_VARIABLES: ReadonlyArray<{
 	{ key: "incidentId", description: "Incident id (empty for tests)" },
 	{ key: "incidentStatus", description: "open | resolved" },
 	{ key: "links.app", description: "Deep link to the alert in Maple" },
-	{ key: "links.chat", description: "Deep link to Maple AI for this alert" },
+	{ key: "links.chat", description: "Deep link to the alert rule in Maple" },
 	{ key: "sentAt", description: "ISO timestamp the notification was sent" },
 ]
 

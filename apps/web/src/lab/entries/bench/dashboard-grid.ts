@@ -18,7 +18,7 @@ import { pointerEvents } from "../../../page/dashboards/view/subscription"
 import { init as pageInit, update as pageUpdate } from "../../../page/dashboards/view/update"
 import { dashboardSections } from "../../../page/dashboards/view/view-grid"
 import type { Resources } from "../../../platform/resources"
-import { icon } from "../../../ui/icon"
+import { icon } from "@maple/views/ui/icon"
 import { defineLabWithFlags } from "../../define"
 
 /**
@@ -210,7 +210,7 @@ const benchTile = (h: HtmlBuilder<Message>, widget: Widget): Html => {
 							h.Type("button"),
 							// The real tile's grip, muted until the tile is hovered.
 							h.Class(
-								"widget-drag-handle cursor-grab touch-none rounded-sm text-muted-foreground opacity-50 transition-opacity group-hover/tile:opacity-100 hover:text-foreground active:cursor-grabbing",
+								"widget-drag-handle cursor-grab touch-none rounded-sm text-muted-foreground opacity-50 transition-opacity group-hover/tile:opacity-100 hover:text-foreground active:text-foreground active:cursor-grabbing",
 							),
 							h.DataAttribute("grid-label", title),
 							h.AriaLabel(`Move ${title}`),
@@ -224,7 +224,7 @@ const benchTile = (h: HtmlBuilder<Message>, widget: Widget): Html => {
 				[h.Class("flex min-h-0 flex-1 items-end gap-px px-3 pb-2")],
 				BARS.map((bar) =>
 					h.span([
-						h.Class("flex-1 bg-primary/40"),
+						h.Class("flex-1 bg-primary-a4"),
 						h.Style({ height: `${20 + ((bar * 37 + widget.id.length * 11) % 80)}%` }),
 					]),
 				),

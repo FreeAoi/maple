@@ -1,10 +1,9 @@
-import { isClerkAuthEnabled } from "../lib/services/common/auth-mode"
-import { ROW_LANE } from "@maple/ui/styles/ui/list-row"
+import { isClerkAuthEnabled, selfHostedStatusPagesEnabled } from "../lib/services/common/auth-mode"
 import { Option } from "effect"
 import type { InfraSurfaceLiteral } from "@maple/domain/http"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { icon, iconColor } from "../ui/icon"
+import { icon, iconColor } from "@maple/views/ui/icon"
 import {
 	sidebarGroup,
 	sidebarGroupContent,
@@ -15,7 +14,7 @@ import {
 	sidebarMenuSub,
 	sidebarMenuSubButton,
 	sidebarMenuSubItem,
-} from "../ui/sidebar"
+} from "@maple/views/ui/sidebar"
 import type { PinnedDashboardRow } from "./dashboards-shape"
 import { Menu, Message } from "./message"
 import { type Model, type ShellClerk, shellProbe, shellSurfaces } from "./model"
@@ -23,6 +22,7 @@ import {
 	isNavItemActive,
 	matchSubItem,
 	type NavGroup,
+	type NavFlags,
 	type NavItem,
 	type NavSubItem,
 	type NavSurface,
@@ -30,17 +30,21 @@ import {
 	navPreview,
 	partitionSubItems,
 } from "./nav"
-import { ACTIVE_RAIL, GROUP_LABEL, NO_TIP, navBadge, type RailTip, triggerFor } from "./view-sidebar"
+import { GROUP_LABEL, NO_TIP, navBadge, type RailTip, triggerFor } from "./view-sidebar"
 
 /**
- * `useOrganizationFeatureFlags`: self-hosted turns every rollout on; a Clerk org reads its public
- * metadata, and fails closed (no flagged rows) until Clerk has an org.
+ * Self-hosted enables supported rollouts; a Clerk org reads its public metadata and fails
+ * closed (no flagged rows) until Clerk has an org.
  */
 export const shellNavGroups = (clerk: ShellClerk | null = null): ReadonlyArray<NavGroup> => {
-	const flag = (name: "releases" | "securityAudit") =>
+	const flag = (name: keyof NavFlags) =>
 		!isClerkAuthEnabled ||
 		(clerk !== null && Option.exists(clerk.maybeOrganization, (organization) => organization.flags[name]))
-	return navGroups({ releases: flag("releases"), securityAudit: flag("securityAudit") })
+	return navGroups({
+		releases: flag("releases"),
+		securityAudit: flag("securityAudit"),
+		statusPages: flag("statusPages") && (isClerkAuthEnabled || selfHostedStatusPagesEnabled),
+	})
 }
 
 /** The last-hour probe's answer; `null` while it is first in flight or after it failed. */
@@ -81,7 +85,7 @@ const collapsedSectionRow = (h: HtmlBuilder<Message>, model: Model, item: NavIte
 		sidebarMenuButton(
 			h,
 			{
-				className: ACTIVE_RAIL,
+				rail: "active",
 				isActive,
 				slot: "dropdown-menu-trigger",
 				attributes: triggerFor(h, model, Menu.NavSection({ title: item.title })),
@@ -150,7 +154,7 @@ const navRow = (
 		sidebarMenuButton(
 			h,
 			{
-				className: isOpen ? ROW_LANE : ACTIVE_RAIL,
+				rail: isOpen ? "lane" : "active",
 				isActive,
 				link: { href: item.href, currentPath },
 				hasTooltip: true,
@@ -180,7 +184,12 @@ const navRow = (
 												],
 									),
 									...(preview.overflow > 0
-										? [h.span([h.Class("ms-0.5 text-2xs tabular-nums")], [`+${preview.overflow}`])]
+										? [
+												h.span(
+													[h.Class("ms-0.5 text-2xs tabular-nums")],
+													[`+${preview.overflow}`],
+												),
+											]
 										: []),
 								],
 							),
@@ -223,7 +232,7 @@ export const pinnedGroup = (
 								h,
 								{
 									size: "sm",
-									className: ACTIVE_RAIL,
+									rail: "active",
 									isActive: activeDashboardId === dashboard.id,
 									link: {
 										href: `/dashboards/${encodeURIComponent(dashboard.id)}`,
@@ -246,7 +255,8 @@ export const pinnedGroup = (
 										h,
 										{
 											size: "sm",
-											className: `${ACTIVE_RAIL} text-muted-foreground`,
+											rail: "active",
+											className: "text-muted-foreground",
 											link: { href: "/dashboards", currentPath },
 										},
 										[

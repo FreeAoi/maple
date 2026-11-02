@@ -1,8 +1,8 @@
 import { DashboardDocument, DashboardVersionChangeKind } from "@maple/domain/http"
 import { AsyncData } from "foldkit"
 import { Schema } from "effect"
-import { LoadFailure } from "../../../data/load-failure"
-import * as Dialog from "../../../ui/dialog"
+import { LoadFailure } from "@maple/views/data/load-failure"
+import * as Dialog from "@maple/views/ui/dialog"
 
 // Version history: the panel's timeline, the previewed version and
 // its snapshot, read through `dashboards.listVersions` / `retrieveVersion`.
@@ -59,7 +59,7 @@ export const KIND_DOT = {
 	section_added: "bg-chart-3",
 	section_removed: "bg-severity-warn",
 	section_updated: "bg-muted-foreground",
-	restored: "bg-primary ring-[3px] ring-primary/18",
+	restored: "bg-primary ring-[3px] ring-primary-a3",
 	multiple: "bg-chart-5",
 } satisfies Record<DashboardVersionChangeKind, string>
 

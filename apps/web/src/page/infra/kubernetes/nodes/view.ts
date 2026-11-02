@@ -7,9 +7,9 @@ import { cn } from "@maple/ui/lib/utils"
 import { Option } from "effect"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { errorState } from "../../../../ui/error-state"
-import { filterSection } from "../../../../ui/filters/filter-section"
-import * as FilterSections from "../../../../ui/filters/filter-sections"
+import { errorState } from "@maple/views/ui/error-state"
+import { filterSection } from "@maple/views/ui/filters/filter-section"
+import * as FilterSections from "@maple/views/ui/filters/filter-sections"
 import {
 	filterSidebarBody,
 	filterSidebarEmpty,
@@ -17,8 +17,8 @@ import {
 	filterSidebarFrame,
 	filterSidebarHeader,
 	filterSidebarLoading,
-} from "../../../../ui/filters/filter-sidebar"
-import { icon } from "../../../../ui/icon"
+} from "@maple/views/ui/filters/filter-sidebar"
+import { icon } from "@maple/views/ui/icon"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import { fleetBand } from "../../kit/fleet-band"
@@ -26,7 +26,7 @@ import * as Frame from "../../kit/frame"
 import * as InstallModal from "../../kit/install-modal"
 import * as InstallModalView from "../../kit/install-modal-view"
 import { countLabel, searchToolbar, setupEmpty } from "../../kit/page-parts"
-import { filteredEmpty } from "../../../kit/signal-empty-state"
+import { filteredEmpty } from "@maple/views/ui/signal-empty-state"
 import { type SortAccessors, sortRowsBy } from "../../../kit/table-sort"
 import { kubernetesViewTabs } from "../../kit/view-tabs"
 import { Message } from "./message"
@@ -47,7 +47,7 @@ const STATUS_CELLS: ReadonlyArray<Readonly<{ status: HostStatus; hint: string; t
 const STATUS_SEGMENT = new Map<HostStatus, string>([
 	["active", TONE_FILL.info],
 	["idle", TONE_FILL.warn],
-	["ended", "bg-muted-foreground/40"],
+	["ended", "bg-foreground-faint"],
 ])
 
 const NODE_SORT_ACCESSORS: SortAccessors<NodeRow> = new Map<string, (row: NodeRow) => string | number>([

@@ -4,13 +4,13 @@ import {
 } from "@maple/web-data/warehouse/service-endpoints"
 import { Effect, Option, Schema } from "effect"
 import { Command, type Update } from "foldkit"
-import * as Chart from "../../../../charts/chart"
-import * as Keyed from "../../../../data/keyed"
-import { toLoadFailure } from "../../../../data/load-failure"
-import { requestKey } from "../../../../data/request-key"
+import * as Chart from "@maple/views/charts/chart"
+import * as Keyed from "@maple/views/data/keyed"
+import { toLoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
 import type { TimeWindow } from "../../../../data/time-range"
 import type { Resources } from "../../../../platform/resources"
-import * as Dialog from "../../../../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import type { PageContext } from "../../../contract"
 import type { Endpoint } from "../model-tabs"
 import { Message, OutMessage } from "./message"
@@ -93,8 +93,7 @@ export const FetchEndpointPeekSeries = Command.define("FetchServiceEndpointPeekS
 				spanNames: [input.spanName],
 			},
 		}).pipe(
-			Effect.map((response) => response.buckets),
-			Effect.mapError(toLoadFailure),
+			Effect.mapBoth({ onSuccess: (response) => response.buckets, onFailure: toLoadFailure }),
 			Effect.result,
 			Effect.map((result) => Message.CompletedFetchSeries({ spanName, key, result })),
 		),

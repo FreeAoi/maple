@@ -1,10 +1,10 @@
 import { organizationHomeRegion } from "@maple/domain/organization-regions"
 import { Effect, Option, Result, Schema } from "effect"
 import { AsyncData, Command, File } from "foldkit"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleInternalApiClient } from "../../../platform/api-clients"
 import { clerkTry, currentClerkOrganization, currentClerkUser, switchAwayFrom } from "../../../platform/clerk"
-import * as Dialog from "../../../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { revisitData } from "../kit/revisit"
 import * as Draft from "../kit/draft"
@@ -54,11 +54,13 @@ export const FetchAdmins = Command.define("FetchClerkOrganizationAdmins", {
 				organization.getMemberships({ role: ["org:admin"], pageSize: 2 }),
 			),
 		),
-		Effect.map((page): AdminsInfo => ({
-			count: page.total_count,
-			firstAdminName: otherAdminName(page.data, window.Clerk?.user?.id),
-		})),
-		Effect.mapError(toLoadFailure),
+		Effect.mapBoth({
+			onSuccess: (page): AdminsInfo => ({
+				count: page.total_count,
+				firstAdminName: otherAdminName(page.data, window.Clerk?.user?.id),
+			}),
+			onFailure: toLoadFailure,
+		}),
 		Effect.result,
 		Effect.map((result) => Message.CompletedFetchAdmins({ result })),
 	),
@@ -70,7 +72,7 @@ const RenameOrganization = Command.define("RenameClerkOrganization", {
 	execute: ({ submitted, sent }) =>
 		currentClerkOrganization.pipe(
 			Effect.flatMap((organization) =>
-				clerkTry("Failed to rename organization", () => organization.update({ name: sent })),
+				clerkTry("Couldn't rename organization", () => organization.update({ name: sent })),
 			),
 			Effect.asVoid,
 			toResult((result) => Message.CompletedSaveName({ submitted, sent, result })),
@@ -88,7 +90,7 @@ const SetLogo = Command.define("SetClerkOrganizationLogo", {
 	execute: ({ file }) =>
 		currentClerkOrganization.pipe(
 			Effect.flatMap((organization) =>
-				clerkTry(file === null ? "Failed to remove logo" : "Failed to update logo", () =>
+				clerkTry(file === null ? "Couldn't remove logo" : "Couldn't update logo", () =>
 					organization.setLogo({ file }),
 				),
 			),
@@ -103,7 +105,7 @@ const LeaveOrganization = Command.define("LeaveClerkOrganization", {
 	execute: ({ orgId }) =>
 		currentClerkUser.pipe(
 			Effect.flatMap((user) =>
-				clerkTry("Failed to leave organization", () => user.leaveOrganization(orgId)),
+				clerkTry("Couldn't leave organization", () => user.leaveOrganization(orgId)),
 			),
 			Effect.asVoid,
 			toResult((result) => Message.CompletedLeave({ result })),
@@ -338,7 +340,7 @@ export const update = (model: Model, message: Message): Return =>
 				},
 				onFailure: (error) => ({
 					model: { ...model, isDeleting: false },
-					outMessage: toast("error", "Failed to delete organization", error.message),
+					outMessage: toast("error", "Couldn't delete organization", error.message),
 				}),
 			}),
 		CompletedSwitchAway: () => ({

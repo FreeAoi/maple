@@ -14,21 +14,26 @@ import {
 import { type DerivedRuleStatus, worstState } from "@maple/web-data/alerts/rule-status"
 import { groupByTag, type TagGroup, UNTAGGED_KEY } from "@maple/web-data/alerts/tag-grouping"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { alert, alertDescription } from "../../../ui/alert"
-import { button } from "../../../ui/button"
-import { filterChip } from "../../../ui/filter-chip"
-import { icon } from "../../../ui/icon"
-import * as Menu from "../../../ui/menu"
-import type { MenuEntry } from "../../../ui/menu-view"
-import { rowActionsMenu } from "../../../ui/row-actions-menu"
-import { statusDot } from "../../../ui/status-dot"
-import { filteredEmpty } from "../../kit/signal-empty-state"
-import { ROW_LINK_LIFT, ROW_STRETCHED_LINK_CLASS, ruleHref } from "../shared/links"
+import { alert, alertDescription } from "@maple/views/ui/alert"
+import { button } from "@maple/views/ui/button"
+import { filterChip } from "@maple/views/ui/filter-chip"
+import * as Menu from "@maple/views/ui/menu"
+import type { MenuEntry } from "@maple/views/ui/menu-view"
+import { rowActionsMenu } from "@maple/views/ui/row-actions-menu"
+import { statusDot } from "@maple/views/ui/status-dot"
+import { ROW_LINK_LIFT, rowLink } from "@maple/views/ui/table"
+import { listToolbar, toolbarCount } from "../../kit/list-toolbar"
+import { filteredEmpty } from "@maple/views/ui/signal-empty-state"
+import { ruleHref } from "../shared/links"
 import { isoMs } from "../shared/time"
 import { Message, type RuleBucket } from "./message"
 import type { Model } from "./model"
 import { ruleMenuId } from "./update"
-import { searchInput } from "../../../ui/search-input"
+import { searchInput } from "@maple/views/ui/search-input"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { stripClass } from "@maple/views/ui/rule"
+import { hstack } from "@maple/views/ui/stack"
+import { borderedBox } from "@maple/views/ui/bordered-box"
 
 // `RulesTab`: the hub's Rules tab.
 
@@ -126,54 +131,54 @@ export const rulesTab = (h: H, model: Model, inputs: RulesTabInputs): Html => {
 	return h.div(
 		[h.Class("space-y-4")],
 		[
-			h.div(
-				[h.Class("flex flex-wrap items-center gap-2")],
-				[
-					rulesSearch(h, model.rulesQuery),
-					...BUCKETS.map((bucket) =>
-						filterChip(
-							h,
-							{
-								isPressed: status === bucket.value,
-								onClick: Message.ClickedStatusFilter({ bucket: bucket.value }),
-								tone: bucket.tone,
-								hasDot: true,
-								count: String(bucketCounts.get(bucket.value) ?? 0),
-							},
-							[bucket.label],
+			listToolbar(h, {
+				className: "pb-0",
+				leading: hstack(h, { gap: "2", wrap: true },
+					[
+						rulesSearch(h, model.rulesQuery),
+						...BUCKETS.map((bucket) =>
+							filterChip(
+								h,
+								{
+									isPressed: status === bucket.value,
+									onClick: Message.ClickedStatusFilter({ bucket: bucket.value }),
+									tone: bucket.tone,
+									hasDot: true,
+									count: String(bucketCounts.get(bucket.value) ?? 0),
+								},
+								[bucket.label],
+							),
 						),
-					),
-					h.span(
-						[h.Class("ml-auto font-mono text-xs text-muted-foreground")],
-						[
-							countLabel(rules.length, "rule"),
-							" · ",
-							String(totalFired),
-							" fired in ",
-							String(FIRED_WINDOW_DAYS),
-							"d",
-						],
-					),
+					],
+				),
+				trailing: [
+					toolbarCount(h, [
+						countLabel(rules.length, "rule"),
+						" · ",
+						String(totalFired),
+						" fired in ",
+						String(FIRED_WINDOW_DAYS),
+						"d",
+					]),
 				],
-			),
+			}),
 			...(model.hasToggleFailed
 				? [
 						alert(h, { variant: "crit", size: "sm" }, [
-							alertDescription(h, ["Failed to update the rule. Try again."]),
+							alertDescription(h, ["Couldn't update the rule. Try again."]),
 						]),
 					]
 				: []),
 			filtered.length === 0
 				? filteredEmpty(h, {
 						noun: "rules",
-						title: "No rules match your filters",
 						description: "Try a different search term or status.",
-						icon: icon(h, "MagnifierIcon", { size: 18 }),
 						onClear: Message.ClickedClearRuleFilters(),
 						className: "py-12",
 					})
-				: h.div(
-						[h.Class("overflow-x-auto rounded-md border")],
+				: borderedBox(
+						h,
+						{ overflow: "x-auto" },
 						[
 							h.div(
 								[h.Class("min-w-[900px]")],
@@ -183,7 +188,7 @@ export const rulesTab = (h: H, model: Model, inputs: RulesTabInputs): Html => {
 											h.Class(
 												cn(
 													ROW_GRID,
-													"border-b px-4 py-2 text-xs text-muted-foreground",
+													typographyClass({ size: "xs", tone: "muted", className: stripClass("head") }),
 												),
 											),
 										],
@@ -208,7 +213,7 @@ export const rulesTab = (h: H, model: Model, inputs: RulesTabInputs): Html => {
 											[h.Key(group.key), h.Class("border-b last:border-b-0")],
 											[
 												h.div(
-													[h.Class("border-b bg-muted/30 px-4 py-2 text-xs")],
+													[h.Class("border-b bg-surface-sunken px-4 py-2 text-xs")],
 													[
 														h.span(
 															[h.Class("font-medium")],
@@ -263,11 +268,11 @@ export const rulesTab = (h: H, model: Model, inputs: RulesTabInputs): Html => {
 	)
 }
 
-/** `SearchInput size="default"`. */
+/** `SearchInput size="sm"`, the toolbar size. */
 const rulesSearch = (h: H, value: string): Html =>
 	searchInput(h, {
 		id: "alerts-rules-search",
-		size: "default",
+		size: "sm",
 		className: "w-full max-w-xs",
 		placeholder: "Search rules, services, tags…",
 		value,
@@ -301,28 +306,25 @@ const ruleRow = (h: H, model: Model, row: RowInputs): Html => {
 		},
 	]
 	return h.li(
-		[h.Key(rule.id), h.Class(cn(ROW_GRID, "relative px-4 py-3 hover:bg-muted/40"))],
+		[h.Key(rule.id), h.Class(cn(ROW_GRID, "relative px-4 py-3 hover:bg-surface-sunken active:bg-surface-sunken"))],
 		[
 			statusDot(h, { tone: BUCKET_TONE.get(row.bucket) ?? "neutral", size: "lg" }),
 			h.div(
 				[h.Class("min-w-0 space-y-0.5")],
 				[
-					h.a(
-						[
-							h.Class(
-								cn(
-									"block truncate text-sm font-medium",
-									!rule.enabled && "text-muted-foreground",
-									ROW_STRETCHED_LINK_CLASS,
-								),
+					rowLink(
+						h,
+						{
+							href: ruleHref(rule.id),
+							className: cn(
+								"block truncate text-sm font-medium",
+								!rule.enabled && "text-muted-foreground",
 							),
-							h.Href(ruleHref(rule.id)),
-							h.Title(rule.name),
-						],
+							attributes: [h.Title(rule.name)],
+						},
 						[rule.name],
 					),
-					h.p(
-						[h.Class("truncate font-mono text-xs text-muted-foreground")],
+					typography(h, { size: "xs", tone: "muted", mono: true, truncate: true, as: "p" },
 						[ruleConditionSummary(rule)],
 					),
 				],
@@ -334,7 +336,7 @@ const ruleRow = (h: H, model: Model, row: RowInputs): Html => {
 				[
 					h.Class(
 						cn(
-							"text-right font-mono text-xs tabular-nums",
+							typographyClass({ size: "xs", mono: true, numeric: true, className: "text-right" }),
 							row.fired === 0 && "text-muted-foreground",
 						),
 					),
@@ -365,10 +367,10 @@ const headroomMeter = (
 	derived: DerivedRuleStatus | undefined,
 	value: number | null,
 ): Html => {
-	if (!rule.enabled) return h.span([h.Class("text-xs text-muted-foreground")], ["Not evaluating"])
+	if (!rule.enabled) return typography(h, { size: "xs", tone: "muted" }, ["Not evaluating"])
 	if (derived?.status === "error")
-		return h.span([h.Class("text-xs text-severity-error")], ["Query fails to run"])
-	if (value === null) return h.span([h.Class("text-xs text-muted-foreground")], ["Waiting on data"])
+		return typography(h, { size: "xs", tone: "error" }, ["Query fails to run"])
+	if (value === null) return typography(h, { size: "xs", tone: "muted" }, ["Waiting on data"])
 	const meter = ruleHeadroom(rule, value)
 	const tone = meter.breached
 		? "bg-severity-error"
@@ -424,7 +426,7 @@ const RIBBON_CLASS = new Map<RibbonCell, string>([
 const stateRibbon = (h: H, cells: ReadonlyArray<RibbonCell>): Html =>
 	h.div(
 		[h.Class("flex h-3.5 items-stretch gap-px"), h.AriaLabel("Incidents over the last 7 days")],
-		cells.map((cell) => h.span([h.Class(cn("flex-1 rounded-[1px]", RIBBON_CLASS.get(cell)))])),
+		cells.map((cell) => h.span([h.Class(cn("flex-1 rounded-2xs", RIBBON_CLASS.get(cell)))])),
 	)
 
 const routesTo = (h: H, destinations: ReadonlyArray<AlertDestinationDocument>, isEnabled: boolean): Html => {
@@ -434,5 +436,5 @@ const routesTo = (h: H, destinations: ReadonlyArray<AlertDestinationDocument>, i
 			["Nobody"],
 		)
 	const names = destinations.map((d) => d.name).join(", ")
-	return h.span([h.Class("truncate text-xs"), h.Title(names)], [names])
+	return typography(h, { size: "xs", truncate: true, attributes: [h.Title(names)] }, [names])
 }

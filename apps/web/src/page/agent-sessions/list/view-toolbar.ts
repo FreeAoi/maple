@@ -1,11 +1,14 @@
+import { countLabel, formatNumber } from "@maple/ui/lib/format"
 import { refreshingClass } from "@maple/ui/lib/refreshing"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { refreshButton } from "../../../ui/refresh-button"
-import { switchControl } from "../../../ui/switch"
+import { label } from "@maple/views/ui/label"
+import { refreshButton } from "@maple/views/ui/refresh-button"
+import { switchControl } from "@maple/views/ui/switch"
+import { listToolbar, toolbarCount } from "../../kit/list-toolbar"
 import { Message } from "./message"
 import type { Model } from "./model"
-import { searchInput } from "../../../ui/search-input"
+import { searchInput } from "@maple/views/ui/search-input"
 
 // The agent sessions toolbar, its search over `SearchInput`.
 // TODO(tooltip): the count's and the switch's tooltips are drawn as triggers only.
@@ -14,33 +17,25 @@ type H = HtmlBuilder<Message>
 
 const ERRORS_LABEL_ID = "agent-sessions-errors-label"
 
-/** `ToolbarSearch` (debounced 300 ms), default size. */
+/** `ToolbarSearch` (debounced 300 ms), toolbar size. */
 const toolbarSearch = (h: H, model: Model): Html =>
 	searchInput(h, {
 		id: "agent-sessions-search",
-		size: "default",
-		className: cn("max-w-sm", "w-full sm:max-w-sm"),
+		size: "sm",
+		className: "w-full max-w-sm",
 		placeholder: "Session or trace ID…",
 		value: model.searchInput,
 		onInput: (value) => Message.ChangedSearchInput({ value }),
 		onClear: Message.ChangedSearchInput({ value: "" }),
 	})
 
-/** `ToolbarStat`: "6 of 1,666" when the total is known and larger, else "6 shown". */
-const stat = (h: H, value: number, total: number | undefined): Html =>
-	h.span(
-		[h.Class("flex items-center gap-1.5 whitespace-nowrap text-sm")],
+/** "6 sessions", or "6 of 1.7K sessions" when the total is known and larger. */
+const count = (h: H, value: number, total: number | undefined): Html =>
+	toolbarCount(h, [
 		total !== undefined && total > value
-			? [
-					h.span([h.Class("font-medium tabular-nums")], [value.toLocaleString()]),
-					h.span([h.Class("text-muted-foreground")], ["of"]),
-					h.span([h.Class("tabular-nums text-muted-foreground")], [total.toLocaleString()]),
-				]
-			: [
-					h.span([h.Class("font-medium tabular-nums")], [value.toLocaleString()]),
-					h.span([h.Class("text-muted-foreground")], ["shown"]),
-				],
-	)
+			? `${formatNumber(value)} of ${formatNumber(total)} sessions`
+			: countLabel(value, "session"),
+	])
 
 const tooltipTrigger = <M>(h: HtmlBuilder<M>, id: string) => [
 	h.DataAttribute("base-ui-tooltip-trigger", ""),
@@ -59,10 +54,11 @@ export const toolbar = (
 		isFailed?: boolean
 	}>,
 ): Html =>
-	h.div(
-		[h.Class("flex flex-wrap items-center justify-between gap-3")],
-		[
-			toolbarSearch(h, model),
+	// The sticky area pads the page edge, so the toolbar adds no gap under itself.
+	listToolbar(h, {
+		className: "pb-0",
+		leading: toolbarSearch(h, model),
+		trailing: [
 			h.div(
 				[
 					...(options.isWaiting ? [h.AriaBusy(true)] : []),
@@ -77,14 +73,15 @@ export const toolbar = (
 										h.Class("hidden sm:block"),
 										...tooltipTrigger(h, "agent-sessions-count"),
 									],
-									[stat(h, options.sessionCount, options.totalCount)],
+									[count(h, options.sessionCount, options.totalCount)],
 								),
 							]),
-					h.label(
-						[
-							h.Class("inline-flex cursor-pointer items-center gap-2 text-xs font-medium"),
-							...tooltipTrigger(h, ERRORS_LABEL_ID),
-						],
+					label(
+						h,
+						{
+							className: "cursor-pointer text-xs sm:text-xs",
+							attributes: tooltipTrigger(h, ERRORS_LABEL_ID),
+						},
 						[
 							...switchControl(h, {
 								id: "agent-sessions-errors-switch",
@@ -110,4 +107,4 @@ export const toolbar = (
 				],
 			),
 		],
-	)
+	})

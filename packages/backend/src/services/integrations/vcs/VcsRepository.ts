@@ -25,6 +25,7 @@ import {
 	type VcsAccountType,
 	VcsRepositoryId,
 	type VcsRepoSyncStatus,
+	type VcsRepositoryDiscovery,
 } from "@maple/domain/http"
 import type { MapleDb } from "@maple/db/client"
 import * as PG from "@maple-dev/effect-orm/postgres"
@@ -127,6 +128,7 @@ const rowToInstallation = (row: VcsInstallationRow): VcsInstallation =>
 		status: row.status,
 		suspendedAt: row.suspendedAt,
 		ciTracesEnabled: row.ciTracesEnabled,
+		repositoryDiscovery: row.repositoryDiscovery,
 		installedByUserId: row.installedByUserId,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -208,6 +210,7 @@ interface UpsertInstallationInput {
 	readonly accountAvatarUrl: string | null
 	readonly repositorySelection: VcsRepoSelection
 	readonly installedByUserId: UserId
+	readonly repositoryDiscovery?: VcsRepositoryDiscovery
 }
 
 interface RepoSyncStatusUpdate {
@@ -260,7 +263,8 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				const rows = yield* selectInstallationRow(provider, externalInstallationId)
 				const row = Option.fromNullishOr(rows[0])
 				if (Option.isNone(row)) return Option.none<VcsInstallation>()
-				return Option.some(yield* decodeOne("vcs_installations", row.value, rowToInstallation))
+				const decoded = yield* decodeOne("vcs_installations", row.value, rowToInstallation)
+				return Option.some(decoded)
 			})
 
 			const listInstallationsByOrg = Effect.fn("VcsRepository.listInstallationsByOrg")(function* (
@@ -302,7 +306,8 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				)
 				const row = Option.fromNullishOr(rows[0])
 				if (Option.isNone(row)) return Option.none<VcsInstallation>()
-				return Option.some(yield* decodeOne("vcs_installations", row.value, rowToInstallation))
+				const decoded = yield* decodeOne("vcs_installations", row.value, rowToInstallation)
+				return Option.some(decoded)
 			})
 
 			const upsertInstallation = Effect.fn("VcsRepository.upsertInstallation")(function* (
@@ -351,11 +356,13 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 												accountAvatarUrl: input.accountAvatarUrl,
 												repositorySelection: input.repositorySelection,
 												installedByUserId: input.installedByUserId,
+												repositoryDiscovery: input.repositoryDiscovery ?? null,
 												createdAt: now,
 												updatedAt: now,
 											})
 											.onConflictDoUpdate({
 												target: ["provider", "externalInstallationId"],
+												where: ($) => $.orgId.eq(input.orgId),
 												// Ownership columns (org_id, installed_by_user_id, created_at) and
 												// status/suspended_at are immutable on conflict; only mutable
 												// provider metadata is refreshed.
@@ -366,6 +373,10 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 													accountAvatarUrl: excluded.accountAvatarUrl,
 													repositorySelection: excluded.repositorySelection,
 													updatedAt: excluded.updatedAt,
+													repositoryDiscovery:
+														input.repositoryDiscovery === undefined
+															? undefined
+															: excluded.repositoryDiscovery,
 												}),
 											})
 											.returning(),
@@ -384,6 +395,36 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 					})
 				}
 				return yield* decodeOne("vcs_installations", row.value, rowToInstallation)
+			})
+
+			// The row lock serializes acknowledgements with reconnect's upsert. A prior job,
+			// duplicate delivery, or scheduled sync cannot settle a newer connect request.
+			const finishRepositoryDiscovery = Effect.fn("VcsRepository.finishRepositoryDiscovery")(function* (
+				installationId: VcsInstallationId,
+				discovery: Exclude<VcsRepositoryDiscovery, { readonly _tag: "Pending" }>,
+			) {
+				return yield* dbExecute((db) =>
+					db.transaction(
+						Effect.gen(function* () {
+							const [row] = yield* db.run(
+								PG.from(VcsInstallations)
+									.select("repositoryDiscovery")
+									.where(($) => [$.id.eq(installationId)])
+									.forUpdate(),
+							)
+							if (
+								row?.repositoryDiscovery?._tag !== "Pending" ||
+								row.repositoryDiscovery.requestId !== discovery.requestId
+							)
+								return
+							yield* db.run(
+								PG.update(VcsInstallations)
+									.set({ repositoryDiscovery: discovery })
+									.where(($) => [$.id.eq(installationId)]),
+							)
+						}),
+					),
+				)
 			})
 
 			/** Health reporting is best effort: a failed report never fails the write it follows. */
@@ -561,7 +602,8 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				)
 				const row = Option.fromNullishOr(rows[0])
 				if (Option.isNone(row)) return Option.none<VcsRepo>()
-				return Option.some(yield* decodeOne("vcs_repositories", row.value, rowToRepo))
+				const decoded = yield* decodeOne("vcs_repositories", row.value, rowToRepo)
+				return Option.some(decoded)
 			})
 
 			// Look up a repo by Maple's own id — org-scoped as a safety bound
@@ -580,7 +622,8 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				)
 				const row = Option.fromNullishOr(rows[0])
 				if (Option.isNone(row)) return Option.none<VcsRepo>()
-				return Option.some(yield* decodeOne("vcs_repositories", row.value, rowToRepo))
+				const decoded = yield* decodeOne("vcs_repositories", row.value, rowToRepo)
+				return Option.some(decoded)
 			})
 
 			// Bulk sibling of getRepositoryById. The services table resolves a whole
@@ -880,7 +923,8 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				)
 				const row = Option.fromNullishOr(rows[0])
 				if (Option.isNone(row)) return Option.none<VcsCommit>()
-				return Option.some(yield* decodeOne("vcs_commits", row.value, rowToCommit))
+				const decoded = yield* decodeOne("vcs_commits", row.value, rowToCommit)
+				return Option.some(decoded)
 			})
 
 			// Bulk sibling of findCommitBySha, for resolving a whole table of deploy
@@ -1307,6 +1351,7 @@ export class VcsRepository extends Context.Service<VcsRepository>()(
 				listInstallationsByOrg,
 				listAllInstallations,
 				upsertInstallation,
+				finishRepositoryDiscovery,
 				markInstallationStatus,
 				setCiTracesEnabled,
 				listRepositoriesByInstallation,

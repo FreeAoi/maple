@@ -1,18 +1,17 @@
 import type { CatalogPlan } from "@maple/domain/http"
 import { getPlanDescription, getPlanFeatures, TRIAL_DURATION_DAYS } from "../../lib/billing/plans"
 import { cn } from "@maple/ui/lib/utils"
-import { eyebrowVariants } from "@maple/ui/styles/ui/eyebrow"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { button } from "../../ui/button"
-import { card, cardDescription, cardFooter, cardHeader, cardPanel, cardTitle } from "../../ui/card"
-import { badge, separator } from "../../ui/display"
-import { errorState } from "../../ui/error-state"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon } from "../../ui/icon"
-import { skeleton } from "../../ui/skeleton"
-import { panel } from "../../ui/panel"
-import { spinner } from "../../ui/spinner"
+import { button } from "@maple/views/ui/button"
+import { card, cardDescription, cardFooter, cardHeader, cardPanel, cardTitle } from "@maple/views/ui/card"
+import { badge, separator } from "@maple/views/ui/display"
+import { errorState } from "@maple/views/ui/error-state"
+import { eyebrow, eyebrowVariants } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import { skeleton } from "@maple/views/ui/skeleton"
+import { panel } from "@maple/views/ui/panel"
+import { spinner } from "@maple/views/ui/spinner"
 import { Message, type Model } from "./pricing-cards"
 import {
 	ENTERPRISE_DATA_FEATURES,
@@ -25,6 +24,8 @@ import {
 	getScenario,
 	PLATFORM_FEATURE_ICONS,
 } from "./pricing-plans"
+import { typography, typographyClass } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 type H = HtmlBuilder<Message>
 
@@ -55,9 +56,7 @@ const dataRow = (h: H, feature: FeatureRow, isDetailed: boolean): Html => {
 			h.div(
 				[h.Class("text-muted-foreground flex items-center gap-2.5")],
 				[
-					...(iconName === undefined
-						? []
-						: [icon(h, iconName, { className: "size-4 opacity-70" })]),
+					...(iconName === undefined ? [] : [icon(h, iconName, { className: "size-4" })]),
 					h.span([h.Class("font-medium")], [feature.label]),
 				],
 			),
@@ -70,7 +69,7 @@ const dataRow = (h: H, feature: FeatureRow, isDetailed: boolean): Html => {
 								? []
 								: [
 										h.p(
-											[h.Class("text-muted-foreground/70 text-3xs mt-0.5 font-medium")],
+											[h.Class("text-foreground-subtle text-3xs mt-0.5 font-medium")],
 											[feature.detail],
 										),
 									]),
@@ -93,7 +92,7 @@ const platformFeatures = (h: H, slug: string): Html =>
 						[h.Class("flex items-start gap-2.5 text-sm")],
 						[
 							icon(h, PLATFORM_FEATURE_ICONS.get(feature.icon) ?? "CircleCheckIcon", {
-								className: "text-muted-foreground opacity-70 size-4 shrink-0 mt-0.5",
+								className: "text-foreground-subtle size-4 shrink-0 mt-0.5",
 							}),
 							h.span([h.Class("text-muted-foreground leading-snug")], [feature.label]),
 							...(feature.value
@@ -124,23 +123,20 @@ const planCard = (h: H, plan: CatalogPlan, loadingPlanId: string | null): Html =
 		h,
 		[
 			cardHeader(h, [
-				h.div(
-					[h.Class("flex items-center justify-between gap-2")],
-					[
-						cardTitle(h, [plan.name], cn(eyebrowVariants(), isUpgrade && "text-primary")),
-						...(isActive
-							? [badge(h, { variant: "secondary", size: "xs" }, ["Current"])]
-							: isUpgrade
-								? [
-										badge(
-											h,
-											{ variant: "secondary", size: "xs", className: "text-primary" },
-											["Recommended"],
-										),
-									]
-								: []),
-					],
-				),
+				hstack(h, { gap: "2", justify: "between" }, [
+					cardTitle(h, [plan.name], cn(eyebrowVariants(), isUpgrade && "text-primary")),
+					...(isActive
+						? [badge(h, { variant: "secondary", size: "xs" }, ["Current"])]
+						: isUpgrade
+							? [
+									badge(
+										h,
+										{ variant: "secondary", size: "xs", className: "text-primary" },
+										["Recommended"],
+									),
+								]
+							: []),
+				]),
 				h.div(
 					[h.Class("mt-3 flex items-baseline gap-1")],
 					[
@@ -163,7 +159,7 @@ const planCard = (h: H, plan: CatalogPlan, loadingPlanId: string | null): Html =
 				h,
 				[
 					...(features.length > 0 ? [dataIncluded(h, features, true)] : []),
-					separator(h, "horizontal", "bg-border/60"),
+					separator(h, "horizontal", "bg-border-subtle"),
 					platformFeatures(h, getPlanSlug(plan)),
 				],
 				"flex flex-col gap-5 flex-1",
@@ -200,8 +196,8 @@ const planCard = (h: H, plan: CatalogPlan, loadingPlanId: string | null): Html =
 		],
 		cn(
 			"flex flex-col transition-colors",
-			isActive && "bg-muted/40",
-			isUpgrade && "bg-muted/30 ring-1 ring-primary/30",
+			isActive && "bg-surface-strong",
+			isUpgrade && "bg-surface-sunken ring-1 ring-primary-a3",
 		),
 	)
 }
@@ -212,10 +208,9 @@ const enterpriseCard = (h: H): Html =>
 		h,
 		[
 			cardHeader(h, [
-				h.div(
-					[h.Class("flex items-center justify-between gap-2")],
-					[cardTitle(h, ["Enterprise"], eyebrowVariants({ className: "text-primary" }))],
-				),
+				hstack(h, { gap: "2", justify: "between" }, [
+					cardTitle(h, ["Enterprise"], eyebrowVariants()),
+				]),
 				h.div(
 					[h.Class("mt-3 flex items-baseline gap-1")],
 					[
@@ -235,7 +230,7 @@ const enterpriseCard = (h: H): Html =>
 				h,
 				[
 					dataIncluded(h, ENTERPRISE_DATA_FEATURES, false),
-					separator(h, "horizontal", "bg-border/60"),
+					separator(h, "horizontal", "bg-border-subtle"),
 					platformFeatures(h, "enterprise"),
 				],
 				"flex flex-col gap-5 flex-1",
@@ -256,7 +251,7 @@ const enterpriseCard = (h: H): Html =>
 				"mt-auto flex-col gap-2 items-stretch",
 			),
 		],
-		"flex flex-col border-primary/20 bg-primary/[0.02]",
+		"flex flex-col",
 	)
 
 /** `PricingCards`: skeletons while the catalog loads, its error row, or the plan grid. */
@@ -288,13 +283,10 @@ const checkoutConfirming = (h: H): Html =>
 		},
 		[
 			spinner(h, "size-5"),
-			h.p([h.Class("text-sm font-medium")], ["Confirming your subscription…"]),
-			h.p(
-				[h.Class("text-sm text-muted-foreground")],
-				[
-					"Stripe is letting us know your checkout finished. This usually takes a few seconds; there's nothing else to click.",
-				],
-			),
+			typography(h, { size: "sm", weight: "medium", as: "p" }, ["Confirming your subscription…"]),
+			typography(h, { size: "sm", tone: "muted", as: "p" }, [
+				"Stripe is letting us know your checkout finished. This usually takes a few seconds; there's nothing else to click.",
+			]),
 		],
 	)
 
@@ -304,7 +296,7 @@ const checkoutTimedOut = (h: H): Html =>
 		h,
 		{
 			tone: "muted",
-			className: "px-4 py-3 text-sm text-muted-foreground",
+			className: typographyClass({ size: "sm", tone: "muted", className: "px-4 py-3" }),
 			attributes: [h.Role("status")],
 		},
 		[

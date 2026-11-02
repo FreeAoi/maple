@@ -1,3 +1,4 @@
+import { cn } from "@maple/ui/lib/utils"
 import { isClerkAuthEnabled } from "../lib/services/common/auth-mode"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import * as ChecklistView from "./onboarding-checklist-view"
@@ -9,13 +10,12 @@ import {
 	breadcrumbList,
 	breadcrumbPage,
 	breadcrumbSeparator,
-} from "../ui/breadcrumb"
-import { button } from "../ui/button"
-import { separator } from "../ui/display"
-import { icon } from "../ui/icon"
-import { sidebarTrigger } from "../ui/sidebar"
+} from "@maple/views/ui/breadcrumb"
+import { separator } from "@maple/views/ui/display"
+import { sidebarTrigger } from "@maple/views/ui/sidebar"
 import { Message } from "./message"
 import type { Model } from "./model"
+import { type SourceLink, sourceLinkButton } from "./source-link"
 
 // The top bar's breadcrumbs.
 
@@ -29,29 +29,12 @@ export type BreadcrumbEntry = Readonly<{
 
 const CRUMB_LABEL = "block max-w-[40ch] truncate"
 
-const crumb = (h: HtmlBuilder<Message>, entry: BreadcrumbEntry): Html =>
-	breadcrumbItem(h, { className: "min-w-0", title: entry.label }, [
+const crumb = (h: HtmlBuilder<Message>, entry: BreadcrumbEntry, className?: string): Html =>
+	breadcrumbItem(h, { className: cn("min-w-0", className), title: entry.label }, [
 		entry.href === undefined
 			? breadcrumbPage(h, CRUMB_LABEL, [entry.label])
 			: breadcrumbLink(h, { className: CRUMB_LABEL, href: entry.href }, [entry.label]),
 	])
-
-/** `IconButton variant="outline" label="Ask Maple AI" shortcut="C"`: opens the global chat sheet. */
-const askMapleButton = (h: HtmlBuilder<Message>): Html =>
-	button(
-		h,
-		{
-			size: "icon-sm",
-			variant: "outline",
-			slot: "icon-button",
-			attributes: [
-				h.AriaLabel("Ask Maple AI"),
-				h.DataAttribute("base-ui-tooltip-trigger", ""),
-				h.OnClick(Message.ClickedAskMapleAi()),
-			],
-		},
-		[icon(h, "ChatBubbleSparkleIcon")],
-	)
 
 /** `ConnectButton`: the ingest endpoint, keys and MCP popover. */
 const connectButton = (h: HtmlBuilder<Message>, model: Model): Html =>
@@ -86,6 +69,8 @@ export const topbar = (
 	/** `FilterSidebarTrigger` / `RightSidebarTrigger`: below `lg`, one per rail the page renders. */
 	railTriggers: ReadonlyArray<Html> = [],
 	showsConnect = true,
+	/** Where the page's data comes from (`source-link.ts`). */
+	sourceLink: SourceLink | null = null,
 ): Html =>
 	h.header(
 		[
@@ -103,19 +88,23 @@ export const topbar = (
 				breadcrumbList(
 					h,
 					isTitleOnly(breadcrumbs) ? "sr-only" : "flex-nowrap",
-					breadcrumbs.flatMap((entry, index) => [
-						...(index > 0 ? [breadcrumbSeparator(h, "shrink-0")] : []),
-						crumb(h, entry),
-					]),
+					// Phones keep only the page's own crumb; its heading below names the rest.
+					breadcrumbs.flatMap((entry, index) => {
+						const isEarlier = index < breadcrumbs.length - 1
+						return [
+							...(index > 0 ? [breadcrumbSeparator(h, "shrink-0 max-sm:hidden")] : []),
+							crumb(h, entry, isEarlier ? "max-sm:hidden" : undefined),
+						]
+					}),
 				),
 			]),
 			h.div(
 				[h.Class("ml-auto flex shrink-0 items-center gap-2")],
 				[
-					askMapleButton(h),
 					...(isClerkAuthEnabled ? [checklistPill(h, model)] : []),
 					...(showsConnect ? [connectButton(h, model)] : []),
 					...railTriggers,
+					...(sourceLink === null ? [] : [sourceLinkButton(h, sourceLink)]),
 					pageActions,
 				],
 			),

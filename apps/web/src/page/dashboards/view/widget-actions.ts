@@ -1,6 +1,9 @@
+import { Schema } from "effect"
 import type { DashboardDocument } from "@maple/domain/http"
 import { dataSourceRawSql, isQueryDataSource } from "@maple/widgets/dashboard"
 import type { AlertsCreateSearch } from "../../../route/search"
+
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 // The widget actions: which actions a
 // tile's menu offers, and the alert prefill it hands /alerts/create.
@@ -11,7 +14,7 @@ type Widget = DashboardDocument["widgets"][number]
 export const isAlertable = (widget: Widget): boolean =>
 	isQueryDataSource(widget.dataSource) || dataSourceRawSql(widget.dataSource) !== null
 
-// `toBase64Url` (as in lib/base64url.ts) and `encodeAlertChartToSearchParam`.
+// `toBase64Url` (unpadded UTF-8 base64url) and `encodeAlertChartToSearchParam`.
 const toBase64Url = (input: string): string =>
 	btoa(unescape(encodeURIComponent(input)))
 		.replace(/\+/g, "-")
@@ -23,7 +26,7 @@ const MAX_ENCODED_LENGTH = 12_000
 
 const encodeAlertChart = (dashboardId: string, widget: Widget): string | undefined => {
 	const encoded = toBase64Url(
-		JSON.stringify({
+		encodeJson({
 			dashboardId,
 			widget: {
 				id: widget.id,

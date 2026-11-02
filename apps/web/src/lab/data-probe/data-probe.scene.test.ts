@@ -2,8 +2,8 @@ import { OrgId } from "@maple/domain"
 import { Result, Schema } from "effect"
 import { click, Command, expect, given, Mount, role, Subscription, scene, text } from "foldkit/scene"
 import { expect as assert, describe, test } from "vitest"
-import { requestKey } from "../../data/request-key"
-import { Message as ToastMessage, PortalToasts } from "../../ui/toast"
+import { requestKey } from "@maple/views/data/request-key"
+import { Message as ToastMessage, PortalToasts } from "@maple/views/ui/toast"
 import { CheckProbeSession, FetchServicesFacets, init, Message, ResolveWindow, update, view } from "./index"
 
 const orgId = Schema.decodeSync(OrgId)("org_acme")

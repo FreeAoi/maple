@@ -6,7 +6,7 @@ import { type PageData, workloadData } from "../../page/infra-integrations/gcp/w
 import type * as Workload from "../../page/infra-integrations/gcp/workload/model"
 import { workloadPageView } from "../../page/infra-integrations/gcp/workload/view"
 import type * as Shell from "../../shell"
-import { segmentedSelect } from "../../ui/segmented-select"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
 import { type LabPage, Message, type Model, SPAN_STATES } from "./model"
 import { workloadOf } from "./update"
 
@@ -71,7 +71,7 @@ export const overlay = (model: Model, h: HtmlBuilder<Message>): Html =>
 	h.div(
 		[
 			h.Class(
-				"fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-popover px-3 py-2 shadow-lg",
+				"fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border bg-popover px-3 py-2 shadow-popup",
 			),
 		],
 		[

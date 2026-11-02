@@ -1,12 +1,12 @@
 import { InfraSurfaceLiteral } from "@maple/domain/http"
-import { OrgId } from "@maple/domain"
+import { V2Source } from "@maple/domain/http/v2"
 import type { BillingCustomer } from "@maple/domain/http"
 import type { ClerkOrganization, ClerkUser } from "../platform/clerk"
 import { Option, Schema } from "effect"
 import { AsyncData } from "foldkit"
-import { PopupPosition } from "../ui/anchor"
-import * as Dialog from "../ui/dialog"
-import * as Tooltip from "../ui/tooltip"
+import { PopupPosition } from "@maple/views/ui/anchor"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Tooltip from "@maple/views/ui/tooltip"
 import * as ClerkOrgSwitcher from "./clerk-org-switcher"
 import * as Checklist from "./onboarding-checklist"
 import * as ConnectPanel from "./connect-panel"
@@ -27,10 +27,10 @@ import {
 /** A loader that failed reads as its fallback; the reason is not shown anywhere. */
 export const LoadFailure = Schema.Literal("Failed")
 
-export const TenantData = AsyncData.Schema(OrgId, LoadFailure)
 export const InfraPresenceData = AsyncData.Schema(Schema.Array(InfraSurfaceLiteral), LoadFailure)
 export const DashboardsData = AsyncData.Schema(Schema.Array(PinnedDashboardRow), LoadFailure)
 export const NamespacesData = AsyncData.Schema(Schema.Array(Schema.String), LoadFailure)
+export const SourcesData = AsyncData.Schema(Schema.Array(V2Source), LoadFailure)
 
 export const OpenMenu = Schema.Struct({ menu: Menu, maybePosition: Schema.Option(PopupPosition) })
 export type OpenMenu = typeof OpenMenu.Type
@@ -71,13 +71,14 @@ export const Model = Schema.Struct({
 	pinnedNamespaces: Schema.Record(Schema.String, Schema.String),
 	/** `maple.dashboards.favorites`. */
 	dashboardFavorites: Schema.Array(Schema.String),
-	tenant: TenantData.schema,
 	infraPresence: InfraPresenceData.schema,
 	integrations: Integrations,
 	/** `maple.infra-surfaces.<orgId>`: each org's last settled surfaces, so the sidebar lays out once. */
 	rememberedSurfaces: Schema.Record(Schema.String, Schema.Array(NavSurface)),
 	dashboards: DashboardsData.schema,
 	namespaces: NamespacesData.schema,
+	/** The org's sources, read once a page links to its source (`source-link.ts`). */
+	sources: SourcesData.schema,
 	/** The self-hosted namespace menu's search query; each opening starts blank. */
 	namespaceQuery: Schema.String,
 	/** The collapsed rail's tooltips: one Tooltip shared by every rail button. */
@@ -152,12 +153,12 @@ export const init = (flags: ShellFlags): Model => ({
 	maybeOrgId: Option.none(),
 	pinnedNamespaces: flags.pinnedNamespaces,
 	dashboardFavorites: flags.dashboardFavorites,
-	tenant: TenantData.Idle(),
 	infraPresence: InfraPresenceData.Idle(),
 	integrations: PENDING_INTEGRATIONS,
 	rememberedSurfaces: flags.rememberedSurfaces ?? {},
 	dashboards: DashboardsData.Idle(),
 	namespaces: NamespacesData.Idle(),
+	sources: SourcesData.Idle(),
 	namespaceQuery: "",
 	isAppOutdated: false,
 	railTooltip: initRailTooltip(),

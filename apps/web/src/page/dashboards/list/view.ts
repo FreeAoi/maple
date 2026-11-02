@@ -1,13 +1,13 @@
-import { cn } from "@maple/ui/lib/utils"
-import { pageTitleStyles } from "@maple/ui/styles/ui/page-layout"
 import { TONE_TEXT } from "@maple/ui/lib/tone"
 import { Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { alert, alertDescription } from "../../../ui/alert"
-import { button } from "../../../ui/button"
-import { errorState } from "../../../ui/error-state"
-import type { LoadFailure } from "../../../data/load-failure"
-import { icon } from "../../../ui/icon"
+import { alert, alertDescription } from "@maple/views/ui/alert"
+import { button } from "@maple/views/ui/button"
+import { errorState } from "@maple/views/ui/error-state"
+import { fileInput } from "@maple/views/ui/file-input"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { icon } from "@maple/views/ui/icon"
+import { pageTitle } from "@maple/views/ui/page-layout"
 import type { PageViewInputs } from "../../contract"
 import { dashboardPage } from "../../kit/dashboard-page"
 import { headerSummary } from "./derive"
@@ -92,15 +92,12 @@ const actions = (h: H, reason: string | null): Html =>
 					],
 				),
 			),
-			h.input([
-				h.Accept(".json"),
-				h.AriaLabel("Import dashboard JSON file"),
-				h.Class("hidden"),
-				h.Style({}),
-				h.Type("file"),
-				h.Id("dashboards-import-input"),
-				h.OnFileChange((files) => Message.ChoseImportFile({ files })),
-			]),
+			fileInput(h, {
+				id: "dashboards-import-input",
+				label: "Import dashboard JSON file",
+				accept: ".json",
+				onChange: (files) => Message.ChoseImportFile({ files }),
+			}),
 		],
 	)
 
@@ -141,7 +138,7 @@ const degradedBanner = (h: H): Html =>
 	h.div(
 		[
 			h.Class(
-				"mb-3 flex items-start gap-2 rounded-md border border-border bg-muted/40 p-2.5 text-xs text-muted-foreground",
+				"mb-3 flex items-start gap-2 rounded-md border border-border bg-surface-sunken p-2.5 text-xs text-muted-foreground",
 			),
 		],
 		[
@@ -155,9 +152,9 @@ const degradedBanner = (h: H): Html =>
 			button(
 				h,
 				{
-					size: "sm",
+					size: "xs",
 					variant: "ghost",
-					className: "-my-1 h-6 shrink-0 px-2 text-xs hover:text-foreground",
+					className: "-my-1 shrink-0 hover:text-foreground active:text-foreground",
 					attributes: [h.OnClick(Message.ClickedRetrySync())],
 				},
 				["Retry sync"],
@@ -178,7 +175,7 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 				]
 			: []
 	const reason = readOnlyReason(model)
-	const title = h.div([], [h.h1([h.Class(cn(pageTitleStyles, "leading-8"))], ["Dashboards"]), ...summary])
+	const title = h.div([], [pageTitle(h, { className: "leading-8" }, ["Dashboards"]), ...summary])
 	return dashboardPage(
 		h,
 		{

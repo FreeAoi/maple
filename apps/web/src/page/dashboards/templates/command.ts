@@ -3,7 +3,7 @@ import { LIST_LIMIT_MAX } from "@maple/domain/http/v2"
 import { listMetrics } from "@maple/web-data/warehouse/metrics"
 import { Clock, Duration, Effect, Queue, Schema, Stream } from "effect"
 import { Command, Mount } from "foldkit"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleApiV2Client } from "../../../platform/api-clients"
 import { fetchWidgetData, toWidgetFailure } from "../kit/widget-data"
 import { awaitTxid } from "../kit/store"
@@ -36,10 +36,14 @@ export const FetchMetrics = Command.define("FetchTemplateReadinessMetrics", {
 	messages: [Message.CompletedFetchMetrics],
 	execute: ({ key }) =>
 		listMetrics({ data: { limit: 1000 } }).pipe(
-			Effect.map((response) =>
-				response.data.map((metric) => ({ metricName: metric.metricName, lastSeen: metric.lastSeen })),
-			),
-			Effect.mapError(toLoadFailure),
+			Effect.mapBoth({
+				onSuccess: (response) =>
+					response.data.map((metric) => ({
+						metricName: metric.metricName,
+						lastSeen: metric.lastSeen,
+					})),
+				onFailure: toLoadFailure,
+			}),
 			Effect.result,
 			Effect.map((result) => Message.CompletedFetchMetrics({ key, result })),
 		),

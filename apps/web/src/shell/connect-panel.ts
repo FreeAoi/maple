@@ -6,15 +6,22 @@ import { currentWindow, TimeWindow } from "../data/time-range"
 import { MapleApiV2Client } from "../platform/api-clients"
 import type { Resources } from "../platform/resources"
 import { readEffectiveTimeZone } from "../platform/time-zone"
-import * as CopyButton from "../ui/copy-button"
-import * as Popover from "../ui/popover"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import * as Popover from "@maple/views/ui/popover"
 
 // The Connect button: the top bar's popover with
 // the ingest endpoint and keys, the live connection pill and the MCP card.
 
 export const POPOVER_ID = "shell-connect"
 
-export const CopyField = Schema.Literals(["endpoint", "publicKey", "privateKey", "skill", "mcp"])
+export const CopyField = Schema.Literals([
+	"endpoint",
+	"publicKey",
+	"privateKey",
+	"skill",
+	"mcp",
+	"mcpCommand",
+])
 export type CopyField = typeof CopyField.Type
 
 /** `retainedQueryV2("ingestKeys", "retrieve")`: both keys from one admin-only read. */
@@ -48,6 +55,7 @@ export const Model = Schema.Struct({
 		privateKey: CopyButton.Model,
 		skill: CopyButton.Model,
 		mcp: CopyButton.Model,
+		mcpCommand: CopyButton.Model,
 	}),
 	/** `CopyableField masked`: each key's reveal toggle, reset when the panel unmounts. */
 	isPublicKeyVisible: Schema.Boolean,
@@ -61,6 +69,7 @@ const initCopies = (): Model["copies"] => ({
 	privateKey: CopyButton.init(),
 	skill: CopyButton.init(),
 	mcp: CopyButton.init(),
+	mcpCommand: CopyButton.init(),
 })
 
 export const init = (): Model => ({
@@ -263,6 +272,12 @@ export const update = (model: Model, message: Message, context: Context): Update
 			model: { ...model, isPrivateKeyVisible: !model.isPrivateKeyVisible },
 		}),
 	})
+
+/** Navigation closes the panel: its links lead elsewhere, and an open panel would hide the page. */
+export const close = (model: Model): UpdateReturn =>
+	model.popover.isOpen
+		? popoverStep(model, Popover.Message.ClickedClose(), { orgId: model.orgId, pinnedNamespace: null })
+		: { model }
 
 /** The 15 s poll runs while the panel is open on a resolved window. */
 export const isPolling = (model: Model): boolean => model.popover.isOpen && model.window !== null

@@ -11,15 +11,17 @@ import {
 } from "../../../components/releases/release-model"
 import { formatDateInTimezone, formatTimestampInTimezone } from "@maple/web-data/lib/timezone-format"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { linkButton } from "../../../ui/button"
-import { eyebrow } from "../../../ui/eyebrow"
-import { panel, panelHeader } from "../../../ui/panel"
-import { statusDot } from "../../../ui/status-dot"
-import { truncatedText } from "../../../ui/truncated-text"
-import { serviceDot } from "../../../ui/values"
+import { linkButton } from "@maple/views/ui/button"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { panel, panelHeader } from "@maple/views/ui/panel"
+import { statusDot } from "@maple/views/ui/status-dot"
+import { truncatedText } from "@maple/views/ui/truncated-text"
+import { serviceDot } from "@maple/views/ui/values"
 import { RELEASE_HEALTH_DOT_CLASS, RELEASE_HEALTH_LABEL, releaseHealthFigure, releaseHref } from "../kit"
 import { MeasureReleasesTrack } from "./command"
 import type { Message } from "./message"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // `ReleasesLiveNow` and `ReleasesTimeline` (apps/web/src/components/releases/).
 
@@ -35,17 +37,15 @@ export const liveNow = (h: H, live: ReadonlyArray<LiveVersion>, timeSearch: Time
 	const hidden = live.length - shown.length
 	const behind = live.filter((version) => version.behind > 0).length
 	return panel(h, { className: "gap-2 px-3 py-2.5" }, [
-		h.div(
-			[h.Class("flex items-baseline justify-between gap-3")],
+		hstack(h, { gap: "3", align: "baseline", justify: "between" },
 			[
 				eyebrow(h, {}, ["Live now"]),
 				behind > 0
 					? h.span([h.Class("text-2xs text-severity-warn")], [`${countLabel(behind, "service")} not on the latest release`])
-					: h.span([h.Class("text-2xs text-muted-foreground/70")], ["Every service is on its latest release"]),
+					: typography(h, { size: "2xs", tone: "subtle" }, ["Every service is on its latest release"]),
 			],
 		),
-		h.div(
-			[h.Class("flex flex-wrap gap-1.5")],
+		hstack(h, { gap: "1.5", align: "stretch", wrap: true },
 			[
 				...shown.map((version) =>
 					linkButton(
@@ -53,7 +53,7 @@ export const liveNow = (h: H, live: ReadonlyArray<LiveVersion>, timeSearch: Time
 						{
 							variant: "outline",
 							size: "xs",
-							className: cn("font-normal", version.behind > 0 && "border-severity-warn/40 bg-severity-warn/5"),
+							className: cn("font-normal", version.behind > 0 && "border-severity-warn-a4 bg-severity-warn-a1"),
 							href: releaseHref(version.commitSha, { ...timeSearch, environments, service: version.serviceName }),
 							attributes: [
 								h.Key(version.serviceName),
@@ -69,7 +69,7 @@ export const liveNow = (h: H, live: ReadonlyArray<LiveVersion>, timeSearch: Time
 						[
 							serviceDot(h, { serviceName: version.serviceName }),
 							h.span([], [version.serviceName]),
-							h.span([h.Class("font-mono text-2xs text-muted-foreground")], [shortReleaseLabel(version.commitSha)]),
+							typography(h, { size: "2xs", tone: "muted", mono: true }, [shortReleaseLabel(version.commitSha)]),
 							...(version.share < ROLLOUT_COMPLETE_SHARE
 								? [h.span([h.Class("font-mono text-3xs tabular-nums text-primary")], [formatPercent(version.share)])]
 								: []),
@@ -79,7 +79,7 @@ export const liveNow = (h: H, live: ReadonlyArray<LiveVersion>, timeSearch: Time
 						],
 					),
 				),
-				...(hidden > 0 ? [h.span([h.Class("self-center px-1 text-2xs text-muted-foreground/70")], [`+${hidden}`])] : []),
+				...(hidden > 0 ? [h.span([h.Class("self-center px-1 text-2xs text-foreground-subtle")], [`+${hidden}`])] : []),
 			],
 		),
 	])
@@ -187,8 +187,7 @@ export const releasesTimeline = (h: H, input: TimelineInput): Html => {
 			action: h.div(
 				[h.Class("flex items-center gap-3 text-3xs text-muted-foreground")],
 				RELEASE_HEALTH_ORDER.map((band) =>
-					h.span(
-						[h.Class("inline-flex items-center gap-1")],
+					hstack(h, { gap: "1", inline: true, as: "span" },
 						[statusDot(h, { tone: "custom", size: "lg", className: RELEASE_HEALTH_DOT_CLASS[band] }), RELEASE_HEALTH_LABEL[band]],
 					),
 				),
@@ -207,7 +206,7 @@ export const releasesTimeline = (h: H, input: TimelineInput): Html => {
 							),
 							h.div(
 								[
-									h.Class("relative h-full border-b border-dashed border-border/60"),
+									h.Class("relative h-full border-b border-dashed border-border-subtle"),
 									...(laneIndex === 0 ? [h.OnMount(MeasureReleasesTrack())] : []),
 								],
 								lane.markers.flatMap((marker) => {
@@ -264,7 +263,7 @@ export const releasesTimeline = (h: H, input: TimelineInput): Html => {
 				...(hidden > 0
 					? [
 							h.div(
-								[h.Class(`grid ${twoColumns} gap-3 py-1 text-3xs text-muted-foreground/70`)],
+								[h.Class(`grid ${twoColumns} gap-3 py-1 text-3xs text-foreground-subtle`)],
 								[h.span([], [`+${hidden} more ${pluralize(hidden, "service")}`])],
 							),
 						]
@@ -275,7 +274,7 @@ export const releasesTimeline = (h: H, input: TimelineInput): Html => {
 						h.span([]),
 						h.div(
 							[
-								h.Class("flex justify-between font-mono text-3xs tabular-nums text-muted-foreground/70"),
+								h.Class("flex justify-between font-mono text-3xs tabular-nums text-foreground-subtle"),
 								h.Style({ "padding-left": `${TRACK_INSET_PX}px`, "padding-right": `${TRACK_INSET_PX}px` }),
 							],
 							axisLabels(startMs, endMs, input.timeZone).map((label) => h.span([], [label])),

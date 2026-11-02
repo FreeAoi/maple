@@ -2,15 +2,15 @@ import { severityLevel } from "../../../../components/infra/format"
 import { formatPercent } from "@maple/ui/lib/format"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { ResolveThemeColors } from "../../../../charts/theme-colors"
-import { errorState } from "../../../../ui/error-state"
-import { segmentedSelect } from "../../../../ui/segmented-select"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
+import { errorState } from "@maple/views/ui/error-state"
+import { segmentedSelect } from "@maple/views/ui/segmented-select"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import * as Frame from "../../kit/frame"
 import { heroChip } from "../../kit/hero-chip"
 import { k8sChart } from "../../kit/k8s-chart"
-import { INFRA_CHART_TOKENS } from "../../../../charts/infra-metric-series"
+import { INFRA_CHART_TOKENS } from "@maple/views/charts/infra-metric-series"
 import { noMetricsMessage, pageHeroParts } from "../../kit/page-parts"
 import {
 	metaRow,
@@ -39,7 +39,7 @@ const METRIC_OPTIONS: ReadonlyArray<Readonly<{ value: PodMetric; label: string }
 ]
 
 const rail = (h: H, summary: Summary): Html =>
-	resourceAttributesCard(h, "FolderIcon", [
+	resourceAttributesCard(h, [
 		metaRow(h, { label: "k8s.pod.name", value: summary.podName }),
 		metaRow(h, { label: "k8s.namespace.name", value: summary.namespace }),
 		metaRow(h, { label: "k8s.node.name", value: summary.nodeName }),
@@ -55,7 +55,7 @@ const rightPanel = (h: H, model: Model): Html | undefined => {
 	const summary = AsyncData.getOrElse(model.summary.data, () => null)
 	if (summary !== null) return rail(h, summary)
 	return AsyncData.isLoading(model.summary.data) || AsyncData.isIdle(model.summary.data)
-		? resourceAttributesCardSkeleton(h, "FolderIcon")
+		? resourceAttributesCardSkeleton(h)
 		: undefined
 }
 

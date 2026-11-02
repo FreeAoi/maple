@@ -163,6 +163,7 @@ export {
 	sessionActivityAggregateQuery,
 	IDLE_GAP_THRESHOLD_MS,
 	type SessionTranscriptOutput,
+	type SessionTranscriptOpts,
 	type SessionEventMatchOpts,
 	type SessionActivityOpts,
 	type SessionActivityOutput,
@@ -209,6 +210,22 @@ export {
 	type WebAnalyticsAiCrawledPagesOpts,
 	type WebAnalyticsAiCrawledPagesOutput,
 } from "./queries/web-analytics-ai"
+
+// Queries — Security Center telemetry (scanner probes, runtime versions)
+export {
+	scannerSignaturesQuery,
+	scannerExposedQuery,
+	scannerSourcesQuery,
+	scannerTimelineQuery,
+	SCANNER_TIMELINE_MAX_BUCKETS,
+	SCANNER_SIGNATURES_MAX_ROWS,
+	runtimeVersionsQuery,
+	type ScannerSignaturesOutput,
+	type ScannerExposedOutput,
+	type ScannerSourcesOutput,
+	type ScannerTimelineOutput,
+	type RuntimeVersionsOutput,
+} from "./queries/security-telemetry"
 
 // Queries — Product events (funnels over `product_events`)
 export {
@@ -324,6 +341,9 @@ export {
 // Queries — Releases
 export {
 	releasesListQuery,
+	runningCommitsQuery,
+	runningCommitsRowSchema,
+	RUNNING_COMMITS_CAP,
 	releasesListRowSchema,
 	releasesTimelineQuery,
 	releaseErrorFingerprintsQuery,
@@ -497,6 +517,11 @@ export {
 	serviceWorkloadsSQL,
 	type ServiceWorkloadsOpts,
 	type ServiceWorkloadsOutput,
+	serviceRuntimesSQL,
+	serviceRuntimeResources,
+	type ServiceRuntimeResource,
+	type ServiceRuntimesOpts,
+	type ServiceRuntimesOutput,
 } from "./queries/service-infra"
 
 // Queries — Alerts: removed. Alert evaluation now reuses the dashboard
@@ -588,6 +613,22 @@ export {
 	type AuditLogEntriesOutput,
 } from "./queries/audit-log"
 
+// Queries — Cancellation evidence (what a cancelling org sent and did)
+export {
+	CANCELLATION_RESOURCE_KEYS,
+	cancellationAlertChecksQuery,
+	cancellationAuditActionsQuery,
+	cancellationAuditActorsQuery,
+	cancellationErrorFingerprintsQuery,
+	cancellationErrorsByDayQuery,
+	cancellationProductEventsQuery,
+	cancellationResourceAttributesQuery,
+	cancellationResourceSpansQuery,
+	cancellationServiceCountsQuery,
+	cancellationServiceUsageQuery,
+	cancellationToolCallsQuery,
+} from "./queries/cancellation-evidence"
+
 // Queries — Cloudflare integration usage (integrations-page ingest proof)
 
 // Queries — Cloudflare service-map stats (per-zone / per-Worker node rollups)
@@ -634,6 +675,38 @@ export {
 	type TopOperationsOpts,
 	type TopOperationsOutput,
 } from "./queries/top-operations"
+
+// Queries - MCP hub (MCP server spans per the OpenTelemetry MCP conventions)
+export {
+	mcpCallListQuery,
+	mcpCallSeriesQuery,
+	mcpCallSplitSeriesQuery,
+	mcpCallTotalsQuery,
+	mcpClientName,
+	mcpClientReachQuery,
+	mcpClientsQuery,
+	mcpErrorGroupsQuery,
+	mcpErrorTrendQuery,
+	mcpFirstSeenQuery,
+	mcpClientInfoQuery,
+	mcpMethodsQuery,
+	mcpServerClientsQuery,
+	mcpServerSparkQuery,
+	mcpServerStatsQuery,
+	mcpServicesQuery,
+	mcpSessionActivityQuery,
+	mcpSessionListQuery,
+	mcpSessionRequestsQuery,
+	mcpSessionTotalsQuery,
+	mcpSpanSummaryQuery,
+	mcpUserActivityQuery,
+	mcpUserSessionRequestsQuery,
+	mcpToolErrorsQuery,
+	mcpToolStatsQuery,
+	type McpCallFilter,
+	type McpCallOrder,
+	type McpSessionFilter,
+} from "./queries/mcp"
 
 // Queries — Infrastructure (host-centric aggregations over hostmetrics)
 export {
@@ -752,6 +825,7 @@ export {
 // Queries — CI pipeline runs (GitHub Actions traces)
 export {
 	CI_FAILED_RESULTS,
+	ciActorStatsQuery,
 	ciFailedJobsQuery,
 	ciJobStatsQuery,
 	ciPipelineStatsQuery,
@@ -762,6 +836,7 @@ export {
 	ciRunsSpanMs,
 	ciRunTotalsQuery,
 	ciRunsQuery,
+	type CiActorStatsOpts,
 	type CiFailedJobsOpts,
 	type CiRedStreak,
 	type CiRunsOpts,

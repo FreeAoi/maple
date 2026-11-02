@@ -1,6 +1,6 @@
 ---
 title: "Notification destinations"
-description: "Route Maple alerts to Slack, email, PagerDuty, Discord, Telegram, Hazel, Linear or any HTTP endpoint. How to add a destination, send a test, and get the right credentials for each provider."
+description: "Route Maple alerts to Slack, email, PagerDuty, Discord, Telegram, Google Chat, Hazel, Linear or any HTTP endpoint. How to add a destination, send a test, and get the right credentials for each provider."
 group: "Alerting"
 order: 4
 ---
@@ -68,6 +68,13 @@ Post alerts to a Discord channel through an incoming webhook.
 1. In Discord, open **Channel settings → Integrations → Webhooks → New Webhook**.
 2. Copy the webhook URL (`https://discord.com/api/webhooks/...`) into the **Discord webhook URL** field.
 
+## Google Chat
+
+Post alerts to a Google Chat space through an incoming webhook. Each alert is a card with the summary, severity, chart and links back to Maple, and a resolve or reminder replies in the thread its trigger started.
+
+1. In Google Chat, open the space, then **Apps & integrations → Webhooks → Add webhook**. Webhooks are available in Google Workspace accounts; an admin may need to allow them.
+2. Copy the webhook URL (`https://chat.googleapis.com/v1/spaces/.../messages?key=...&token=...`) into the **Google Chat webhook URL** field. The `key` and `token` in it are the credential, so treat the URL as a secret.
+
 ## Telegram
 
 Send alerts to a Telegram chat, group or channel through a bot you create. Telegram has no per-channel webhook, so a destination needs two values: the bot's token and the id of the chat it posts to.
@@ -93,7 +100,7 @@ To find the ID by hand, post a message in the chat and open `https://api.telegra
 
 When you save, Maple verifies the token and checks that the bot can reach the chat. A valid token pointed at a group the bot was never added to fails at save time, not at the first real alert.
 
-Alerts arrive as a formatted message with **Open in Maple** and **Ask Maple AI** buttons, and the alert chart as the message preview when one is available.
+Alerts arrive as a formatted message with an **Open in Maple** button, and the alert chart as the message preview when one is available.
 
 ## Webhook
 
@@ -107,7 +114,13 @@ The payload, headers, signature verification and retry behavior are in the [aler
 
 ## Hazel
 
-Connect [Hazel](https://hazel.sh/docs/integrations/maple) through OAuth and pick a workspace channel to route alerts into. See Hazel's [Maple integration guide](https://hazel.sh/docs/integrations/maple).
+Add the Maple bot to your Hazel workspace, then choose the channel alerts go to. The same bot answers `@Maple` questions in Hazel threads.
+
+1. Open **Settings → Integrations → Hazel**, click **Add to Hazel** and approve the install for your workspace. You need to be an owner or admin in Hazel.
+2. On the **Routing** tab, click **New destination** and pick the linked Hazel workspace.
+3. Pick a **Channel** and save. The list shows every public channel and the private channels the bot was added to.
+
+See Hazel's [Maple integration guide](https://hazel.sh/docs/integrations/maple).
 
 ## Linear
 

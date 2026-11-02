@@ -21,13 +21,13 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import * as Dialog from "../../../ui/dialog"
-import { MountDialog } from "../../../ui/dialog"
-import * as Combobox from "../../../ui/combobox"
+import * as Dialog from "@maple/views/ui/dialog"
+import { MountDialog } from "@maple/views/ui/dialog"
+import * as Combobox from "@maple/views/ui/combobox"
 import * as ChatConnect from "../shared/chat-connect"
 import * as ChatFields from "./chat-fields"
 import * as LinearFields from "./linear-fields"
-import * as Select from "../../../ui/select"
+import * as Select from "@maple/views/ui/select"
 import {
 	chatConnectDependencies,
 	CreateDestination,
@@ -95,7 +95,7 @@ describe("destination dialog", () => {
 			expectOutMessage(
 				OutMessage.RequestedToast({
 					type: "error",
-					title: "Failed to save destination",
+					title: "Couldn't save destination",
 					description: "nope",
 				}),
 			),
@@ -297,7 +297,7 @@ describe("destination dialog", () => {
 			expectOutMessage(
 				OutMessage.RequestedToast({
 					type: "error",
-					title: "Failed to save destination",
+					title: "Couldn't save destination",
 					description: "no team",
 				}),
 			),
@@ -363,7 +363,7 @@ describe("destination dialog", () => {
 		expect(failed.outMessage).toEqual(
 			OutMessage.RequestedToast({
 				type: "error",
-				title: "Failed to save destination",
+				title: "Couldn't save destination",
 				description: "nope",
 			}),
 		)
@@ -384,5 +384,23 @@ describe("destination dialog", () => {
 		expect(late.model.dialog.isOpen).toBe(true)
 		expect(late.model.isSaving).toBe(false)
 		expect(late.outMessage).toEqual(OutMessage.CreatedDestination({ id: CREATED }))
+	})
+})
+
+describe("Google Chat destination form", () => {
+	const form = (webhookUrl: string) => ({ ...opened().form, type: "google-chat" as const, webhookUrl })
+
+	test("saves only a space's webhook URL with its key and token", () => {
+		expect(
+			isFormReady(form("https://chat.googleapis.com/v1/spaces/AAAA/messages?key=k&token=t"), false),
+		).toBe(true)
+		expect(isFormReady(form("https://chat.google.com/room/AAAA"), false)).toBe(false)
+		expect(
+			isFormReady(form("https://chat.googleapis.com/v1/spaces/AAAA/messages?key=k&token="), false),
+		).toBe(false)
+	})
+
+	test("keeps the stored webhook when an edit leaves the URL blank", () => {
+		expect(isFormReady({ ...form(""), name: "Ops" }, true)).toBe(true)
 	})
 })

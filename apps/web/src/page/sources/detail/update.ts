@@ -1,14 +1,14 @@
 import type { V2Source } from "@maple/domain/http/v2"
 import { Option, Result } from "effect"
 import { AsyncData, Command } from "foldkit"
-import * as Chart from "../../../charts/chart"
-import { LoadChartRuntime } from "../../../charts/chart-runtime"
-import * as Keyed from "../../../data/keyed"
-import type { LoadFailure } from "../../../data/load-failure"
+import * as Chart from "@maple/views/charts/chart"
+import { LoadChartRuntime } from "@maple/views/charts/chart-runtime"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
 import { AppRoute, hrefOf } from "../../../route"
-import * as CopyButton from "../../../ui/copy-button"
-import * as Dialog from "../../../ui/dialog"
-import * as Menu from "../../../ui/menu"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Menu from "@maple/views/ui/menu"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import { copyToast } from "../../kit/clipboard"
 import { sourcesListKey, sourceUsageKey } from "../kit/data"
@@ -89,6 +89,17 @@ const settingsOf = (source: V2Source): SettingsForm => ({
 	rules: Rules.init(source),
 	isSaving: false,
 })
+
+/** The form differs from the source it was built from: the save bar shows. */
+export const isSettingsDirty = (form: SettingsForm): boolean => {
+	const base = form.rules.existing
+	if (base === null) return false
+	return (
+		form.name !== base.name ||
+		form.description !== (base.description ?? "") ||
+		(hasToken(base) && Rules.isRulesDirty(form.rules))
+	)
+}
 
 /** The open tab's state, built as its component mounts; Settings rebuilds when `updated_at` moves. */
 const withTabState = (model: Model): Model =>
@@ -482,19 +493,19 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 		CompletedPause: ({ result }) =>
 			settled(model, context, result, {
 				success: "Source paused. Takes effect within a minute.",
-				error: "Failed to pause source",
+				error: "Couldn't pause source",
 			}),
 		CompletedResume: ({ result }) =>
 			settled(model, context, result, {
 				success: "Source resumed. Takes effect within a minute.",
-				error: "Failed to resume source",
+				error: "Couldn't resume source",
 			}),
 		CompletedRoll: ({ result }) => {
 			const closed = liftDialog({ ...model, busy: null }, "rollDialog", Dialog.close(model.rollDialog))
 			return Result.match(result, {
 				onFailure: (failure) => ({
 					...closed,
-					outMessage: failureToast("Failed to roll token", failure),
+					outMessage: failureToast("Couldn't roll token", failure),
 				}),
 				onSuccess: (rolled) =>
 					andThen(closed, (next) =>
@@ -513,7 +524,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 			Result.match(result, {
 				onFailure: (failure) => ({
 					model: { ...model, busy: null },
-					outMessage: failureToast("Failed to delete source", failure),
+					outMessage: failureToast("Couldn't delete source", failure),
 				}),
 				onSuccess: () => {
 					const closed = liftDialog(
@@ -559,14 +570,26 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 			model: withSettings(model, (form) => ({ ...form, description: value })),
 		}),
 		SubmittedSettings: () => save(model),
+		ClickedDiscardSettings: () =>
+			model.settings === null || model.settings.isSaving
+				? { model }
+				: Option.match(sourceOf(model), {
+						onNone: () => ({ model }),
+						onSome: (source) => ({ model: { ...model, settings: settingsOf(source) } }),
+					}),
 		CompletedSave: ({ result }) =>
 			settled(
-				withSettings(model, (form) => ({ ...form, isSaving: false })),
+				// Rebuilt from the saved source, so the form is clean before the list reload lands.
+				Result.match(result, {
+					onFailure: () => withSettings(model, (form) => ({ ...form, isSaving: false })),
+					onSuccess: (saved) =>
+						model.settings === null ? model : { ...model, settings: settingsOf(saved) },
+				}),
 				context,
 				result,
 				{
 					success: "Source saved. Changes reach the gateway within a minute.",
-					error: "Failed to save source",
+					error: "Couldn't save source",
 				},
 			),
 		GotTokenCopyMessage: ({ message: inner }) => {

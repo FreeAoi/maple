@@ -1,13 +1,14 @@
 import type { V2Recommendation } from "@maple/domain/http/v2"
 import { formatNumber } from "@maple/ui/lib/format"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as CopyButton from "../../ui/copy-button"
-import { icon } from "../../ui/icon"
-import { inlineCode } from "../../ui/inline-code"
-import { panel } from "../../ui/panel"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import { icon } from "@maple/views/ui/icon"
+import { inlineCode } from "@maple/views/ui/inline-code"
+import { panel } from "@maple/views/ui/panel"
 import { Message } from "./message"
 import type { Model } from "./model"
 import { sectionHeading } from "../kit/section-heading"
+import { typography, typographyClass } from "@maple/views/ui/typography"
 
 // The body of `RecommendationDetailPage`: Summary, ChangeBreakdown, CautionCallout and the fix block.
 
@@ -21,7 +22,7 @@ export const isLive = (issue: V2Recommendation) => issue.status === "applied" ||
 
 const summary = (h: H, issue: V2Recommendation): Html =>
 	h.p(
-		[h.Class("text-base leading-relaxed text-foreground/90")],
+		[h.Class("text-base leading-relaxed text-foreground-soft")],
 		issue.kind === "double-emission"
 			? [
 					"Your spans emit both ",
@@ -74,12 +75,12 @@ const changeBreakdown = (h: H, issue: V2Recommendation): Html => {
 					[
 						icon(h, "CircleXmarkIcon", {
 							size: 16,
-							className: "mt-0.5 shrink-0 text-muted-foreground",
+							className: typographyClass({ tone: "muted", className: "mt-0.5 shrink-0" }),
 						}),
 						h.div(
 							[h.Class("min-w-0 flex-1")],
 							[
-								h.p([h.Class("text-xs text-muted-foreground")], [labels.from]),
+								typography(h, { size: "xs", tone: "muted", as: "p" }, [labels.from]),
 								h.code(
 									[
 										h.Class(
@@ -99,7 +100,7 @@ const changeBreakdown = (h: H, issue: V2Recommendation): Html => {
 				...(issue.canonical_key
 					? [
 							h.div(
-								[h.Class("flex items-start gap-3 border-t border-border/60 px-4 py-3")],
+								[h.Class("flex items-start gap-3 border-t border-border-subtle px-4 py-3")],
 								[
 									icon(h, "CircleCheckIcon", {
 										size: 16,
@@ -108,7 +109,9 @@ const changeBreakdown = (h: H, issue: V2Recommendation): Html => {
 									h.div(
 										[h.Class("min-w-0 flex-1")],
 										[
-											h.p([h.Class("text-xs text-muted-foreground")], [labels.to]),
+											typography(h, { size: "xs", tone: "muted", as: "p" }, [
+												labels.to,
+											]),
 											h.code(
 												[h.Class("font-mono text-sm break-all text-foreground")],
 												[issue.canonical_key],
@@ -129,10 +132,10 @@ const changeBreakdown = (h: H, issue: V2Recommendation): Html => {
 
 const cautionCallout = (h: H, issue: V2Recommendation): Html =>
 	h.div(
-		[h.Class("rounded-r-md border-l-2 border-severity-warn bg-severity-warn/8 px-4 py-3")],
+		[h.Class("rounded-r-md border-l-2 border-severity-warn bg-severity-warn-a1 px-4 py-3")],
 		[
 			h.p(
-				[h.Class("text-sm leading-relaxed text-foreground/90")],
+				[h.Class("text-sm leading-relaxed text-foreground-soft")],
 				[
 					h.span([h.Class("font-medium text-severity-warn")], ["Please note:"]),
 					" ",
@@ -166,12 +169,11 @@ const mappingBlock = (h: H, model: Model, issue: V2Recommendation): Html => {
 			}),
 			panel(h, { tone: "muted" }, [
 				h.div(
-					[h.Class("flex items-center justify-between border-b border-border/60 px-3 py-2")],
+					[h.Class("flex items-center justify-between border-b border-border-subtle px-3 py-2")],
 					[
-						h.span(
-							[h.Class("text-xs text-muted-foreground")],
-							[live ? "This mapping is live" : "Ingest attribute mapping"],
-						),
+						typography(h, { size: "xs", tone: "muted" }, [
+							live ? "This mapping is live" : "Ingest attribute mapping",
+						]),
 						// TODO(tooltip): the "Copy" tooltip popup on hover.
 						CopyButton.view(h, {
 							model: model.copy,
@@ -228,18 +230,15 @@ const sdkFixBlock = (h: H, issue: V2Recommendation): Html =>
 		[
 			sectionHeading(h, { title: "How to fix", variant: "eyebrow" }),
 			panel(h, { tone: "muted", className: "px-4 py-3" }, [
-				h.p(
-					[h.Class("text-sm leading-relaxed text-muted-foreground")],
-					[
-						"Rename ",
-						code(h, issue.source_key),
-						...(issue.canonical_key
-							? [" ", "to ", code(h, issue.canonical_key)]
-							: [" to a lowercase, dotted semantic-convention key"]),
-						" ",
-						"where your spans are created (the instrumentation / SDK). Once the conforming key appears on incoming spans, this recommendation resolves automatically.",
-					],
-				),
+				typography(h, { size: "sm", tone: "muted", as: "p", className: "leading-relaxed" }, [
+					"Rename ",
+					code(h, issue.source_key),
+					...(issue.canonical_key
+						? [" ", "to ", code(h, issue.canonical_key)]
+						: [" to a lowercase, dotted semantic-convention key"]),
+					" ",
+					"where your spans are created (the instrumentation / SDK). Once the conforming key appears on incoming spans, this recommendation resolves automatically.",
+				]),
 			]),
 		],
 	)

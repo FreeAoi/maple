@@ -5,10 +5,13 @@ import { spanEventMarkers, type TimelineSpanEvent } from "@maple/ui/lib/span-eve
 import { TONE_FILL, TONE_TEXT } from "@maple/ui/lib/tone"
 import { cn } from "@maple/ui/lib/utils"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { describeSpan } from "../../../../service-map/trace-flow/span-category"
-import { icon } from "../../../../ui/icon"
+import { describeSpan } from "@maple/views/service-map/trace-flow/span-category"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
 import type { Bar } from "./layout"
 import { Message } from "./message"
+import { typographyClass } from "@maple/views/ui/typography"
+import { hstackClass } from "@maple/views/ui/stack"
 
 // `TraceTimelineRow` (packages/ui/src/components/traces/trace-timeline-row.tsx).
 // TODO(tooltip): event-marker tooltips and the hover span tooltip are not ported (triggers only).
@@ -110,7 +113,7 @@ const labelCell = (h: H, bar: Bar, state: RowState, durationLabel: string): Html
 				? [
 						h.span(
 							[
-								attr(h, "shrink-0 font-mono text-3xs tabular-nums text-muted-foreground"),
+								attr(h, typographyClass({ size: "3xs", tone: "muted", mono: true, numeric: true, className: "shrink-0" })),
 								h.Title(`Depth ${bar.depth}`),
 							],
 							["L", String(bar.depth)],
@@ -118,27 +121,30 @@ const labelCell = (h: H, bar: Bar, state: RowState, durationLabel: string): Html
 					]
 				: []),
 			bar.hasChildren
-				? h.button(
-						[
-							h.AriaLabel(verb),
-							attr(
-								h,
-								"flex items-center justify-center size-4 shrink-0 text-muted-foreground hover:text-foreground",
-							),
-							h.Tabindex(-1),
-							h.Title(`${verb} — ⌥ for the whole subtree`),
-							h.Type("button"),
-							h.OnClick(Message.ClickedToggleCollapse({ spanId }), { propagation: "Stop" }),
-							h.DataAttribute("toggle-span", spanId),
-						],
+				? iconButton(
+						h,
+						{
+							label: verb,
+							size: "icon-2xs",
+							// The native title carries the shortcut hint, so no tooltip trigger per row.
+							hasTooltip: false,
+							// No coarse-pointer hit area: it would cover the span label beside it.
+							className: "text-muted-foreground hover:text-foreground active:text-foreground pointer-coarse:after:hidden",
+							attributes: [
+								h.Tabindex(-1),
+								h.Title(`${verb} — ⌥ for the whole subtree`),
+								h.OnClick(Message.ClickedToggleCollapse({ spanId }), { propagation: "Stop" }),
+								h.DataAttribute("toggle-span", spanId),
+							],
+						},
 						[icon(h, bar.isCollapsed ? "ChevronRightIcon" : "ChevronDownIcon", { size: 12 })],
 					)
 				: h.span([attr(h, "inline-block size-4 shrink-0")], []),
 			h.span(
-				[attr(h, "flex shrink-0 items-center"), h.Title(category.label)],
+				[attr(h, hstackClass({ className: "shrink-0" })), h.Title(category.label)],
 				[
 					icon(h, category.icon, {
-						size: 11,
+						size: 12,
 						className: bar.isError ? TONE_TEXT.crit : category.accent.text,
 					}),
 				],
@@ -148,9 +154,9 @@ const labelCell = (h: H, bar: Bar, state: RowState, durationLabel: string): Html
 					attr(
 						h,
 						cn(
-							"truncate font-mono font-medium text-foreground/90",
+							"truncate font-mono font-medium text-foreground-soft",
 							bar.isError && TONE_TEXT.crit,
-							bar.span.isMissing === true && "italic text-muted-foreground",
+							bar.span.isMissing === true && typographyClass({ tone: "muted", className: "italic" }),
 						),
 					),
 				],
@@ -189,7 +195,7 @@ const labelCell = (h: H, bar: Bar, state: RowState, durationLabel: string): Html
 							[
 								attr(
 									h,
-									"flex items-center gap-0.5 shrink-0 text-4xs text-muted-foreground/70",
+									"flex items-center gap-0.5 shrink-0 text-4xs text-foreground-subtle",
 								),
 								h.Title(countLabel(bar.childCount, "hidden span")),
 							],
@@ -298,14 +304,14 @@ const timelineCell = (h: H, bar: Bar, state: RowState, durationLabel: string): H
 						[attr(h, "flex min-w-0 flex-1 items-center overflow-hidden")],
 						[
 							h.span(
-								[attr(h, cn("hidden truncate px-1.5 text-foreground/90", fit.inside))],
+								[attr(h, cn("hidden truncate px-1.5 text-foreground-soft", fit.inside))],
 								[bar.span.spanName],
 							),
 							h.span(
 								[
 									attr(
 										h,
-										"ml-auto hidden shrink-0 px-1.5 text-foreground/50 tabular-nums @min-[140px]/bar:inline",
+										"ml-auto hidden shrink-0 px-1.5 text-foreground-subtle tabular-nums @min-[140px]/bar:inline",
 									),
 								],
 								[durationLabel],
@@ -325,7 +331,7 @@ const timelineCell = (h: H, bar: Bar, state: RowState, durationLabel: string): H
 							...(isLabelLeft ? [h.DataAttribute("side", "left")] : []),
 							...(isOffscreen ? [h.Style({ visibility: "hidden" })] : []),
 						],
-						[h.span([attr(h, "text-foreground/90")], [bar.span.spanName]), " · ", durationLabel],
+						[h.span([attr(h, "text-foreground-soft")], [bar.span.spanName]), " · ", durationLabel],
 					),
 				],
 			),
@@ -347,11 +353,11 @@ export const timelineRow = (h: H, bar: Bar, state: RowState): Html => {
 				h,
 				cn(
 					"absolute left-0 right-0 flex items-stretch cursor-pointer select-none",
-					"hover:bg-muted/30",
-					state.isHovered && "bg-muted/30",
-					state.isSelected && "bg-primary/10",
+					"hover:bg-surface-sunken active:bg-surface-sunken",
+					state.isHovered && "bg-surface-sunken",
+					state.isSelected && "bg-primary-a2",
 					state.isFocused && "ring-1 ring-inset ring-primary/60",
-					state.isMatched && "ring-1 ring-inset ring-primary/40",
+					state.isMatched && "ring-1 ring-inset ring-primary-a4",
 					state.isDimmed && "opacity-40",
 				),
 			),

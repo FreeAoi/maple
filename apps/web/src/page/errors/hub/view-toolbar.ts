@@ -4,14 +4,17 @@ import { cn } from "@maple/ui/lib/utils"
 import { HUB_SORTS, SEVERITY_FILTERS, type SeverityFilter } from "../../../lib/errors/hub-params"
 import { AsyncData } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import * as SelectView from "../../../ui/select-view"
-import { skeleton } from "../../../ui/skeleton"
-import { statusDot } from "../../../ui/status-dot"
-import * as TabsView from "../../../ui/tabs-view"
+import * as SelectView from "@maple/views/ui/select-view"
+import { skeleton } from "@maple/views/ui/skeleton"
+import { statusDot } from "@maple/views/ui/status-dot"
+import * as TabsView from "@maple/views/ui/tabs-view"
 import { SEVERITY_FILL, SEVERITY_LABEL, SEVERITY_ORDER, severityDot } from "../kit/severity"
 import { Message } from "./message"
 import type { Model } from "./model"
-import { searchInput } from "../../../ui/search-input"
+import { searchInput } from "@maple/views/ui/search-input"
+import { listToolbar, toolbarCount } from "../../kit/list-toolbar"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 // The errors stat strip, list toolbar, search and the sort and severity selects.
 
@@ -59,7 +62,7 @@ export const statStrip = (h: H, model: Model): Html | null =>
 									stat(h, formatErrorRate(summary.errorRate), "of all spans"),
 								],
 							),
-							h.span([h.Class("text-xs text-muted-foreground/60")], ["in the last 24 hours"]),
+							typography(h, { size: "xs", tone: "subtle" }, ["in the last 24 hours"]),
 						],
 					),
 	})
@@ -104,7 +107,7 @@ const severityContent = (
 	labels: Record<SeverityFilter, string>,
 ): ReadonlyArray<Html | string> =>
 	isSeverityFilter(value)
-		? [h.span([h.Class("flex items-center gap-2")], [severityFilterDot(h, value), labels[value]])]
+		? [hstack(h, { gap: "2", as: "span" }, [severityFilterDot(h, value), labels[value]])]
 		: ["Severity"]
 
 const SORT_ENTRIES: ReadonlyArray<SelectView.SelectEntry> = HUB_SORTS.map((value) => ({
@@ -130,56 +133,54 @@ const toolbarSearch = (h: H, draft: string): Html =>
 	})
 
 /** `ListToolbar`: view tabs, then search, sort, severity and the count readout. */
-export const toolbar = (h: H, model: Model, count: ReadonlyArray<string> | null): Html =>
-	h.div(
-		[h.Class("flex flex-wrap items-center gap-2 gap-y-1.5 pb-3")],
-		[
+export const toolbar = (
+	h: H,
+	model: Model,
+	count: ReadonlyArray<string> | null,
+	className?: string,
+): Html =>
+	listToolbar(h, {
+		className,
+		leading: h.submodel({
+			slotId: "errors-view-tabs",
+			model: model.tabs,
+			view: TabsView.view,
+			viewInputs: {
+				labels: VIEW_LABELS,
+				ariaLabel: "Filter errors",
+				tabClassName: "group/tab h-7 grow-0 px-2.5 text-xs sm:h-7 sm:text-xs",
+				panel: () => undefined,
+			},
+			toParentMessage: (message) => Message.GotTabsMessage({ message }),
+		}),
+		trailing: [
+			toolbarSearch(h, model.searchDraft),
 			h.submodel({
-				slotId: "errors-view-tabs",
-				model: model.tabs,
-				view: TabsView.view,
+				slotId: model.sortSelect.id,
+				model: model.sortSelect,
+				view: SelectView.view,
 				viewInputs: {
-					labels: VIEW_LABELS,
-					ariaLabel: "Filter errors",
-					tabClassName: "group/tab h-7 grow-0 px-2.5 text-xs sm:h-7 sm:text-xs",
-					panel: () => undefined,
+					entries: SORT_ENTRIES,
+					size: "sm",
+					className: "h-7 w-32 text-xs",
+					toView: (parts) => h.div([h.Class("contents")], parts),
 				},
-				toParentMessage: (message) => Message.GotTabsMessage({ message }),
+				toParentMessage: (message) => Message.GotSortSelectMessage({ message }),
 			}),
-			h.div(
-				[h.Class("ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2")],
-				[
-					toolbarSearch(h, model.searchDraft),
-					h.submodel({
-						slotId: model.sortSelect.id,
-						model: model.sortSelect,
-						view: SelectView.view,
-						viewInputs: {
-							entries: SORT_ENTRIES,
-							size: "sm",
-							className: "h-7 w-[126px] text-xs",
-							toView: (parts) => h.div([h.Class("contents")], parts),
-						},
-						toParentMessage: (message) => Message.GotSortSelectMessage({ message }),
-					}),
-					h.submodel({
-						slotId: model.severitySelect.id,
-						model: model.severitySelect,
-						view: SelectView.view,
-						viewInputs: {
-							entries: SEVERITY_ENTRIES,
-							size: "sm",
-							className: "h-7 w-[122px] text-xs",
-							renderValue: (value) => severityContent(h, value, SEVERITY_TRIGGER_LABEL),
-							renderItem: (option) => severityContent(h, option.value, SEVERITY_FILTER_LABEL),
-							toView: (parts) => h.div([h.Class("contents")], parts),
-						},
-						toParentMessage: (message) => Message.GotSeveritySelectMessage({ message }),
-					}),
-					...(count === null
-						? []
-						: [h.span([h.Class("text-xs text-muted-foreground tabular-nums")], count)]),
-				],
-			),
+			h.submodel({
+				slotId: model.severitySelect.id,
+				model: model.severitySelect,
+				view: SelectView.view,
+				viewInputs: {
+					entries: SEVERITY_ENTRIES,
+					size: "sm",
+					className: "h-7 w-32 text-xs",
+					renderValue: (value) => severityContent(h, value, SEVERITY_TRIGGER_LABEL),
+					renderItem: (option) => severityContent(h, option.value, SEVERITY_FILTER_LABEL),
+					toView: (parts) => h.div([h.Class("contents")], parts),
+				},
+				toParentMessage: (message) => Message.GotSeveritySelectMessage({ message }),
+			}),
+			...(count === null ? [] : [toolbarCount(h, count)]),
 		],
-	)
+	})

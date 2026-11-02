@@ -6,7 +6,7 @@ import { Schema } from "effect"
 import type { DispatchContext } from "../context"
 import type { HttpRequestSpec, RenderInput } from "../Transport"
 import { discordTransport } from "./discord"
-import { hazelTransport } from "./hazel"
+import { googleChatTransport } from "./google-chat"
 import { pagerDutyTransport } from "./pagerduty"
 import { telegramTransport } from "./telegram"
 import { webhookTransport } from "./webhook"
@@ -22,7 +22,7 @@ import { webhookTransport } from "./webhook"
 const DESTINATION_ID = Schema.decodeUnknownSync(AlertDestinationId)("7c6b5a49-3821-4e0f-9d8c-7b6a59483726")
 
 const LINK = "https://web.localhost/alerts"
-const CHAT = "https://web.localhost/chat"
+const CHAT = "https://web.localhost/alerts/rule_1"
 
 const destinationRow: AlertDestinationRow = {
 	id: DESTINATION_ID,
@@ -107,24 +107,18 @@ describe("transport render: guard flags", () => {
 			),
 		],
 		[
-			"hazel-oauth",
-			hazelTransport.render(
-				inputFor({
-					type: "hazel-oauth",
-					hazelOrganizationId: "o",
-					hazelOrganizationName: "Acme",
-					hazelChannelId: "c",
-					hazelChannelName: "ops",
-					webhookId: "w",
-					webhookUrl: "https://hazel.test/api/webhooks/w/tok",
-					webhookToken: "tok",
-				}),
-			),
-		],
-		[
 			"telegram",
 			telegramTransport.render(
 				inputFor({ type: "telegram", botToken: "123456789:AA-token", chatId: "-100123" }),
+			),
+		],
+		[
+			"google-chat",
+			googleChatTransport.render(
+				inputFor({
+					type: "google-chat",
+					webhookUrl: "https://chat.googleapis.com/v1/spaces/AAAA/messages?key=k&token=t",
+				}),
 			),
 		],
 	]
@@ -134,14 +128,15 @@ describe("transport render: guard flags", () => {
 		// pagerduty + telegram post to compile-time vendor constants: there
 		// is no attacker-controlled URL to validate, so the guard would only cost a
 		// redirect walk.
-		assert.deepStrictEqual(guarded, ["webhook", "discord", "hazel-oauth"])
+		assert.deepStrictEqual(guarded, ["webhook", "discord", "google-chat"])
 	})
 
 	it("marks exactly the providers whose token rides in the URL path", () => {
 		const sensitive = specs.filter(([, spec]) => spec.sensitivePath).map(([name]) => name)
 		// telegram is the first provider where this disagrees with `guarded`: a
-		// fixed vendor host, but the bot token rides in the path.
-		assert.deepStrictEqual(sensitive, ["discord", "hazel-oauth", "telegram"])
+		// fixed vendor host, but the bot token rides in the path. google-chat carries its
+		// credential in the query string, which no span records.
+		assert.deepStrictEqual(sensitive, ["discord", "telegram"])
 	})
 
 	it("always produces a parseable JSON body", () => {
@@ -182,32 +177,14 @@ describe("transport render: templates", () => {
 		assert.strictEqual(body.routing_key, "k")
 	})
 
-	it("webhook and hazel ignore templates — they ship the canonical payload", () => {
-		for (const spec of [
-			webhookTransport.render(
-				inputFor(
-					{ type: "webhook", url: "https://hooks.test/x", signingSecret: null },
-					{ templated: TEMPLATED },
-				),
+	it("webhook ignores templates: it ships the canonical payload", () => {
+		const spec = webhookTransport.render(
+			inputFor(
+				{ type: "webhook", url: "https://hooks.test/x", signingSecret: null },
+				{ templated: TEMPLATED },
 			),
-			hazelTransport.render(
-				inputFor(
-					{
-						type: "hazel-oauth",
-						hazelOrganizationId: "o",
-						hazelOrganizationName: "Acme",
-						hazelChannelId: "c",
-						hazelChannelName: "ops",
-						webhookId: "w",
-						webhookUrl: "https://hazel.test/api/webhooks/w/tok",
-						webhookToken: "tok",
-					},
-					{ templated: TEMPLATED },
-				),
-			),
-		]) {
-			assert.strictEqual(spec.body, '{"canonical":"payload"}')
-		}
+		)
+		assert.strictEqual(spec.body, '{"canonical":"payload"}')
 	})
 })
 

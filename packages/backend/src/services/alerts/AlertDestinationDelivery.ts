@@ -9,21 +9,16 @@ import {
 	type AlertRuleId,
 } from "@maple/domain/http"
 import { projectAlertLifecycleEvent } from "@maple/alerting-core"
-import { Effect, Result } from "effect"
+import { Effect, Result, Schema } from "effect"
 import { HttpClient } from "effect/http"
 import { parseBase64Aes256GcmKey } from "@maple/backend/platform/Crypto"
 import type { EmailServiceApi } from "@maple/backend/platform/EmailService"
 import type { ChatAlertPosterApi } from "./ChatAlertPoster"
-import { buildAlertChatUrl, type DispatchContext as DeliveryDispatchContext } from "./AlertDeliveryDispatch"
+import { buildAlertRuleUrl, type DispatchContext as DeliveryDispatchContext } from "./AlertDeliveryDispatch"
 import { dispatchDelivery as dispatchDeliveryImpl } from "./delivery/dispatch"
 import type { DispatchDestination, DispatchResult } from "./delivery/context"
 import type { LinearDeliveryPort } from "./delivery/Transport"
-import {
-	hydrateDestinationRow,
-	type DestinationSecretConfig,
-	type EnrichedDestinationSecretConfig,
-	type StoredDestinationConfig,
-} from "./AlertDestinationHydration"
+import { hydrateDestinationRow, type StoredDestinationConfig } from "./AlertDestinationHydration"
 
 /** The destination columns delivery reads; any stored row shape satisfies it. */
 type DeliverableDestination = DispatchDestination & StoredDestinationConfig
@@ -98,14 +93,6 @@ export const makeAlertDestinationDelivery = (options: {
 		return { row, publicConfig, secretConfig } as const
 	})
 
-	const enrichSecretForDispatch = (
-		_row: DeliverableDestination,
-		secretConfig: DestinationSecretConfig,
-	): Effect.Effect<EnrichedDestinationSecretConfig, AlertDeliveryError> =>
-		// Hazel-OAuth webhooks embed their delivery token in the URL path, so
-		// there's nothing to enrich at dispatch time.
-		Effect.succeed(secretConfig)
-
 	/** The incident's own page when there is one, else the service (or the alerts list). */
 	const composeLinkUrl = (serviceLinkName: string | null, incidentId: string | null = null) =>
 		incidentId !== null
@@ -114,8 +101,8 @@ export const makeAlertDestinationDelivery = (options: {
 				? `${options.appBaseUrl}/services/${encodeURIComponent(serviceLinkName)}`
 				: `${options.appBaseUrl}/alerts`
 
-	const composeChatUrl = (context: AlertDispatchContext): string =>
-		buildAlertChatUrl(options.appBaseUrl, context)
+	const composeRuleUrl = (context: Pick<AlertDispatchContext, "ruleId" | "eventType">): string =>
+		buildAlertRuleUrl(options.appBaseUrl, context)
 
 	const sendEmail = (to: string, subject: string, html: string) =>
 		options.email
@@ -135,7 +122,7 @@ export const makeAlertDestinationDelivery = (options: {
 			payloadJson,
 			options.runtime.deliveryTimeoutMs(),
 			context.linkUrl,
-			composeChatUrl(context),
+			composeRuleUrl(context),
 			{ sendEmail, postChatAlert: options.postChatAlert, linear: options.linear },
 		).pipe(Effect.provideService(HttpClient.HttpClient, options.httpClient))
 
@@ -196,7 +183,7 @@ export const makeAlertDestinationDelivery = (options: {
 							}
 						: null,
 				linkUrl: context.linkUrl,
-				chatUrl: buildAlertChatUrl(options.appBaseUrl, context),
+				chatUrl: composeRuleUrl(context),
 				sentAt: new Date(context.sentAtMs).toISOString(),
 			} satisfies {
 				readonly event: Result.Result.Success<ReturnType<typeof projectAlertLifecycleEvent>>
@@ -234,20 +221,27 @@ export const makeAlertDestinationDelivery = (options: {
 		context: Omit<AlertDispatchContext, "destination" | "publicConfig" | "secretConfig">,
 	) {
 		const hydrated = yield* hydrateDestination(destinationRow)
-		const enrichedSecret = yield* enrichSecretForDispatch(hydrated.row, hydrated.secretConfig)
 		const fullContext: AlertDispatchContext = {
 			destination: hydrated.row,
 			publicConfig: hydrated.publicConfig,
-			secretConfig: enrichedSecret,
+			secretConfig: hydrated.secretConfig,
 			...context,
 		}
 		const payload = yield* buildPayload(fullContext, destinationRow.orgId)
-		return yield* dispatchDelivery(fullContext, JSON.stringify(payload))
+		const payloadJson = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(payload).pipe(
+			Effect.mapError(
+				(cause) =>
+					new AlertDeliveryError({
+						message: `Unable to encode the delivery payload for rule ${context.ruleId}`,
+						cause,
+					}),
+			),
+		)
+		return yield* dispatchDelivery(fullContext, payloadJson)
 	})
 
 	return {
 		hydrateDestination,
-		enrichSecretForDispatch,
 		composeLinkUrl,
 		dispatchDelivery,
 		buildPayload,

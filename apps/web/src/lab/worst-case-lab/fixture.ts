@@ -5,9 +5,10 @@ import { worstCaseTrace } from "../worst-case-trace"
 import type { AlertsOverviewReady } from "@maple/web-data/alerts/overview"
 import { Option, Schema } from "effect"
 import type { ActorIdentity } from "../../page/errors/kit/actor"
-import { TraceData } from "../../page/traces/detail/trace-data"
-import { logTimeFormat, toLogRowView } from "../../ui/logs/log-row-view"
-import type { LogRowView } from "../../ui/logs/log-row-view"
+import { TraceData } from "@maple/views/traces/trace-data"
+import { FIXTURE_LOG_LINKS } from "@maple/views/fixtures/logs-table-bench-fixture"
+import { logTimeFormat, toLogRowView } from "@maple/views/ui/logs/log-row-view"
+import type { LogRowView } from "@maple/views/ui/logs/log-row-view"
 import type { WorstCaseMode } from "./model"
 
 // The lab's reads of the `worst-case-*` fixtures, shaped for the views.
@@ -59,5 +60,5 @@ export const rulesOverview = (mode: WorstCaseMode, nowMs: number): AlertsOvervie
 /** The logs table's rows for a mode, in the browser's zone. */
 export const logRows = (mode: WorstCaseMode, timeZone: string): ReadonlyArray<LogRowView> => {
 	const time = logTimeFormat(timeZone)
-	return logs(mode).map((log) => toLogRowView(log, PINNED_COLUMNS, time))
+	return logs(mode).map((log) => toLogRowView(log, PINNED_COLUMNS, time, FIXTURE_LOG_LINKS))
 }

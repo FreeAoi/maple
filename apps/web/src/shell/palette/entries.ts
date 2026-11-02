@@ -4,7 +4,7 @@ import { Array as Arr, Option, Schema } from "effect"
 import { DashboardId } from "@maple/domain/http"
 import { CATALOG } from "../../page/integrations/catalog"
 import { AppRoute, hrefOf } from "../../route"
-import type { IconName } from "../../ui/icon"
+import type { IconName } from "@maple/views/ui/icon"
 import type { PinnedDashboardRow } from "../dashboards-shape"
 import type { Theme } from "../message"
 import { navGroups } from "../nav"
@@ -14,7 +14,7 @@ import { navGroups } from "../nav"
 export const GROUP_ORDER = ["Navigation", "Services", "Dashboards", "Integrations", "Actions"] as const
 export type Group = (typeof GROUP_ORDER)[number]
 
-export const PaletteAction = Schema.Literals(["AskMapleAi", "ToggleTheme", "ShowShortcuts"])
+export const PaletteAction = Schema.Literals(["ToggleTheme", "ShowShortcuts"])
 export type PaletteAction = typeof PaletteAction.Type
 
 export type Glyph =
@@ -53,14 +53,14 @@ export const SearchEntry = Schema.Struct({ id: Schema.String, title: Schema.Stri
 export type SearchEntry = typeof SearchEntry.Type
 
 /** Nav rows an org rollout flag can hide; the shell passes the ones it shows. */
-export const FLAGGED_HREFS: ReadonlySet<string> = new Set(["/releases", "/security"])
+export const FLAGGED_HREFS: ReadonlySet<string> = new Set(["/releases", "/security", "/status-pages"])
 
 const icon = (name: IconName): Glyph => ({ _tag: "Icon", name })
 const href = (url: string): Target => ({ _tag: "Href", href: url })
 
 /** `paletteNavItems`: every section, its children and their views, deduplicated by title and href. */
 const navigationEntries = (): ReadonlyArray<PaletteEntry> => {
-	const rows = navGroups({ releases: true, securityAudit: true }).flatMap((group) =>
+	const rows = navGroups({ releases: true, securityAudit: true, statusPages: true }).flatMap((group) =>
 		group.items.flatMap((item) => [
 			{ id: `nav:${item.title}`, title: item.title, href: item.href, icon: item.icon },
 			...(item.subItems ?? []).flatMap((sub) => [
@@ -181,15 +181,6 @@ const dashboardEntries = (inputs: EntryInputs): ReadonlyArray<PaletteEntry> => {
 const actionEntries = (theme: Theme): ReadonlyArray<PaletteEntry> => {
 	const isDark = theme === "dark"
 	return [
-		{
-			id: "action:ask-maple-ai",
-			title: "Ask Maple AI",
-			group: "Actions",
-			keywords: "chat ai assistant maple ask question",
-			glyph: icon("ChatBubbleSparkleIcon"),
-			target: { _tag: "Action", action: "AskMapleAi" },
-			shortcut: "C",
-		},
 		{
 			id: "action:toggle-theme",
 			title: isDark ? "Switch to light mode" : "Switch to dark mode",

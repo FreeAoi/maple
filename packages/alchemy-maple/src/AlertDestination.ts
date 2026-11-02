@@ -32,6 +32,8 @@ type DestinationVariant =
 	| (DestinationBaseProps & { type: "webhook"; url: string; signing_secret?: SecretInput })
 	| (DestinationBaseProps & { type: "discord"; webhook_url: SecretInput })
 	| (DestinationBaseProps & { type: "telegram"; bot_token: SecretInput; chat_id: string })
+	/** A Google Chat space's incoming webhook URL. */
+	| (DestinationBaseProps & { type: "google-chat"; webhook_url: SecretInput })
 	| (DestinationBaseProps & { type: "email"; member_user_ids: string[] })
 	/** A team in the Linear workspace connected on Maple's Integrations page. */
 	| (DestinationBaseProps & { type: "linear"; team_id: string })
@@ -53,10 +55,10 @@ export type AlertDestination = Resource<
 >
 
 /**
- * A notification channel (PagerDuty, webhook, Discord, Telegram, workspace-member
+ * A notification channel (PagerDuty, webhook, Discord, Telegram, Google Chat, workspace-member
  * email, or a Linear team) that `Maple.AlertRule`s deliver to. Linear needs the
- * workspace connected in Maple first. Chat-connector and Hazel destinations use
- * integrations linked in Maple and are managed there.
+ * workspace connected in Maple first. Chat-connector destinations use workspaces
+ * linked in Maple and are managed there.
  *
  * @example
  * ```typescript
@@ -97,6 +99,7 @@ const desiredBody = (props: AlertDestinationProps): Record<string, unknown> => {
 			if (props.signing_secret !== undefined) body.signing_secret = unwrap(props.signing_secret)
 			break
 		case "discord":
+		case "google-chat":
 			body.webhook_url = unwrap(props.webhook_url)
 			break
 		case "telegram":
@@ -202,7 +205,8 @@ export const AlertDestinationProvider = () =>
 							),
 						)
 					if (fetched === undefined) return undefined
-					return toAttributes(yield* decodeWireDestination(fetched))
+					const decoded = yield* decodeWireDestination(fetched)
+					return toAttributes(decoded)
 				}),
 				list: Effect.fn(function* () {
 					const items = yield* listAll(api, "/v2/alerts/destinations")

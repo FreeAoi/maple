@@ -3,9 +3,9 @@ import { countLabel } from "@maple/ui/lib/format"
 import { displayError, isUnexpectedError } from "@maple/web-data/lib/error-messages"
 import { Effect, Schema } from "effect"
 import { Command } from "foldkit"
-import { toLoadFailure } from "../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleInternalApiClient } from "../../platform/api-clients"
-import * as Field from "../../ui/field"
+import * as Field from "@maple/views/ui/field"
 import { Message } from "./message"
 
 // `RailwayIntegrationCard`: state and writes.
@@ -71,7 +71,7 @@ export const ConnectRailwayToken = Command.define("ConnectRailwayFromIntegration
 				return Effect.succeed(
 					Message.FailedRailwayConnect({
 						error: isUnexpectedError(presentation)
-							? "Failed to connect Railway."
+							? "Couldn't connect Railway."
 							: presentation.message,
 					}),
 				)

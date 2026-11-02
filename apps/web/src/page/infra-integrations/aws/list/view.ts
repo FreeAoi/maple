@@ -1,21 +1,22 @@
+import { TONE_FILL } from "@maple/ui/lib/tone"
 import { AWS_INFRA_KINDS, type AwsInfraKindId } from "@maple/domain/aws-infra"
 import { countLabel, pluralize } from "@maple/ui/lib/format"
 import { toEpochMs } from "@maple/ui/lib/time-format"
 import { cn } from "@maple/ui/lib/utils"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { chartBucketSeconds } from "../../../../charts/infra-metric-series"
+import { chartBucketSeconds } from "@maple/views/charts/infra-metric-series"
 import { AppRoute, hrefOf } from "../../../../route"
-import { button, linkButton } from "../../../../ui/button"
+import { button, linkButton } from "@maple/views/ui/button"
 import { heroFieldChip } from "../../../infra/kit/hero-chip"
-import { errorState } from "../../../../ui/error-state"
-import { icon } from "../../../../ui/icon"
+import { errorState } from "@maple/views/ui/error-state"
+import { icon } from "@maple/views/ui/icon"
 import type { PageViewInputs } from "../../../contract"
 import { dashboardPage } from "../../../kit/dashboard-page"
 import { dataTableEmpty } from "../../../infra/kit/data-table"
 import { FLEET_BAND_BOXED, fleetBand, fleetBandLoading } from "../../../infra/kit/fleet-band"
 import { pageHeroParts, searchToolbar } from "../../../infra/kit/page-parts"
-import { linkTabStrip } from "../../../infra/kit/view-tabs"
+import { viewTabStrip } from "../../../infra/kit/view-tabs"
 import { integrationNotConnected } from "../../kit/empty-states"
 import { integrationConnectCta } from "../../kit/integration-empty"
 import { AWS_ACCENT } from "../../../integrations/catalog"
@@ -24,7 +25,7 @@ import type { AwsStatus, FleetRead } from "../data"
 import {
 	BAND_CELLS,
 	filterViews,
-	type Health,
+	HEALTH_TONE,
 	regionsOf,
 	type ResourceView,
 	resourceViews,
@@ -35,21 +36,13 @@ import { Message } from "./message"
 import type { Model } from "./model"
 import { activeKind, DEFAULT_PRESET, searchHref } from "./update"
 import { awsTable, awsTableLoading, type TableContext } from "./view-table"
+import { hstack, vstackClass } from "@maple/views/ui/stack"
 
 // `/infra/aws`: every streamed resource of the connected accounts, problems first.
 
 type H = HtmlBuilder<Message>
 
 const MANAGE_HREF = hrefOf(AppRoute.Integrations({ search: { integration: "aws" } }))
-
-const SEGMENT = {
-	ok: "bg-success",
-	warn: "bg-severity-warn",
-	crit: "bg-severity-error",
-	idle: "bg-muted-foreground/50",
-} satisfies Record<Health, string>
-
-const TONE = { crit: "crit", warn: "warn", idle: "neutral", ok: "ok" } as const
 
 const loading = (h: H): Html =>
 	h.div(
@@ -60,7 +53,7 @@ const loading = (h: H): Html =>
 const nameLabel = (kind: AwsInfraKindId) => AWS_INFRA_KINDS[kind].identity[0]?.[0] ?? "Resource"
 
 const tabs = (h: H, model: Model, reads: ReadonlyArray<FleetRead>, active: AwsInfraKindId): Html =>
-	linkTabStrip(
+	viewTabStrip(
 		h,
 		"AWS resource kinds",
 		reads.map((read) => ({
@@ -85,14 +78,14 @@ const band = (h: H, model: Model, kind: AwsInfraKindId, views: ReadonlyArray<Res
 		segments: (["ok", "warn", "crit", "idle"] as const).map((health) => ({
 			key: health,
 			count: summary.counts[health],
-			className: SEGMENT[health],
+			className: TONE_FILL[HEALTH_TONE[health]],
 		})),
 		cells: BAND_CELLS[kind].map((cell) => ({
 			scope: cell.scope,
 			label: cell.label,
 			hint: cell.hint,
 			value: summary.byScope[cell.scope] ?? 0,
-			tone: TONE[cell.tone],
+			tone: HEALTH_TONE[cell.tone],
 		})),
 		activeScope: model.search.scope,
 		onScopeChange: (scope) => Message.ClickedScope({ scope }),
@@ -153,7 +146,7 @@ const kindView = (h: H, model: Model, read: FleetRead, isWaiting: boolean): Html
 			searchToolbar(h, {
 				id: "aws-search",
 				value: model.search.q ?? "",
-				placeholder: `Filter ${pluralize(2, noun)}`,
+				placeholder: `Filter ${pluralize(2, noun)}…`,
 				onInput: (value) => Message.ChangedSearch({ value }),
 				onClear: Message.ClickedClearSearch(),
 				children: regionButtons(h, model, regionsOf(views)),
@@ -299,7 +292,7 @@ const description = (h: H, status: AwsStatus | null): Html | string => {
 	const regions = [
 		...new Set(status.connections.flatMap((connection) => connection.metric_stream?.regions ?? [])),
 	]
-	const mono = (text: string) => h.span([h.Class("font-mono text-xs text-foreground/80")], [text])
+	const mono = (text: string) => h.span([h.Class("font-mono text-xs text-foreground-soft")], [text])
 	return h.span(
 		[],
 		[
@@ -336,27 +329,24 @@ export const view = Submodel.defineView<Model, Message, PageViewInputs>((model, 
 	return dashboardPage(
 		h,
 		{
-			scrollClassName: "gap-6",
+			gap: "lg",
 			titleContent: hero.title,
 			tabs: headerTabs(h, model),
-			actions: h.div(
-				[h.Class("flex flex-wrap items-center gap-2")],
-				[
-					...heroActions,
-					pageTime(h, {
-						search: model.search,
-						defaultPreset: DEFAULT_PRESET,
-						window: model.window,
-						picker: model.timePicker,
-						toPickerMessage: (message) => Message.GotTimePickerMessage({ message }),
-						onReset: Message.ClickedResetTimeRange(),
-						onReload: Message.ClickedReload(),
-						isReloading: model.isReloading,
-						isReloadHidden: AsyncData.isFailure(model.status.data),
-					}),
-				],
-			),
+			actions: hstack(h, { gap: "2", wrap: true }, [
+				...heroActions,
+				pageTime(h, {
+					search: model.search,
+					defaultPreset: DEFAULT_PRESET,
+					window: model.window,
+					picker: model.timePicker,
+					toPickerMessage: (message) => Message.GotTimePickerMessage({ message }),
+					onReset: Message.ClickedResetTimeRange(),
+					onReload: Message.ClickedReload(),
+					isReloading: model.isReloading,
+					isReloadHidden: AsyncData.isFailure(model.status.data),
+				}),
+			]),
 		},
-		[hero.body, h.div([h.Class(cn("flex flex-col gap-4"))], [statusView(h, model)])],
+		[hero.body, h.div([h.Class(cn(vstackClass({ gap: "4" })))], [statusView(h, model)])],
 	)
 })

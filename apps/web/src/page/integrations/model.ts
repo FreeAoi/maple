@@ -2,7 +2,6 @@ import {
 	BillingCustomer,
 	CloudflareIntegrationStatus,
 	GithubIntegrationStatus,
-	HazelIntegrationStatus,
 	LinearIntegrationStatus,
 	RailwayIntegrationStatus,
 	SupabaseIntegrationStatus,
@@ -16,10 +15,10 @@ import {
 	V2ScrapeTarget,
 } from "@maple/domain/http/v2"
 import { Schema } from "effect"
-import { KeyedSchema } from "../../data/keyed"
-import { LoadFailure } from "../../data/load-failure"
+import { KeyedSchema } from "@maple/views/data/keyed"
+import { LoadFailure } from "@maple/views/data/load-failure"
 import { IntegrationsSearch } from "../../route/search"
-import * as Dialog from "../../ui/dialog"
+import * as Dialog from "@maple/views/ui/dialog"
 import { ChatCardModel } from "./chat"
 import { CloudflareCardModel } from "./cloudflare"
 import { GithubCardModel } from "./github"
@@ -44,7 +43,6 @@ export const Statuses = Schema.Struct({
 	gcp: keyed(V2GcpIntegration),
 	aws: keyed(V2AwsIntegration),
 	supabase: keyed(SupabaseIntegrationStatus),
-	hazel: keyed(HazelIntegrationStatus),
 	linear: keyed(LinearIntegrationStatus),
 	github: keyed(GithubIntegrationStatus),
 	chat: keyed(V2ChatConnectorList),

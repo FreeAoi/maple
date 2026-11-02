@@ -5,10 +5,10 @@ import { limitsUpdate } from "../../../components/settings/ai-triage-limits"
 import { Effect, Option, Result, Schema } from "effect"
 import { AsyncData, Command } from "foldkit"
 import { trackProduct } from "../../../data/analytics"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { MapleInternalApiClient } from "../../../platform/api-clients"
-import * as Dialog from "../../../ui/dialog"
-import * as Field from "../../../ui/field"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Field from "@maple/views/ui/field"
 import { PageOutMessage, type PageReturn } from "../../contract"
 import { revisitData } from "../kit/revisit"
 import { type LimitsDraft, Message, type Model } from "./model"
@@ -236,7 +236,7 @@ export const update = (model: Model, message: Message): Return =>
 				}),
 				onFailure: (error) => ({
 					model: { ...model, isSavingKey: false },
-					outMessage: toast("error", "Failed to save the key", error.message),
+					outMessage: toast("error", "Couldn't save the key", error.message),
 				}),
 			}),
 		ClickedRemoveKey: () => liftRemoveDialog(model, Dialog.open(model.removeDialog)),
@@ -252,7 +252,7 @@ export const update = (model: Model, message: Message): Return =>
 					commands: [...(closed.commands ?? []), FetchOpenRouterKey()],
 					outMessage: toast("success", "Switched to Maple managed"),
 				}),
-				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Failed to remove the key", error.message) }),
+				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Couldn't remove the key", error.message) }),
 			})
 		},
 		ClickedAddOn: () => (model.isAttachingAddOn ? { model } : liftAddOnDialog(model, Dialog.open(model.addOnDialog))),
@@ -275,7 +275,7 @@ export const update = (model: Model, message: Message): Return =>
 									toast: { type: "success", title: "Add-on added", description: "" },
 								}),
 							},
-				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Failed to add the add-on", error.message) }),
+				onFailure: (error) => ({ ...closed, outMessage: toast("error", "Couldn't add the add-on", error.message) }),
 			})
 		},
 		CompletedOpenAddOnCheckout: () => ({ model }),
@@ -299,7 +299,7 @@ export const update = (model: Model, message: Message): Return =>
 				}),
 				onFailure: (error) => ({
 					model: { ...model, isToggling: false },
-					outMessage: toast("error", "Failed to update auto-triage settings", error.message),
+					outMessage: toast("error", "Couldn't update auto-triage settings", error.message),
 				}),
 			}),
 		ChangedLimit: ({ field, value }) => ({
@@ -328,7 +328,7 @@ export const update = (model: Model, message: Message): Return =>
 				}),
 				onFailure: (error) => ({
 					model: { ...model, isSavingLimits: false },
-					outMessage: toast("error", "Failed to update auto-triage settings", error.message),
+					outMessage: toast("error", "Couldn't update auto-triage settings", error.message),
 				}),
 			}),
 	})

@@ -249,6 +249,39 @@ const webAnalyticsAiFixtures: ReadonlyArray<BuilderFixture> = [
 	},
 ]
 
+const securityTelemetryFixtures: ReadonlyArray<BuilderFixture> = [
+	{
+		module: "security-telemetry",
+		name: "scannerSignaturesQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.scannerSignaturesQuery(), window),
+	},
+	{
+		module: "security-telemetry",
+		name: "scannerExposedQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.scannerExposedQuery(), window),
+	},
+	{
+		module: "security-telemetry",
+		name: "scannerSourcesQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.scannerSourcesQuery(), window),
+	},
+	{
+		module: "security-telemetry",
+		name: "scannerTimelineQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.scannerTimelineQuery({ bucketSeconds: 3600 }), window),
+	},
+	{
+		module: "security-telemetry",
+		name: "runtimeVersionsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.runtimeVersionsQuery(), window),
+	},
+]
+
 // Product-event funnel fixtures. The funnel SQL has four independent axes —
 // person-key resolution (with or without the identity_links join), a session
 // step 1 (UNION ALL of a session_replays branch), the population filter
@@ -845,6 +878,13 @@ const infraFixtures: ReadonlyArray<BuilderFixture> = [
 		sampleValues: { workloadKind: "deployment" },
 	},
 	{
+		// registry `serviceRuntimes`.
+		module: "service-infra",
+		name: "serviceRuntimesSQL",
+		label: "default",
+		compile: () => runCompile(CH.serviceRuntimesSQL({ services: ["api", "checkout"] }, window)),
+	},
+	{
 		// backend ServiceMapRollupService, the hourly resolutions rollup.
 		module: "service-map-rollup",
 		name: "serviceMapResolutionsRollupSQL",
@@ -1113,6 +1153,7 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 					requestId: true,
 					since: true,
 					until: true,
+					excludeActionSuffixes: [".read", ".called"],
 					limit: 50,
 					offset: 50,
 				}),
@@ -1133,6 +1174,97 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 					until: END_TIME,
 				},
 			),
+	},
+	// Cancellation evidence (CancellationTelemetryEvidence.read).
+	{
+		module: "cancellation-evidence",
+		name: "cancellationServiceUsageQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationServiceUsageQuery({ limit: 15 }), {
+				...window,
+				splitTime: START_TIME,
+			}),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationServiceCountsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationServiceCountsQuery(), { ...window, splitTime: START_TIME }),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationResourceAttributesQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationResourceAttributesQuery({ limit: 500 }), {
+				...window,
+				splitTime: START_TIME,
+			}),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationResourceSpansQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.cancellationResourceSpansQuery(), window),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationErrorFingerprintsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationErrorFingerprintsQuery(), { ...window, splitTime: START_TIME }),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationAuditActionsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationAuditActionsQuery({ limit: 25 }), {
+				...window,
+				splitTime: START_TIME,
+			}),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationAuditActorsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationAuditActorsQuery(), { ...window, splitTime: START_TIME }),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationToolCallsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationToolCallsQuery({ limit: 15 }), {
+				...window,
+				splitTime: START_TIME,
+			}),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationAlertChecksQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.cancellationAlertChecksQuery(), window),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationErrorsByDayQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.cancellationErrorsByDayQuery(), window),
+	},
+	{
+		module: "cancellation-evidence",
+		name: "cancellationProductEventsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.cancellationProductEventsQuery({ limit: 50 }), {
+				...window,
+				splitTime: START_TIME,
+				groupId: "org_customer",
+			}),
 	},
 	// Session replay fixtures used by the replay routes.
 	{
@@ -1301,6 +1433,7 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 
 	...webAnalyticsFixtures,
 	...webAnalyticsAiFixtures,
+	...securityTelemetryFixtures,
 
 	// Traces sidebar (query-engine runtime); the pipe fixtures cover the raw-only route.
 	{
@@ -1718,6 +1851,13 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 				window,
 			),
 	},
+	// Dependency scanner: which commit each service runs, ranked by traffic.
+	{
+		module: "releases",
+		name: "runningCommitsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.runningCommitsQuery(), window),
+	},
 	{
 		module: "releases",
 		name: "releasesTimelineQuery",
@@ -1829,6 +1969,234 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 		compile: () => CH.compileUnsafe(CH.ciRunTotalsQuery({}), window),
 	},
 	{
+		module: "mcp",
+		name: "mcpServicesQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpServicesQuery(), window),
+	},
+	{
+		module: "mcp",
+		name: "mcpFirstSeenQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpFirstSeenQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpToolErrorsQuery",
+		label: "searched",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpToolErrorsQuery({ search: "sql" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpServerStatsQuery",
+		label: "twoServers",
+		compile: () => CH.compileUnsafe(CH.mcpServerStatsQuery(["maple-ai", "docs-mcp"]), window),
+	},
+	{
+		module: "mcp",
+		name: "mcpServerSparkQuery",
+		label: "hourly",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpServerSparkQuery(["maple-ai"]), { ...window, bucketSeconds: 3_600 }),
+	},
+	{
+		module: "mcp",
+		name: "mcpServerClientsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpServerClientsQuery(["maple-ai"]), window),
+	},
+	{
+		module: "mcp",
+		name: "mcpClientsQuery",
+		label: "filtered",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpClientsQuery({ search: "sql", kind: "agent", failingOnly: true }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpClientReachQuery",
+		label: "filtered",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpClientReachQuery({ kind: "agent" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpSpanSummaryQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpSpanSummaryQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpClientInfoQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpClientInfoQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpMethodsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpMethodsQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpCallTotalsQuery",
+		label: "filtered",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpCallTotalsQuery({ client: "Claude Code", failingOnly: true }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpCallSeriesQuery",
+		label: "hourly",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpCallSeriesQuery(), {
+				...window,
+				serviceName: "maple-ai",
+				bucketSeconds: 3_600,
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpCallSplitSeriesQuery",
+		label: "byClient",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpCallSplitSeriesQuery("client", { tool: "run_sql" }), {
+				...window,
+				serviceName: "maple-ai",
+				bucketSeconds: 3_600,
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpToolStatsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpToolStatsQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpErrorGroupsQuery",
+		label: "oneTool",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpErrorGroupsQuery({ tool: "run_sql" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpErrorTrendQuery",
+		label: "oneTool",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpErrorTrendQuery({ tool: "run_sql" }, ["", "Query error"]), {
+				...window,
+				serviceName: "maple-ai",
+				bucketSeconds: 3_600,
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpCallListQuery",
+		label: "slowest",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpCallListQuery("slowest", { tool: "run_sql" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpCallListQuery",
+		label: "failed",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpCallListQuery("failed", { tool: "run_sql" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpSessionListQuery",
+		label: "failingAgents",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpSessionListQuery({ kind: "agent", search: "7f3c", failingOnly: true }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpSessionTotalsQuery",
+		label: "default",
+		compile: () => CH.compileUnsafe(CH.mcpSessionTotalsQuery(), { ...window, serviceName: "maple-ai" }),
+	},
+	{
+		module: "mcp",
+		name: "mcpSessionRequestsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpSessionRequestsQuery(), {
+				...window,
+				serviceName: "maple-ai",
+				sessionId: "7f3c9a2e",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpUserSessionRequestsQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpUserSessionRequestsQuery(), {
+				...window,
+				serviceName: "maple-ai",
+				userId: "user_2abc",
+				client: "Claude Code",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpUserActivityQuery",
+		label: "searchAgents",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpUserActivityQuery({ kind: "agent", search: "ada" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpUserActivityQuery",
+		label: "oneUser",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpUserActivityQuery({ user: "user_2abc", client: "Claude Code" }), {
+				...window,
+				serviceName: "maple-ai",
+			}),
+	},
+	{
+		module: "mcp",
+		name: "mcpSessionActivityQuery",
+		label: "default",
+		compile: () =>
+			CH.compileUnsafe(CH.mcpSessionActivityQuery(), {
+				...window,
+				serviceName: "maple-ai",
+				bucketSeconds: 3_600,
+			}),
+	},
+	{
 		module: "ci-runs",
 		name: "ciRunSeriesQuery",
 		label: "sixHourly",
@@ -1855,6 +2223,18 @@ export const builderFixtures: ReadonlyArray<BuilderFixture> = [
 		name: "ciQueueTotalsQuery",
 		label: "allWorkflows",
 		compile: () => CH.compileUnsafe(CH.ciQueueTotalsQuery({}), window),
+	},
+	{
+		module: "ci-runs",
+		name: "ciActorStatsQuery",
+		label: "allWorkflows",
+		compile: () =>
+			CH.compileUnsafe(
+				CH.ciActorStatsQuery({
+					defaultBranches: [{ owner: "acme", repository: "web", branch: "main" }],
+				}),
+				window,
+			),
 	},
 	{
 		module: "pr-review",

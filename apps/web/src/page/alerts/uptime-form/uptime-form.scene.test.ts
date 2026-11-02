@@ -13,7 +13,7 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import { PageOutMessage, type PageContext } from "../../contract"
 import { ORG } from "../shared/test-rows"
 import { LIMIT_REACHED_CODE, monitorHref } from "../shared/uptime-commands"
@@ -82,7 +82,7 @@ describe("uptime monitor form", () => {
 		scene(
 			{ update: pageUpdate, view },
 			given(fresh()),
-			click(role("radio", { name: /TCP port/u })),
+			click(role("button", { name: /TCP port/u })),
 			type(role("textbox", { name: "Host" }), "db.acme.dev"),
 			type(role("textbox", { name: "Port" }), "99999"),
 			expectView(text("The port must be a whole number from 1 to 65535.")).toExist(),
@@ -93,7 +93,7 @@ describe("uptime monitor form", () => {
 		scene(
 			{ update: pageUpdate, view },
 			given(fresh()),
-			click(role("radio", { name: /Heartbeat/u })),
+			click(role("button", { name: /Heartbeat/u })),
 			expectView(text("The ping URL appears after you create the monitor.")).toExist(),
 			expectView(role("textbox", { name: "Grace period" })).toExist(),
 			expectView(role("textbox", { name: "URL" })).not.toExist(),
@@ -262,7 +262,7 @@ describe("uptime monitor form", () => {
 		scene(
 			{ update: pageUpdate, view },
 			given(fresh()),
-			click(role("radio", { name: /TCP port/u })),
+			click(role("button", { name: /TCP port/u })),
 			type(role("textbox", { name: "Host" }), "db.acme.dev"),
 			type(role("textbox", { name: "Port" }), "5432"),
 			expectView(role("textbox", { name: "Name" })).toHaveValue("db.acme.dev:5432"),

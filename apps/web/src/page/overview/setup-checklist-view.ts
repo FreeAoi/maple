@@ -2,19 +2,22 @@ import { ingestUrl } from "../../lib/services/common/ingest-url"
 import { getOnboardingSetupHint } from "../../lib/onboarding-intent"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { LoadFailure } from "../../data/load-failure"
+import type { LoadFailure } from "@maple/views/data/load-failure"
 import { AppRoute, hrefOf } from "../../route"
-import { button } from "../../ui/button"
-import { card, cardPanel } from "../../ui/card"
-import { copyableField } from "../../ui/copyable-field"
-import { eyebrow } from "../../ui/eyebrow"
-import { icon } from "../../ui/icon"
-import { iconButton } from "../../ui/icon-button"
-import { listRow } from "../../ui/list-row"
-import { skeleton } from "../../ui/skeleton"
+import { button } from "@maple/views/ui/button"
+import { card, cardPanel } from "@maple/views/ui/card"
+import { copyableField } from "@maple/views/ui/copyable-field"
+import { eyebrow } from "@maple/views/ui/eyebrow"
+import { icon } from "@maple/views/ui/icon"
+import { iconButton } from "@maple/views/ui/icon-button"
+import { listRow } from "@maple/views/ui/list-row"
+import { skeleton } from "@maple/views/ui/skeleton"
+import { statusDot } from "@maple/views/ui/status-dot"
 import * as GuidedSetup from "../kit/guided-setup"
 import { Message, type Model } from "./setup-checklist"
 import { frameworkOf, isMounted, realServices } from "./setup-checklist-update"
+import { typography } from "@maple/views/ui/typography"
+import { hstack } from "@maple/views/ui/stack"
 
 type H = HtmlBuilder<Message>
 
@@ -23,7 +26,7 @@ const keysUnavailable = (h: H): Html =>
 	h.p(
 		[
 			h.Class(
-				"rounded-md border border-dashed bg-muted/40 px-3 py-2 font-prose text-xs text-muted-foreground",
+				"rounded-md border border-dashed bg-surface-sunken px-3 py-2 font-prose text-xs text-muted-foreground",
 			),
 		],
 		[
@@ -31,7 +34,9 @@ const keysUnavailable = (h: H): Html =>
 			h.a(
 				[
 					h.Href(hrefOf(AppRoute.Settings({ search: { tab: "ingestion" } }))),
-					h.Class("font-medium text-foreground underline underline-offset-2 hover:no-underline"),
+					h.Class(
+						"font-medium text-foreground underline underline-offset-2 hover:no-underline active:no-underline",
+					),
 				],
 				["Settings → Ingestion"],
 			),
@@ -58,7 +63,7 @@ const credentials = (h: H, model: Model): Html =>
 					? h.div(
 							[h.Class("space-y-1")],
 							[
-								h.span([h.Class("text-xs text-muted-foreground")], ["Private ingest key"]),
+								typography(h, { size: "xs", tone: "muted" }, ["Private ingest key"]),
 								skeleton(h, "h-8 w-full"),
 							],
 						)
@@ -109,17 +114,13 @@ const guidedSetup = (h: H, model: Model, framework: string): Html =>
 		],
 	)
 
-/** "Watching for your first trace…" while the card waits for data. */
+/** "Listening for your first trace" while the card waits for data. */
 const watchingStrip = (h: H): Html =>
 	h.div(
+		[h.Class("flex items-center gap-2.5 rounded-md border border-dashed border-border px-4 py-3")],
 		[
-			h.Class(
-				"flex items-center gap-2.5 rounded-lg border border-dashed border-primary/30 bg-primary/5 px-4 py-3",
-			),
-		],
-		[
-			icon(h, "PulseIcon", { size: 14, className: "text-primary" }),
-			h.span([h.Class("font-prose text-xs text-muted-foreground")], ["Watching for your first trace…"]),
+			statusDot(h, { tone: "ok" }),
+			typography(h, { size: "xs", tone: "muted" }, ["Listening for your first trace"]),
 		],
 	)
 
@@ -134,7 +135,7 @@ const celebration = (h: H, serviceName: string | undefined): Html =>
 					h.div(
 						[
 							h.Class(
-								"flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary",
+								"flex size-10 shrink-0 items-center justify-center rounded-lg bg-severity-info-a2 text-severity-info",
 							),
 						],
 						[icon(h, "CircleCheckIcon", { size: 20 })],
@@ -142,18 +143,12 @@ const celebration = (h: H, serviceName: string | undefined): Html =>
 					h.div(
 						[h.Class("min-w-0 flex-1 basis-40")],
 						[
-							h.p(
-								[h.Class("text-sm font-semibold tracking-tight")],
-								["First trace received. You're live"],
-							),
-							h.p(
-								[h.Class("mt-0.5 font-prose text-xs text-muted-foreground")],
-								[
-									serviceName === undefined
-										? "We're seeing your telemetry. Jump in to explore."
-										: `We're seeing telemetry from ${serviceName}. Open it to explore.`,
-								],
-							),
+							h.p([h.Class("text-sm font-semibold tracking-tight")], ["First trace received"]),
+							typography(h, { size: "xs", tone: "muted", as: "p", className: "mt-0.5" }, [
+								serviceName === undefined
+									? "Your telemetry is arriving."
+									: `${serviceName} is sending telemetry.`,
+							]),
 						],
 					),
 					button(
@@ -163,7 +158,7 @@ const celebration = (h: H, serviceName: string | undefined): Html =>
 							className: "gap-2 shrink-0 max-sm:order-last max-sm:w-full",
 							attributes: [h.OnClick(Message.ClickedExploreTraces())],
 						},
-						["Explore your traces", icon(h, "RocketIcon", {})],
+						["Explore your traces", icon(h, "ArrowRightIcon", {})],
 					),
 					button(
 						h,
@@ -182,7 +177,7 @@ const celebration = (h: H, serviceName: string | undefined): Html =>
 				"flex flex-wrap items-center gap-4 p-5",
 			),
 		],
-		"mb-4 shrink-0 border-primary/40 bg-primary/[0.04] overflow-hidden",
+		"mb-4 shrink-0 overflow-hidden",
 	)
 
 /** `SetupChecklistCard` while waiting: the collapsible "Connect your app" card. */
@@ -201,41 +196,38 @@ const waitingCard = (
 				[
 					listRow(h, {
 						onClick: Message.ClickedToggleExpanded(),
-						className: "flex-1 px-5 py-4 hover:bg-muted/30",
+						className: "flex-1 px-5 py-4 hover:bg-surface-sunken active:bg-surface-sunken",
 						leading: h.span(
 							[
 								h.Class(
-									"flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary",
+									"flex size-9 items-center justify-center rounded-lg border border-border bg-surface-strong text-foreground",
 								),
 							],
 							[icon(h, "CodeIcon", { size: 16 })],
 						),
 						title: "Connect your app to see real data",
-						meta: h.span([h.Class("font-prose")], [getOnboardingSetupHint(intents)]),
+						meta: getOnboardingSetupHint(intents),
 					}),
-					h.div(
-						[h.Class("flex items-center gap-1 shrink-0")],
-						[
-							iconButton(
-								h,
-								{
-									size: "icon",
-									label: isExpanded ? "Collapse" : "Expand",
-									attributes: [h.OnClick(Message.ClickedToggleExpanded())],
-								},
-								[icon(h, isExpanded ? "ChevronUpIcon" : "ChevronDownIcon", {})],
-							),
-							iconButton(
-								h,
-								{
-									size: "icon",
-									label: "Dismiss setup checklist",
-									attributes: [h.OnClick(Message.ClickedDismiss())],
-								},
-								[icon(h, "XmarkIcon", {})],
-							),
-						],
-					),
+					hstack(h, { gap: "1", className: "shrink-0" }, [
+						iconButton(
+							h,
+							{
+								size: "icon",
+								label: isExpanded ? "Collapse" : "Expand",
+								attributes: [h.OnClick(Message.ClickedToggleExpanded())],
+							},
+							[icon(h, isExpanded ? "ChevronUpIcon" : "ChevronDownIcon", {})],
+						),
+						iconButton(
+							h,
+							{
+								size: "icon",
+								label: "Dismiss setup checklist",
+								attributes: [h.OnClick(Message.ClickedDismiss())],
+							},
+							[icon(h, "XmarkIcon", {})],
+						),
+					]),
 				],
 			),
 			h.div(
@@ -250,14 +242,14 @@ const waitingCard = (
 							cardPanel(
 								h,
 								[guidedSetup(h, model, framework), watchingStrip(h)],
-								"border-t border-primary/20 p-5 space-y-5",
+								"border-t p-5 space-y-5",
 							),
 						],
 					),
 				],
 			),
 		],
-		"mb-4 shrink-0 border-primary/30 bg-primary/[0.02] overflow-hidden",
+		"mb-4 shrink-0 overflow-hidden",
 	)
 
 /** The first read's failure while the card is mounted; the page's error strip shows it. */

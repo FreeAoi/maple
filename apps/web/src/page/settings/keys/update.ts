@@ -2,10 +2,10 @@ import type { ApiKeyKind } from "@maple/domain/http"
 import { Array, Option, Result } from "effect"
 import { Command } from "foldkit"
 import { PageOutMessage, type PageReturn } from "../../contract"
-import * as CopyButton from "../../../ui/copy-button"
-import * as Dialog from "../../../ui/dialog"
-import * as Menu from "../../../ui/menu"
-import * as Select from "../../../ui/select"
+import * as CopyButton from "@maple/views/ui/copy-button"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Menu from "@maple/views/ui/menu"
+import * as Select from "@maple/views/ui/select"
 import { RevokeApiKey } from "./command"
 import * as CreateDialog from "./create-dialog"
 import { Message } from "./message"
@@ -175,7 +175,7 @@ export const update = (model: Model, message: Message): Return =>
 				}),
 				onFailure: (error) => ({
 					model: { ...model, isRevoking: false },
-					outMessage: toast("error", "Failed to revoke key", error.message),
+					outMessage: toast("error", "Couldn't revoke key", error.message),
 				}),
 			}),
 		GotRollMessage: ({ message: child }) => liftRoll(model, RollDialog.update(model.roll, child)),

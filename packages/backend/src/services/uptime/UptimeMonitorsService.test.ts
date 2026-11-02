@@ -265,6 +265,91 @@ describe("UptimeMonitorsService", () => {
 		}).pipe(Effect.provide(makeLayer(testDb)))
 	})
 
+	it.effect("counts checks per UTC day and marks pages showing a monitor whose status flipped", () => {
+		const testDb = createTestDb(trackedDbs)
+		const day1 = Date.UTC(2026, 9, 27, 23, 59)
+		const day2 = Date.UTC(2026, 9, 28, 0, 1)
+		return Effect.gen(function* () {
+			const service = yield* UptimeMonitorsService
+			const monitor = yield* createHttp("API", { failuresToDown: 1 })
+			yield* Effect.promise(() =>
+				executeSql(
+					testDb,
+					`INSERT INTO status_pages (id, org_id, name, slug, created_by, created_at, updated_at)
+					 VALUES ('11111111-1111-4111-8111-111111111111', $1, 'Acme', 'acme', $2, now(), now())`,
+					[ORG, USER],
+				).then(() =>
+					executeSql(
+						testDb,
+						`INSERT INTO status_page_components (id, org_id, page_id, name, monitor_id, created_at, updated_at)
+						 VALUES ('22222222-2222-4222-8222-222222222222', $1, '11111111-1111-4111-8111-111111111111', 'API', $2, now(), now())`,
+						[ORG, monitor.id],
+					),
+				),
+			)
+			const revision = () =>
+				Effect.promise(() =>
+					queryFirstRow<{ revision: string }>(testDb, `SELECT revision::text FROM status_pages`),
+				).pipe(Effect.map((row) => row?.revision))
+
+			yield* service.recordChecks([
+				report(monitor.id, day1 - 60_000, true),
+				report(monitor.id, day1, false),
+			])
+			// Up then down: the flip marks the page.
+			assert.strictEqual(yield* revision(), "2")
+			yield* service.recordChecks([report(monitor.id, day2, false)])
+			// Still down: nothing new to publish.
+			assert.strictEqual(yield* revision(), "2")
+			// A retried batch is not counted twice.
+			yield* service.recordChecks([report(monitor.id, day2, false)])
+
+			const rows = yield* Effect.promise(() =>
+				testDb.pglite.query<{ day: string; checks: number; failures: number; down_checks: number }>(
+					`SELECT day, checks, failures, down_checks FROM uptime_monitor_daily ORDER BY day`,
+				),
+			)
+			assert.deepStrictEqual(rows.rows, [
+				{ day: "2026-10-27", checks: 2, failures: 1, down_checks: 1 },
+				{ day: "2026-10-28", checks: 1, failures: 1, down_checks: 1 },
+			])
+		}).pipe(Effect.provide(makeLayer(testDb)))
+	})
+
+	it.effect("marks pages showing a monitor when it is paused, resumed or deleted", () => {
+		const testDb = createTestDb(trackedDbs)
+		return Effect.gen(function* () {
+			const service = yield* UptimeMonitorsService
+			const monitor = yield* createHttp("API", { failuresToDown: 1 })
+			yield* Effect.promise(() =>
+				executeSql(
+					testDb,
+					`INSERT INTO status_pages (id, org_id, name, slug, created_by, created_at, updated_at)
+					 VALUES ('11111111-1111-4111-8111-111111111111', $1, 'Acme', 'acme', $2, now(), now())`,
+					[ORG, USER],
+				).then(() =>
+					executeSql(
+						testDb,
+						`INSERT INTO status_page_components (id, org_id, page_id, name, monitor_id, created_at, updated_at)
+						 VALUES ('22222222-2222-4222-8222-222222222222', $1, '11111111-1111-4111-8111-111111111111', 'API', $2, now(), now())`,
+						[ORG, monitor.id],
+					),
+				),
+			)
+			const revision = () =>
+				Effect.promise(() =>
+					queryFirstRow<{ revision: string }>(testDb, `SELECT revision::text FROM status_pages`),
+				).pipe(Effect.map((row) => row?.revision))
+
+			yield* service.update(ORG, monitor.id, { enabled: false, updatedBy: USER })
+			assert.strictEqual(yield* revision(), "2")
+			yield* service.update(ORG, monitor.id, { enabled: true, updatedBy: USER })
+			assert.strictEqual(yield* revision(), "3")
+			yield* service.delete(ORG, monitor.id)
+			assert.strictEqual(yield* revision(), "4")
+		}).pipe(Effect.provide(makeLayer(testDb)))
+	})
+
 	it.effect("records the rest of a batch when a monitor is deleted between the read and the write", () => {
 		const testDb = createTestDb(trackedDbs)
 		return Effect.gen(function* () {
@@ -777,6 +862,69 @@ describe("UptimeMonitorsService", () => {
 		}).pipe(Effect.provide(makeLayer(testDb, { allowance })))
 	})
 
+	it.effect("counts a billing org's members against its one allowance", () => {
+		const testDb = createTestDb(trackedDbs)
+		const capsRead: Array<string> = []
+		const allowance = Layer.succeed(UptimeMonitorAllowance, {
+			limit: (customerId) =>
+				Effect.sync(() => {
+					capsRead.push(customerId)
+					return Option.some(2)
+				}),
+			track: () => Effect.void,
+		})
+		return Effect.gen(function* () {
+			yield* Effect.promise(() =>
+				executeSql(
+					testDb,
+					"INSERT INTO org_billing_links (org_id, billing_org_id, linked_by, created_at) VALUES ($1, $2, 'user', now())",
+					[OTHER_ORG, ORG],
+				),
+			)
+			yield* createHttp("payer's")
+			yield* createHttp("member's", { orgId: OTHER_ORG })
+			// The pool is full from either side.
+			const fromMember = yield* Effect.result(createHttp("member's second", { orgId: OTHER_ORG }))
+			const fromPayer = yield* Effect.result(createHttp("payer's second"))
+			assert.deepStrictEqual(
+				[fromMember, fromPayer].map((result) =>
+					Result.isFailure(result) ? result.failure._tag : "created",
+				),
+				[
+					"@maple/http/errors/UptimeMonitorLimitReachedError",
+					"@maple/http/errors/UptimeMonitorLimitReachedError",
+				],
+			)
+			// Every create, the member's too, is capped by the plan of the org that pays.
+			assert.deepStrictEqual(capsRead, [ORG, ORG, ORG, ORG])
+		}).pipe(Effect.provide(makeLayer(testDb, { allowance })))
+	})
+
+	it.effect("meters a member's monitors to the org that pays for it", () => {
+		const testDb = createTestDb(trackedDbs)
+		const metered: Array<string> = []
+		const allowance = Layer.succeed(UptimeMonitorAllowance, {
+			limit: () => Effect.succeed(Option.none<number>()),
+			track: (customerId, _monitorId, delta) =>
+				Effect.sync(() => void metered.push(`${customerId}:${delta}`)),
+		})
+		return Effect.gen(function* () {
+			yield* Effect.promise(() =>
+				executeSql(
+					testDb,
+					"INSERT INTO org_billing_links (org_id, billing_org_id, linked_by, created_at) VALUES ($1, $2, 'user', now())",
+					[OTHER_ORG, ORG],
+				),
+			)
+			const service = yield* UptimeMonitorsService
+			const created = yield* createHttp("member's", { orgId: OTHER_ORG })
+			yield* service.delete(OTHER_ORG, created.id)
+			const own = yield* createHttp("payer's own")
+			yield* service.delete(ORG, own.id)
+			assert.deepStrictEqual(metered, [`${ORG}:1`, `${ORG}:-1`, `${ORG}:1`, `${ORG}:-1`])
+		}).pipe(Effect.provide(makeLayer(testDb, { allowance })))
+	})
+
 	it.effect("tests an HTTP config against its assertions", () => {
 		const testDb = createTestDb(trackedDbs)
 		return Effect.gen(function* () {
@@ -795,6 +943,18 @@ describe("UptimeMonitorsService", () => {
 			const local = yield* Effect.flip(service.testHttp(httpConfig("http://localhost:8080/health")))
 			assert.strictEqual(local._tag, "@maple/http/errors/UptimeMonitorValidationError")
 		}).pipe(Effect.provide(makeLayer(testDb, { respond: { status: 503, body: "x".repeat(5000) } })))
+	})
+
+	it.effect("names a host Cloudflare refused to reach instead of reporting its 530", () => {
+		const testDb = createTestDb(trackedDbs)
+		return Effect.gen(function* () {
+			const service = yield* UptimeMonitorsService
+			const result = yield* service.testHttp(httpConfig("http://fbi.com/"))
+			assert.isFalse(result.ok)
+			assert.strictEqual(result.statusCode, null)
+			assert.strictEqual(result.failedAssertion, null)
+			assert.strictEqual(result.error, "Couldn't reach fbi.com: it doesn't resolve to a public address")
+		}).pipe(Effect.provide(makeLayer(testDb, { respond: { status: 530, body: "error code: 1016\n" } })))
 	})
 
 	it.effect(

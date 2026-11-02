@@ -3,19 +3,21 @@ import { maximumInvoiceCents, uncappedFeatures } from "../../../lib/billing/cont
 import { getLegacyPlanInfo, getTrialStatus } from "../../../lib/billing/plan-gating"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { LoadFailure } from "../../../data/load-failure"
-import { button } from "../../../ui/button"
-import { errorState } from "../../../ui/error-state"
-import { panel } from "../../../ui/panel"
-import { spinner } from "../../../ui/spinner"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { button } from "@maple/views/ui/button"
+import { errorState } from "@maple/views/ui/error-state"
+import { panel } from "@maple/views/ui/panel"
+import { spinner } from "@maple/views/ui/spinner"
 import { adminOnlyNotice } from "../kit/members"
 import { settingsSection, settingsSections } from "../kit/section"
 import { Message, type Model } from "./model"
-import { spendModelOf, USAGE_HEADING_ID } from "./update"
+import { accountOf, spendModelOf, USAGE_HEADING_ID } from "./update"
+import { accountDialogs, billedOrgsSection, linkSection, memberSection } from "./view-account"
 import { cyclePanel, cyclePanelSkeleton } from "./view-cycle"
 import { planSection } from "./view-plan"
 import { detailsSection, invoicesSection, unpaidInvoicesNotice } from "./view-records"
 import { usageTable, usageTableSkeleton } from "./view-usage"
+import { typographyClass } from "@maple/views/ui/typography"
 
 export type ViewInputs = Readonly<{
 	/** The settings page's `billingCustomerAtom`. */
@@ -34,6 +36,21 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
 		subject: "billing",
 		adminName: inputs.adminName,
 	})
+	const account = accountOf(model)
+	if (AsyncData.isFailure(model.account))
+		return settingsSections(h, [
+			errorState(h, {
+				variant: "row",
+				failure: model.account.error,
+				title: "Couldn't load your billing account",
+				onRetry: Message.ClickedRetryAccount(),
+			}),
+		])
+	// Until the account says who pays, nothing renders a control a member org would be refused.
+	if (account === null) return settingsSections(h, [cyclePanelSkeleton(h)])
+	// A member org's plan, caps and invoices are its billing org's: only who pays shows here.
+	if (account !== null && account.role === "member")
+		return settingsSections(h, [memberSection(h, model, account), ...accountDialogs(h, model, account)])
 	// Every spend view derives from the customer; details and invoices load on their own.
 	const accountFailure = accountFailureOf(model, inputs.customer)
 	if (accountFailure !== null)
@@ -47,6 +64,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
 			}),
 			detailsSection(h, model),
 			invoicesSection(h, model, inputs.timeZone),
+			...accountDialogs(h, model, account),
 		])
 	const customer = AsyncData.getOrElse(inputs.customer, () => null)
 	const plans = AsyncData.getOrElse(model.plans, () => undefined)
@@ -119,8 +137,13 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
 			isLegacy,
 			canManage: model.isAdmin,
 		}),
+		...(account !== null && account.role === "billing_org" && account.members.length > 0
+			? [billedOrgsSection(h, model, account, inputs.timeZone)]
+			: []),
 		invoicesSection(h, model, inputs.timeZone),
 		detailsSection(h, model),
+		...(account !== null && account.role === "standalone" ? linkSection(h, model) : []),
+		...accountDialogs(h, model, account),
 	])
 })
 
@@ -172,7 +195,7 @@ const checkoutReturnPanel = (h: H, model: Model): ReadonlyArray<Html> => {
 					h,
 					{
 						tone: "muted",
-						className: "px-4 py-3 text-sm text-muted-foreground",
+						className: typographyClass({ size: "sm", tone: "muted", className: "px-4 py-3" }),
 						attributes: [h.Role("status")],
 					},
 					[

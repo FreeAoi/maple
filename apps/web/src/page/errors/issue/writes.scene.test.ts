@@ -2,7 +2,7 @@ import { OrgId } from "@maple/domain"
 import { ErrorIssueEventsResponse, ErrorIssueId } from "@maple/domain/http"
 import { Result, Schema } from "effect"
 import { describe, expect, test } from "vitest"
-import { toLoadFailure } from "../../../data/load-failure"
+import { toLoadFailure } from "@maple/views/data/load-failure"
 import type { PageContext } from "../../contract"
 import { Message } from "./message"
 import type { Model } from "./model"
@@ -101,7 +101,7 @@ describe("error issue writes", () => {
 				result: Result.fail(toLoadFailure("boom")),
 			}),
 		)
-		expect(done.outMessage).toMatchObject({ type: "error", title: "Failed to release issue" })
+		expect(done.outMessage).toMatchObject({ type: "error", title: "Couldn't release issue" })
 		expect(done.commands ?? []).toEqual([])
 	})
 

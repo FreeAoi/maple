@@ -6,13 +6,13 @@ import { Array, Option, Result } from "effect"
 import { AsyncData } from "foldkit"
 import type { Command } from "foldkit"
 import { Command as FoldkitCommand } from "foldkit"
-import * as Keyed from "../../../data/keyed"
-import type { LoadFailure } from "../../../data/load-failure"
-import { requestKey } from "../../../data/request-key"
+import * as Keyed from "@maple/views/data/keyed"
+import type { LoadFailure } from "@maple/views/data/load-failure"
+import { requestKey } from "@maple/views/data/request-key"
 import type { Resources } from "../../../platform/resources"
 import type { AppRoute } from "../../../route"
-import * as Dialog from "../../../ui/dialog"
-import * as Menu from "../../../ui/menu"
+import * as Dialog from "@maple/views/ui/dialog"
+import * as Menu from "@maple/views/ui/menu"
 import * as DestinationDialog from "../destination/dialog"
 import { type PageContext, PageOutMessage, type PageReturn } from "../../contract"
 import { alertsHref, createHref, ruleHref } from "../shared/links"
@@ -189,7 +189,7 @@ const withoutId = <A extends string>(ids: ReadonlyArray<A>, id: A): ReadonlyArra
 	ids.filter((existing) => existing !== id)
 
 const destinationById = (model: Model, id: AlertDestinationId) =>
-	Option.map(
+	Option.flatMap(
 		Array.findFirst(model.destinations ?? [], (row) => row.id === id),
 		rowToAlertDestinationDocument,
 	)
@@ -367,7 +367,7 @@ const pickedFromMenu = (model: Model, menuId: string, value: string): Return => 
 		})
 	}
 	return Option.match(
-		Option.map(
+		Option.flatMap(
 			Array.findFirst(model.destinations ?? [], (row) => row.id === target),
 			rowToAlertDestinationDocument,
 		),
@@ -455,7 +455,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				onSuccess: () => ({ model }),
 				onFailure: (failure) => ({
 					model,
-					outMessage: errorToast("Failed to update destination", failure),
+					outMessage: errorToast("Couldn't update destination", failure),
 				}),
 			}),
 		ClickedTestDestination: ({ destinationId }) => testDestination(model, destinationId),
@@ -471,7 +471,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				commands: refreshed.commands,
 				outMessage: Result.match(result, {
 					onSuccess: (outcome) => toast(outcome.success ? "success" : "error", outcome.message),
-					onFailure: (failure) => errorToast("Failed to send test notification", failure),
+					onFailure: (failure) => errorToast("Couldn't send test notification", failure),
 				}),
 			}
 		},
@@ -497,7 +497,7 @@ export const update = (model: Model, message: Message, context: PageContext): Re
 				}),
 				onFailure: (failure) => ({
 					model: settled,
-					outMessage: errorToast("Failed to delete destination", failure),
+					outMessage: errorToast("Couldn't delete destination", failure),
 				}),
 			})
 		},

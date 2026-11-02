@@ -55,6 +55,7 @@ const TARGETS: ReadonlyArray<Target> = [
 	hour("service_external_edges_hourly"),
 	hour("service_address_resolutions_hourly"),
 	hour("service_platforms_hourly"),
+	hour("service_runtimes_hourly"),
 	hour("attribute_keys_hourly", TRACE_SCOPES),
 	hour("attribute_values_hourly", TRACE_SCOPES),
 	raw("product_events", "Source = 'trace'"),
@@ -62,6 +63,7 @@ const TARGETS: ReadonlyArray<Target> = [
 	raw("error_events_by_time"),
 	raw("ai_trace_index"),
 	raw("ai_crawler_requests"),
+	raw("scanner_requests"),
 	raw("ci_runs"),
 	raw("ci_jobs"),
 	raw("service_map_spans"),
@@ -176,7 +178,7 @@ const tinybird = async <S extends Schema.Decoder<unknown>>(
 	})
 	const body = await response.text()
 	if (!response.ok) fail(`${init?.method ?? "GET"} ${path} → ${response.status}: ${body.slice(0, 500)}`)
-	return Schema.decodeUnknownSync(schema)(JSON.parse(body))
+	return Schema.decodeUnknownSync(Schema.fromJsonString(schema))(body)
 }
 
 const countRows = async (target: Target, condition: string): Promise<number> => {

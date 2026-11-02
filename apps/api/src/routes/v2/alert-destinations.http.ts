@@ -6,11 +6,11 @@ import {
 	CurrentTenant,
 	DiscordAlertDestinationConfig,
 	EmailAlertDestinationConfig,
-	HazelOAuthAlertDestinationConfig,
 	LinearAlertDestinationConfig,
 	AlertDestinationNotFoundError,
 	PagerDutyAlertDestinationConfig,
 	TelegramAlertDestinationConfig,
+	GoogleChatAlertDestinationConfig,
 	WebhookAlertDestinationConfig,
 } from "@maple/domain/http"
 import type {
@@ -67,21 +67,6 @@ const toCreateRequest = (params: V2AlertDestinationCreateParams) => {
 					: undefined),
 				...(params.enabled !== undefined ? { enabled: params.enabled } : undefined),
 			})
-		case "hazel-oauth":
-			return new HazelOAuthAlertDestinationConfig({
-				type: "hazel-oauth",
-				name: params.name,
-				hazelOrganizationId: params.hazel_organization_id,
-				hazelOrganizationName: params.hazel_organization_name,
-				...(params.hazel_organization_logo_url !== undefined
-					? {
-							hazelOrganizationLogoUrl: params.hazel_organization_logo_url,
-						}
-					: undefined),
-				hazelChannelId: params.hazel_channel_id,
-				hazelChannelName: params.hazel_channel_name,
-				...(params.enabled !== undefined ? { enabled: params.enabled } : undefined),
-			})
 		case "discord":
 			return new DiscordAlertDestinationConfig({
 				type: "discord",
@@ -95,6 +80,13 @@ const toCreateRequest = (params: V2AlertDestinationCreateParams) => {
 				name: params.name,
 				botToken: params.bot_token,
 				chatId: params.chat_id,
+				...(params.enabled !== undefined ? { enabled: params.enabled } : undefined),
+			})
+		case "google-chat":
+			return new GoogleChatAlertDestinationConfig({
+				type: "google-chat",
+				name: params.name,
+				webhookUrl: params.webhook_url,
 				...(params.enabled !== undefined ? { enabled: params.enabled } : undefined),
 			})
 		case "email":
@@ -145,34 +137,6 @@ const toUpdateRequest = (params: V2AlertDestinationUpdateParams): AlertDestinati
 					? { signingSecret: params.signing_secret }
 					: undefined),
 			}
-		case "hazel-oauth":
-			return {
-				type: "hazel-oauth",
-				...shared,
-				...(params.hazel_organization_id !== undefined
-					? {
-							hazelOrganizationId: params.hazel_organization_id,
-						}
-					: undefined),
-				...(params.hazel_organization_name !== undefined
-					? {
-							hazelOrganizationName: params.hazel_organization_name,
-						}
-					: undefined),
-				...(params.hazel_organization_logo_url !== undefined
-					? {
-							hazelOrganizationLogoUrl: params.hazel_organization_logo_url,
-						}
-					: undefined),
-				...(params.hazel_channel_id !== undefined
-					? { hazelChannelId: params.hazel_channel_id }
-					: undefined),
-				...(params.hazel_channel_name !== undefined
-					? {
-							hazelChannelName: params.hazel_channel_name,
-						}
-					: undefined),
-			}
 		case "discord":
 			return {
 				type: "discord",
@@ -185,6 +149,12 @@ const toUpdateRequest = (params: V2AlertDestinationUpdateParams): AlertDestinati
 				...shared,
 				...(params.bot_token !== undefined ? { botToken: params.bot_token } : undefined),
 				...(params.chat_id !== undefined ? { chatId: params.chat_id } : undefined),
+			}
+		case "google-chat":
+			return {
+				type: "google-chat",
+				...shared,
+				...(params.webhook_url !== undefined ? { webhookUrl: params.webhook_url } : undefined),
 			}
 		case "email":
 			return {
@@ -228,18 +198,7 @@ export const destinationAuditDiff = auditDiff({
 	writeOnly: ["integration_key", "signing_secret", "url", "webhook_url", "bot_token"],
 	// Provider-side handles. Not secret, but not readable back off the document
 	// either — recorded as touched so the change is not invisible.
-	opaque: [
-		"channel_id",
-		"channel_name",
-		"chat_id",
-		"workspace_id",
-		"hazel_organization_id",
-		"hazel_organization_name",
-		"hazel_organization_logo_url",
-		"hazel_channel_id",
-		"hazel_channel_name",
-		"team_id",
-	],
+	opaque: ["channel_id", "channel_name", "chat_id", "workspace_id", "team_id"],
 })
 
 export const HttpV2AlertDestinationsLive = HttpApiBuilder.group(MapleApiV2, "alertDestinations", (handlers) =>

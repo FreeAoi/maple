@@ -1,4 +1,5 @@
 import { BillingCustomer } from "@maple/domain/http"
+import { BillingAccount, BillingAccountOrg } from "@maple/domain/http"
 import { OrgId } from "@maple/domain"
 import { V2McpConnection } from "@maple/domain/http/v2"
 import { NetworkErrorBody } from "@maple/web-data/lib/error-messages"
@@ -15,7 +16,7 @@ import {
 	withViewInputs,
 } from "foldkit/scene"
 import { describe, expect, test } from "vitest"
-import * as Tabs from "../../ui/tabs"
+import * as Tabs from "@maple/views/ui/tabs"
 import { PageOutMessage, type PageContext } from "../contract"
 import { Message } from "./message"
 import * as Billing from "./billing/update"
@@ -70,7 +71,7 @@ const connection = Schema.decodeUnknownSync(V2McpConnection)({
 	expires_at: "2026-12-29T12:00:00.000Z",
 })
 
-const mcpLoaded = (): Model =>
+const mcpLoaded = (catalog: typeof tools = tools): Model =>
 	[
 		Message.CompletedFetchSession({
 			result: Result.succeed({ isAdmin: true, userId: null, hasAiAutoTriage: true }),
@@ -79,7 +80,7 @@ const mcpLoaded = (): Model =>
 			result: Result.succeed(new BillingCustomer({ id: "org_acme", subscriptions: [] })),
 		}),
 		mcp(McpMessage.Message.CompletedFetchConnections({ result: Result.succeed([connection]) })),
-		mcp(McpMessage.Message.CompletedFetchTools({ result: Result.succeed(tools) })),
+		mcp(McpMessage.Message.CompletedFetchTools({ result: Result.succeed(catalog) })),
 	].reduce((model, message) => pageUpdate(model, message).model, entered({ tab: "mcp" }).model)
 
 /** Scene lifts a Mount's result through every `toParentMessage`, so it takes the Tabs message. */
@@ -187,11 +188,21 @@ describe("settings page", () => {
 			{ update: pageUpdate, view },
 			given(searched),
 			indicatorMeasured(),
-			expectView(text("No tools match “zzz”.")).toExist(),
+			expectView(text("No tools match these filters")).toExist(),
 			click(role("button", { name: "Audit log" })),
 			expectOutMessage(
 				PageOutMessage.RequestedNavigation({ url: "/settings?tab=audit-log", isReplace: false }),
 			),
+		)
+	})
+
+	test("an empty tool catalog says no tools are registered, not that a search missed", () => {
+		scene(
+			{ update: pageUpdate, view },
+			given(mcpLoaded([])),
+			indicatorMeasured(),
+			expectView(text("No tools are registered yet")).toExist(),
+			expectView(text("No tools match these filters")).toBeAbsent(),
 		)
 	})
 
@@ -242,7 +253,7 @@ describe("settings page", () => {
 		})
 		const returning: Model = {
 			...mcpLoaded(),
-			tab: { _tag: "Billing", model: Billing.init(true, true).model },
+			tab: { _tag: "Billing", model: Billing.init(true, true, true).model },
 		}
 		const polled = pageUpdate(
 			returning,
@@ -281,7 +292,7 @@ describe("settings page", () => {
 		})
 		const away: Model = {
 			...mcpLoaded(),
-			kept: [{ _tag: "Billing", model: Billing.init(true, true).model }],
+			kept: [{ _tag: "Billing", model: Billing.init(true, true, true).model }],
 		}
 		const settled = pageUpdate(
 			away,
@@ -342,10 +353,30 @@ describe("settings page", () => {
 	test("usage that fails while the customer answers shows the account error with Try again, not skeletons", () => {
 		const billing: Model = {
 			...mcpLoaded(),
-			tab: { _tag: "Billing", model: Billing.init(true, false).model },
+			tab: { _tag: "Billing", model: Billing.init(true, false, true).model },
 		}
-		const failed = pageUpdate(
+		// The account settles first: an org that pays for itself.
+		const standalone = pageUpdate(
 			billing,
+			Message.GotBillingMessage({
+				message: BillingMessage.CompletedFetchAccount({
+					result: Result.succeed(
+						new BillingAccount({
+							orgId: context.orgId,
+							role: "standalone",
+							billingOrg: new BillingAccountOrg({
+								orgId: context.orgId,
+								name: "Acme",
+								imageUrl: null,
+							}),
+							members: [],
+						}),
+					),
+				}),
+			}),
+		).model
+		const failed = pageUpdate(
+			standalone,
 			Message.GotBillingMessage({
 				message: BillingMessage.CompletedFetchUsage({
 					// Not retryable, so the row draws Try again without the network auto-retry probe.
@@ -395,7 +426,7 @@ describe("settings page", () => {
 		const customer = new BillingCustomer({ id: "org_acme", subscriptions: [] })
 		const editing: Model = {
 			...mcpLoaded(),
-			tab: { _tag: "Billing", model: { ...Billing.init(true, false).model, isSavingCap: true } },
+			tab: { _tag: "Billing", model: { ...Billing.init(true, false, true).model, isSavingCap: true } },
 		}
 		const saved = pageUpdate(
 			editing,
@@ -418,7 +449,7 @@ describe("settings page", () => {
 	test("a customer re-read without a toast still re-reads the app's customer", () => {
 		const billing: Model = {
 			...mcpLoaded(),
-			tab: { _tag: "Billing", model: Billing.init(true, false).model },
+			tab: { _tag: "Billing", model: Billing.init(true, false, true).model },
 		}
 		const retried = pageUpdate(
 			billing,

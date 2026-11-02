@@ -3,14 +3,14 @@ import { cn } from "@maple/ui/lib/utils"
 import { underlineTabClass, underlineTabStrip } from "../../kit/underline-tabs"
 import { AsyncData, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { ResolveThemeColors } from "../../../charts/theme-colors"
+import { ResolveThemeColors } from "@maple/views/charts/theme-colors"
 import { AppRoute, hrefOf } from "../../../route"
-import { buttonVariants } from "@maple/ui/styles/ui/button"
-import { icon } from "../../../ui/icon"
-import { pageTitle } from "../../../ui/page-layout"
-import * as Select from "../../../ui/select"
-import * as SelectView from "../../../ui/select-view"
-import { serviceDot } from "../../../ui/values"
+import { linkButton } from "@maple/views/ui/button"
+import { icon } from "@maple/views/ui/icon"
+import { pageTitle } from "@maple/views/ui/page-layout"
+import * as Select from "@maple/views/ui/select"
+import * as SelectView from "@maple/views/ui/select-view"
+import { serviceDot } from "@maple/views/ui/values"
 import type { PageViewInputs } from "../../contract"
 import { dashboardPage } from "../../kit/dashboard-page"
 import { presetLabel, timeControls } from "../../kit/time-controls"
@@ -32,7 +32,9 @@ import { apiTab } from "./view-api-tab"
 import { API_THEME_TOKENS } from "./view-api-charts"
 import { dependenciesTab } from "./view-dependencies"
 import { operationsTab } from "./view-operations"
+import { runsOnLinks } from "./view-footprint"
 import { overviewTab, THEME_TOKENS } from "./view-overview"
+import { hstack } from "@maple/views/ui/stack"
 
 // TODO(unnamed-service): `UnnamedServiceHint` beside an unnamed service's title is not ported.
 
@@ -58,15 +60,41 @@ const environmentItems = (model: Model): ReadonlyArray<SelectView.SelectEntry> =
 }
 
 const createAlert = (h: H, model: Model): Html =>
-	h.a(
-		[
-			h.AriaLabel("Create alert"),
-			h.Class(buttonVariants({ variant: "outline", size: "sm" })),
-			h.DataAttribute("slot", "button"),
-			h.Href(hrefOf(AppRoute.AlertsCreate({ search: { serviceName: model.serviceName } }))),
-		],
+	linkButton(
+		h,
+		{
+			variant: "outline",
+			size: "sm",
+			href: hrefOf(AppRoute.AlertsCreate({ search: { serviceName: model.serviceName } })),
+			attributes: [h.AriaLabel("Create alert")],
+		},
 		[icon(h, "BellIcon"), h.span([h.Class("hidden sm:inline")], ["Create alert"])],
 	)
+
+/** The first place the service runs, beside Create alert; the Overview's "Runs on" card lists them all. */
+const runsOn = (h: H, model: Model): Html => {
+	const links = runsOnLinks(model)
+	const first = links[0]
+	if (first === undefined) return null
+	const more = links.length - 1
+	return linkButton(
+		h,
+		{
+			variant: "outline",
+			size: "sm",
+			href: first.href,
+			attributes: [
+				h.AriaLabel(`Runs on ${first.label} ${first.name}`),
+				h.Title(links.map((link) => `${link.label}: ${link.name}`).join("\n")),
+			],
+		},
+		[
+			icon(h, first.icon),
+			h.span([h.Class("hidden sm:inline")], [first.label]),
+			...(more > 0 ? [h.span([h.Class("text-muted-foreground")], [`+${more}`])] : []),
+		],
+	)
+}
 
 /** The Overview tab's failure card offers Try again, so Reload steps aside; other tabs have no retry. */
 const isTabFailed = (model: Model): boolean =>
@@ -107,10 +135,12 @@ const headerActions = (h: H, model: Model): Html => {
 			ariaLabel: "Environment",
 			className: "w-full sm:w-auto",
 			toView: (parts) =>
-				h.div(
-					[h.Class("flex flex-wrap items-center gap-2")],
-					[...parts, createAlert(h, model), controls],
-				),
+				hstack(h, { gap: "2", wrap: true }, [
+					...parts,
+					runsOn(h, model),
+					createAlert(h, model),
+					controls,
+				]),
 		},
 	})
 }
